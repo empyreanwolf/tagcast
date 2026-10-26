@@ -4,7 +4,7 @@
 // Suggestions and previews are read-only; only "Start" after approval writes to iBroadcast.
 // Closing the dialog never stops a running job.
 const artistCleanupView = {
-  tab: "merge", data: null, offset: 0, excluded: new Set(), busy: false, timer: null, request: 0,
+  tab: "merge", data: null, offset: 0, excluded: new Set(), busy: false, timer: null, request: 0, approved: "",
   merge: {groups: null, page: 0, filter: "all", query: "", choices: new Map(), loading: false},
   split: {items: null, page: 0, filter: "ticked", query: "", chosen: new Set(), loading: false},
   feat: {data: null, loading: false},
@@ -215,7 +215,7 @@ function renderReviewTab() {
     <div class="cleanup-albums">${data.groups.map(g => `<section class="cleanup-album"><h3>${preview ? `<label><input type="checkbox" data-ac-review="${escapeHtml(g.id)}" ${view.excluded.has(g.id) ? "" : "checked"}> ` : ""}${escapeHtml(g.title)}${preview ? "</label>" : ""}</h3><p class="muted">${g.records.toLocaleString("en")} records · ${g.tracks.toLocaleString("en")} tracks${preview ? "" : ` · ${Object.entries(g.statuses).map(([k, n]) => `${n} ${k}`).join(" · ")}`}</p>${g.examples.map(artistCleanupExample).join("")}</section>`).join("") || '<p class="muted">Nothing would change.</p>'}</div>
     ${artistCleanupPager("review", data.groups_total)}
     <p class="muted">The draft and report are saved on this computer. Stop prevents further writes; saved changes remain. Resume checks outstanding writes first. A new preview replaces this report, so export it first if you want to keep it.</p>
-    ${preview && data.records ? '<label class="checkline"><input id="ac-approved" type="checkbox"> I reviewed this draft and approve changing the selected groups in iBroadcast.</label>' : ""}
+    ${preview && data.records ? `<label class="checkline"><input id="ac-approved" type="checkbox" ${view.approved === data.id ? "checked" : ""}> I reviewed this draft and approve changing the selected groups in iBroadcast.</label>` : ""}
     <div class="dialog-footer"><button class="button" id="ac-export">Export full report ↓</button>${running ? '<button class="button danger" id="ac-stop">Stop after current request</button>'
       : data.records && data.state !== "done" ? `<button class="button primary" id="ac-start" disabled>${preview ? "Start selected groups" : "Resume after checking"}</button>` : ""}<button class="button" id="ac-refresh">${running ? "Refresh progress" : "Refresh library"}</button></div>`;
 }
@@ -248,7 +248,7 @@ function updateArtistCleanupStart() {
   const start = $("#ac-start"), data = artistCleanupView.data;
   if (!start || !data) return;
   const selected = (data.selection || []).filter(g => !artistCleanupView.excluded.has(g.id));
-  start.disabled = artistCleanupView.busy || (data.state === "preview" && (!selected.length || !$("#ac-approved")?.checked));
+  start.disabled = artistCleanupView.busy || (data.state === "preview" && (!selected.length || artistCleanupView.approved !== data.id));
 }
 
 // -- actions ------------------------------------------------------------------
@@ -370,7 +370,7 @@ $("#artist-cleanup").addEventListener("change", event => {
   if (target.dataset.acSplit) { const id = Number(target.dataset.acSplit); if (target.checked) view.split.chosen.add(id); else view.split.chosen.delete(id); return renderArtistCleanup(); }
   if (target.name === "ac-keep") { view.search.keep = target.value; return renderArtistCleanup(); }
   if (target.dataset.acReview) { if (target.checked) view.excluded.delete(target.dataset.acReview); else view.excluded.add(target.dataset.acReview); return renderArtistCleanup(); }
-  if (target.id === "ac-approved") updateArtistCleanupStart();
+  if (target.id === "ac-approved") { view.approved = target.checked ? view.data.id : ""; updateArtistCleanupStart(); }
 });
 
 $("#artist-cleanup").addEventListener("input", event => {
