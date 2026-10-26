@@ -126,6 +126,7 @@ def search_results(page):
 class Bandcamp(FileWorker):
     source = "bandcamp"
     track_delay = 3.0
+    pace = 1.0  # seconds between Bandcamp page reads
 
     def __init__(self, studio, get=None, fetch=None):
         self._session = requests.Session()
@@ -142,7 +143,7 @@ class Bandcamp(FileWorker):
             hit = self._pages.get(url)
             if hit and not fresh and hit[0] > time.monotonic():
                 return hit[1]
-            wait = self._last + 1.0 - time.monotonic()
+            wait = self._last + self.pace - time.monotonic()
             if wait > 0:
                 time.sleep(wait)
             self._last = time.monotonic()

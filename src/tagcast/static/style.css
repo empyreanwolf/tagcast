@@ -1125,3 +1125,13 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 /* Soulseek (fork v14) */
 #soulseek-settings .dl-settings label{max-width:640px}
 #soulseek-settings .dl-path{max-width:420px}
+
+/* Discography (fork v15) */
+.artist-discography{vertical-align:middle;margin-left:8px;font-size:13px}
+.discography-head{display:flex;gap:16px;align-items:center;margin:10px 0}
+.discography-head h2{margin:0}
+.discography-photo{width:88px;height:88px;border-radius:50%;object-fit:cover;flex:none}
+.discography-list{list-style:none;margin:8px 0 20px;padding:0;border-top:1px solid var(--line)}
+.discography-list li{display:grid;grid-template-columns:auto auto 1fr minmax(160px,auto);gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.discography-sources{font-size:12px}
+@media (max-width:760px){.discography-list li{grid-template-columns:auto auto 1fr}.discography-list li>div:last-child{grid-column:3}}

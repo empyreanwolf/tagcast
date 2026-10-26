@@ -228,6 +228,8 @@ class Handler(SimpleHTTPRequestHandler):
                 query.get("q", ""), query.get("source", ""), query.get("offset", "0"), query.get("limit", "50")))
         elif url.path == "/api/galaxy/cover":
             self._cover(query)
+        elif url.path == "/api/discography/get-status":
+            self._run(lambda: self.studio.discography.status(query.get("id")))
         elif url.path == "/api/soulseek/status":
             self._run(self.studio.soulseek.status)
         elif url.path == "/api/galaxy/status":
@@ -288,6 +290,10 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/bandcamp/discography": lambda b: self.studio.bandcamp.discography(b.get("url")),
             "/api/bandcamp/album": lambda b: self.studio.bandcamp.album(b.get("url")),
             "/api/bandcamp/add": lambda b: self.studio.bandcamp.add(b.get("url"), b.get("nums")),
+            "/api/discography": lambda b: self.studio.discography.view(
+                b.get("name"), b.get("deezer_id"), b.get("musicbrainz") is True, b.get("refresh") is True),
+            "/api/discography/top": lambda b: self.studio.discography.top(b.get("name"), b.get("deezer_id")),
+            "/api/discography/get": lambda b: self.studio.discography.get(b.get("name"), b.get("albums"), b.get("songs")),
             "/api/soulseek/settings": lambda b: self.studio.soulseek.save_settings(b),
             "/api/soulseek/start": lambda b: self.studio.soulseek.start(),
             "/api/soulseek/stop": lambda b: self.studio.soulseek.stop(),

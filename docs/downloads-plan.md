@@ -61,7 +61,7 @@ Design mockups (6 screens): https://claude.ai/artifact/48RUd5CmZUQqde3ihyFqNW
 | v12 ✔ | Galaxy part 2: MusicBrainz lookup (year, genre, track numbers, IDs, album years) and Galaxy settings (pauses, API quota). Lyrics shelved; no history extras |
 | v13 ✔ | Bandcamp |
 | v14 ✔ | Soulseek via Sockseek |
-| v15 | Discography + Top 30 + "get missing" source order |
+| v15 ✔ | Discography + Top 30 + "get missing" source order |
 | v16 | Telegram check (listener inside Tagcast) |
 
 Testing: unit tests with `tests/mock_ibroadcast.py` / LocalStudio and one quick real

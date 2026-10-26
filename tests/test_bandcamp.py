@@ -61,6 +61,7 @@ class LocalStudio(DownloadsStudio):
         self.get = FakeGet()
         self.bandcamp = Bandcamp(self, get=self.get, fetch=fetch)
         self.bandcamp.track_delay = 0
+        self.bandcamp.pace = 0
 
 
 class ParseTests(unittest.TestCase):

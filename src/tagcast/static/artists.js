@@ -45,7 +45,7 @@ function renderArtistProfile() {
   renderArtistRating(selection);
   const update = artistProfile.favourite?.name === state.artist ? artistProfile.favourite : null;
   const favourite = update?.pending ? update.value : selection.artists.every(id => state.artistFavourites.has(id));
-  const title = $("#page-title"), titleHtml = `${escapeHtml(state.artist)} <button type="button" class="artist-favourite ${favourite ? "is-selected" : ""}" data-artist-favourite="${escapeHtml(state.artist)}" aria-label="${favourite ? "Remove artist favourite" : "Favourite artist"}" aria-pressed="${favourite}" aria-busy="${Boolean(update?.pending)}" title="Artist favourite · saved locally for your account" ${update?.pending || state.artistFavouriteError ? "disabled" : ""}>${heartIcon}</button>`;
+  const title = $("#page-title"), titleHtml = `${escapeHtml(state.artist)} <button type="button" class="artist-favourite ${favourite ? "is-selected" : ""}" data-artist-favourite="${escapeHtml(state.artist)}" aria-label="${favourite ? "Remove artist favourite" : "Favourite artist"}" aria-pressed="${favourite}" aria-busy="${Boolean(update?.pending)}" title="Artist favourite · saved locally for your account" ${update?.pending || state.artistFavouriteError ? "disabled" : ""}>${heartIcon}</button> <button type="button" class="button small artist-discography" data-artist-discography="${escapeHtml(state.artist)}" title="Every release and the top 30 songs, with what you already have">Discography &amp; top songs</button>`;
   // Background biography results must not replace an unchanged, focused heart.
   if (title.artistProfileHtml !== titleHtml || !title.querySelector("[data-artist-favourite]")) {
     title.innerHTML = titleHtml; title.artistProfileHtml = titleHtml;

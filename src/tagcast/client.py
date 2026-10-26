@@ -31,6 +31,7 @@ from .artist_cleanup import ArtistCleanup
 from .bandcamp import Bandcamp
 from .cleanup import Cleanup
 from .collections import Collections
+from .discography import Discography
 from .downloads import Downloads
 from .duplicate_cleanup import DuplicateCleanup
 from .galaxy import Galaxy
@@ -385,6 +386,7 @@ class Studio:
         self.galaxy = Galaxy(self)
         self.bandcamp = Bandcamp(self)
         self.soulseek = Soulseek(self)
+        self.discography = Discography(self)
         self.artist_cards = ArtistCards(self)
         self.duplicate_cleanup = DuplicateCleanup(self)
         tokens = self._read("tokens.json")

@@ -40,6 +40,8 @@ The application consists of a Python server and a plain JavaScript frontend.
   `source_worker.py` is the shared file-download thread. Pause and the queue buttons live in `downloads.py`.
 - `src/tagcast/soulseek.py` (fork): starts `sockseek daemon` and drives its HTTP API (port 5030);
   the Soulseek password stays in `soulseek.json` / `sockseek.conf`, never in API responses. `static/soulseek.js`.
+- `src/tagcast/discography.py` (fork): Deezer + Apple discography and Deezer top 30 (7-day cache), and the
+  background "get the missing" job (Bandcamp → Soulseek → Galaxy). `static/discography.js`.
 - `src/tagcast/updates.py`: public stable-release checks, version comparison and a
   daily persistent cache, independent of iBroadcast credentials.
 - `src/tagcast/album_guide.py`: opt-in, explicitly started comparison with the bundled

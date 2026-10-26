@@ -41,6 +41,11 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v15** Discography tab (also "Discography & top songs" on every album artist page): every album,
+  EP, single and compilation from Deezer and Apple Music (MusicBrainz on request, cached 7 days),
+  each Have / Partly / Downloaded before / Missing; the top 30 songs with 30-second previews.
+  "Get the missing" tries Bandcamp, then Soulseek, then Galaxy (a failed Soulseek job falls back
+  to Galaxy); anything you may have still waits in Needs your decision.
 - **v14** Soulseek tab: "Artist - Album" or "Artist - Title" per line; Tagcast starts Sockseek
   (github.com/fiso64/sockseek) in the background and follows its jobs in the shared queue. Set the
   Sockseek program, your Soulseek login and how much you share under Downloads → Settings.
