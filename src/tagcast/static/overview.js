@@ -45,6 +45,8 @@ function showScreen(name) {
   $("#overview-page").hidden = name !== "overview";
   $("#downloads-page").hidden = name !== "downloads";
   $("#show-downloads").classList.toggle("active", name === "downloads");
+  $("#charts-page").hidden = name !== "charts";
+  $("#show-charts").classList.toggle("active", name === "charts");
   $("#album-guide-page").hidden = name !== "album-guide";
   $("#show-album-guide").classList.toggle("active", name === "album-guide");
   $("#albums-page").hidden = name !== "albums";

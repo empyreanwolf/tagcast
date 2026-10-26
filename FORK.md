@@ -41,6 +41,13 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v20** Charts, a new page on the left: Chinese Rap (NetEase's own "中文说唱榜") and five
+  mainstream hip-hop/rap charts (HotNewHipHop Top 100, Deezer, Apple Music, Shazam US,
+  Billboard Hot Rap Songs), each song checked against your library and download history
+  first. NetEase songs carry a real track id and queue straight through Galaxy; the rest
+  try Bandcamp → Soulseek → Galaxy one at a time and land on the wishlist if nothing has
+  them. There's no "underground hip-hop" chart because nothing online actually publishes
+  one as a fetchable list -- the page says so instead of faking it.
 - **v19** Downloads → Clean up: the Mp3tag fixes before an upload. A combined artist field is
   split on your own separators (feat., &, comma, / and more, editable) into separate artists
   joined by "; ", with the first one set as album artist. For hip-hop and rap, the genre can be

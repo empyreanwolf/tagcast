@@ -29,6 +29,7 @@ from .artist_bios import ArtistBiographies
 from .artist_cards import ArtistCards
 from .artist_cleanup import ArtistCleanup
 from .bandcamp import Bandcamp
+from .charts import Charts
 from .cleanup import Cleanup
 from .collections import Collections
 from .completion import Completion
@@ -395,6 +396,7 @@ class Studio:
         self.wishlist = Wishlist(self)
         self.completion = Completion(self)
         self.tagclean = TagClean(self)
+        self.charts = Charts(self)
         self.artist_cards = ArtistCards(self)
         self.duplicate_cleanup = DuplicateCleanup(self)
         tokens = self._read("tokens.json")

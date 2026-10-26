@@ -55,6 +55,21 @@ The application consists of a Python server and a plain JavaScript frontend.
   rewrites file tags directly via `galaxy.write_tags`/its own `read_tags`; library scope patches only the
   track `genre` field through `studio.save()`. State: `tagclean.json`. `static/tagclean.js` (its own
   Downloads tab, "Clean up").
+- `src/tagcast/charts.py` (fork, v20): outside hip-hop/rap charts on their own top-level sidebar
+  page ("Charts", not inside Downloads). NetEase's Chinese Rap chart (playlist id 991319590)
+  carries a real track id, so "Get it" queues it straight through `galaxy.add()`, explicitly
+  tagged `source="netease"` rather than trusting Galaxy's own ambient UI source. HotNewHipHop
+  (regex over its HTML, no API), Deezer (genre id looked up by name via `api.deezer.com/genre`,
+  never hardcoded) and Apple Music (iTunes RSS) have title+artist only, so "Get it" runs them
+  one at a time through the same Bandcamp → Soulseek → Galaxy chain as Discography/Wishlist
+  (`discography._song()`/`discography._wish()`) in a background thread, polled via
+  `/api/charts/jobs`. Shazam and Billboard render with JavaScript and have no public API, so
+  they're read from whatever `__NEXT_DATA__` JSON blob the page ships, walked generically by
+  shape (title/artist-like keys) rather than a markup-dependent selector -- more fragile than
+  the others, and expected to need a follow-up fix if the real pages differ from what was
+  inferred. There is deliberately no "underground hip-hop" chart: nothing online publishes one
+  as an actual fetchable list. State: in-memory cache only (`CACHE_SECONDS`), nothing persisted.
+  `static/charts.js` (its own sidebar page, not a Downloads tab).
 - `src/tagcast/updates.py`: public stable-release checks, version comparison and a
   daily persistent cache, independent of iBroadcast credentials.
 - `src/tagcast/album_guide.py`: opt-in, explicitly started comparison with the bundled
