@@ -419,7 +419,8 @@ class ArtistCleanup:
                 self.task = {"id": secrets.token_urlsafe(16), "owner": self.studio.library_user,
                              "mode": mode, "state": "preview", "items": items, "artists": {},
                              "error": "", "excluded": [], "combine_sets": bool(library.combine_sets),
-                             "groups": {k: v["title"] for k, v in labels.items()}}
+                             "groups": {k: v["title"] for k, v in labels.items()},
+                             "mapping": {str(k): v for k, v in mapping.items()}}
                 self._persist()
             return self.view()
         finally:
@@ -462,7 +463,8 @@ class ArtistCleanup:
                                            *(library.artist_name(e["artist_id"]) for e in before["artists_additional"])],
                         "display_after": [self.label(library, after["primary"]),
                                           *(self.label(library, c) for c in after["credits"])],
-                        "status": "pending"}
+                        "status": "pending",
+                        **({"extras": list(extras[record_id])} if record_kind == "track" and record_id in extras else {})}
                 if record_kind == "album":
                     item["tracks"] = len(tracks)
                     item["context"] = album_context(library, album_id)
@@ -600,6 +602,18 @@ class ArtistCleanup:
                                         "phrase": c.get("phrase"), "type": c.get("type")}
                                        for c in after["credits"]]}
 
+    def _mapping(self):
+        """The plan's artist ID → [refs]; rebuilt from the records for older drafts."""
+        if "mapping" in self.task:
+            return {int(k): v for k, v in self.task["mapping"].items()}
+        mapping = {}
+        if self.task["mode"] == "merge":
+            for item in self.task["items"]:
+                old, new = item["before"]["artist_id"], item["after"]["primary"]
+                if new != {"id": old}:
+                    mapping.setdefault(old, [dict(new)])
+        return mapping
+
     def _desired(self, library, item):
         """The wire value the preview asked for, if every name already has an ID."""
         def known(ref):
@@ -638,13 +652,32 @@ class ArtistCleanup:
         if desired and same_artists(desired, now):
             return "confirmed"  # already as previewed
         if not same_artists(item["before"], now):
-            return "conflict"  # someone else changed these artists
+            # The artists changed during the run, most often because iBroadcast joined two
+            # copies of an album and kept one copy's artist. Apply the same plan to what
+            # the record holds now; other values it gained are preserved.
+            after = transform(now, self._mapping(), [dict(r) for r in item.get("extras", ())])
+            if unchanged(now, after):
+                return "skipped"  # nothing of the plan is left to do here
+            item.update(before=now, after=after, replanned=True)
+            item["display_before"] = [library.artist_name(now["artist_id"]),
+                                      *(library.artist_name(e["artist_id"]) for e in now["artists_additional"])]
+            item["display_after"] = [self.label(library, after["primary"]),
+                                     *(self.label(library, c) for c in after["credits"])]
+            item.pop("wire", None)
+            self._follow(item, context if item["kind"] == "album" else None,
+                         None if item["kind"] == "album" else (album_id, number(record.get("album_id"))))
+            return "replanned"
         # Unchanged artists: follow any album moves so later checks compare the new place.
+        self._follow(item, context if item["kind"] == "album" else None,
+                     None if item["kind"] == "album" else (album_id, number(record.get("album_id"))))
+        return "pending"
+
+    @staticmethod
+    def _follow(item, context, track_place):
         if item["kind"] == "album":
             item["context"] = context
         else:
-            item["album_id"], item["original_album_id"] = album_id, number(record.get("album_id"))
-        return "pending"
+            item["album_id"], item["original_album_id"] = track_place
 
     def _run(self, client):
         try:
@@ -664,6 +697,7 @@ class ArtistCleanup:
                         if checked in ("confirmed", "skipped"):
                             item["status"] = checked
                             continue
+                        item["replanned"] = item.get("replanned") or checked == "replanned"
                         if checked == "conflict":
                             item["status"] = "conflict"
                             raise LibraryError(f"“{item['title']}” ({item['album']}) changed since the preview. Prepare a new preview.")
@@ -693,8 +727,12 @@ class ArtistCleanup:
                 current, _ = self.studio._current(client)
                 self._owner(client)
                 self._settings(current)
-                if any(self._check(current, item) not in ("pending", "confirmed") for item in batch):
+                with self.lock:
+                    late = [self._check(current, item) for item in batch]
+                if "conflict" in late:
                     raise LibraryError("Metadata changed while preparing the batch. Prepare a new preview.")
+                if any(c in ("replanned", "skipped", "confirmed") for c in late):
+                    continue  # rebuild this batch from the current library; nothing was sent
                 if self.stop.is_set():
                     break
                 with self.lock:

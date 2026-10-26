@@ -259,15 +259,20 @@ class ArtistCleanupTests(unittest.TestCase):
         self.assertEqual(report["state"], "done", report["error"])
         self.assertEqual(report["counts"], {"confirmed": 2})
 
-    def test_conflict_since_preview_stops_without_writing(self):
+    def test_changes_since_preview_are_replanned_and_never_overwritten(self):
         studio = LocalStudio(data())
         preview = studio.artist_cleanup.prepare("merge", groups=[{"members": [1, 2], "target": {"id": 1}}])
-        studio.raw["library"]["tracks"]["101"]["artist_id"] = 8
+        studio.raw["library"]["tracks"]["101"]["artist_id"] = 8  # edited elsewhere: no ILL BILL left
+        studio.raw["library"]["albums"]["20"]["artists_additional"] = [{"artist_id": 5, "type": "artist", "phrase": None}]
         studio.artist_cleanup.start(preview["id"], [])
         report = finished(studio)
-        self.assertEqual(report["state"], "error")
-        self.assertIn("changed since the preview", report["error"])
-        self.assertEqual(studio.writes, [])
+        self.assertEqual(report["state"], "done", report["error"])
+        items = {(i["kind"], i["id"]): i for i in report["items"]}
+        self.assertEqual(items[("track", 101)]["status"], "skipped")
+        self.assertEqual(studio.raw["library"]["tracks"]["101"]["artist_id"], 8)  # their edit is kept
+        album = studio.raw["library"]["albums"]["20"]
+        self.assertEqual((album["artist_id"], credits(album)), (1, [(5, "artist")]))  # replanned, BTS kept
+        self.assertTrue(items[("album", 20)]["replanned"])
 
     def test_excluded_groups_are_not_written_and_report_survives_restart(self):
         studio = LocalStudio(data())
