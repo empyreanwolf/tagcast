@@ -249,6 +249,30 @@ class ArtistCleanupTests(unittest.TestCase):
         self.assertEqual(library.albums[20].get("artist_id"), 1)
         self.assertEqual(library.tracks[101].get("artist_id"), 1)
 
+    def test_credits_stored_in_another_order_are_confirmed(self):
+        studio = LocalStudio(data())
+
+        def reorder():  # iBroadcast keeps its own order of additional artists
+            for row in studio.raw["library"]["tracks"].values():
+                row["artists_additional"] = list(reversed(row.get("artists_additional") or []))
+        studio.on_write = reorder
+        preview = studio.artist_cleanup.prepare("feat")
+        studio.artist_cleanup.start(preview["id"], [])
+        report = finished(studio)
+        self.assertEqual(report["state"], "done", report["error"])
+        self.assertNotIn("unconfirmed", report["counts"])
+
+    def test_unconfirmed_write_names_the_record_and_what_ibroadcast_has(self):
+        studio = LocalStudio(data())
+        studio.ignore = True  # the service accepts but keeps the old values
+        preview = studio.artist_cleanup.prepare("merge", groups=[{"members": [1, 2], "target": {"id": 1}}])
+        studio.artist_cleanup.start(preview["id"], [])
+        report = finished(studio)
+        self.assertEqual(report["state"], "error")
+        self.assertIn("could not be confirmed", report["error"])
+        self.assertIn("iBroadcast has ILL BILL", report["error"])
+        self.assertEqual(len(studio.writes), 2)  # one track and one album request, never repeated
+
     def test_resume_after_an_old_conflict_rechecks_and_continues(self):
         studio = LocalStudio(data())
         preview = studio.artist_cleanup.prepare("merge", groups=[{"members": [1, 2], "target": {"id": 1}}])

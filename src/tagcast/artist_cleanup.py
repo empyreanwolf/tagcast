@@ -26,7 +26,7 @@ import threading
 from collections import Counter
 
 from . import artist_match as match
-from .cleanup import album_context, credit_state, same_artists
+from .cleanup import album_context, credit_state
 from .library import LibraryError, fold, number, stored_genres, text
 
 log = logging.getLogger("tagcast")
@@ -166,6 +166,18 @@ def names_of(library):
     return found
 
 
+def same_credits(left, right):
+    """Same primary artist and the same additional artists, in any order.
+
+    iBroadcast may store additional artists in its own order; roles and phrases count,
+    an absent role means a performer and an empty phrase means none.
+    """
+    def entries(value):
+        return sorted((e["artist_id"], e.get("type") or "artist", e.get("phrase") or "")
+                      for e in value["artists_additional"])
+    return left["artist_id"] == right["artist_id"] and entries(left) == entries(right)
+
+
 def ref_key(ref):
     return ("id", ref["id"]) if "id" in ref else ("name", ref["name"].casefold())
 
@@ -205,7 +217,7 @@ def unchanged(before, after):
     wire = {"artist_id": after["primary"]["id"],
             "artists_additional": [{"artist_id": c["id"], "phrase": c.get("phrase"), "type": c.get("type")}
                                    for c in after["credits"]]}
-    return same_artists(before, wire)
+    return same_credits(before, wire)
 
 
 class ArtistCleanup:
@@ -627,7 +639,7 @@ class ArtistCleanup:
         return {"artist_id": ids[0], "artists_additional": [
             {"artist_id": i, "phrase": c.get("phrase"), "type": c.get("type")} for i, c in zip(ids[1:], after["credits"])]}
 
-    def _check(self, library, item):
+    def _check(self, library, item, verify=False):
         """confirmed, pending, skipped (record gone) or conflict.
 
         Only the artist fields decide. iBroadcast joins albums that end up with the
@@ -646,12 +658,16 @@ class ArtistCleanup:
                 return "skipped"  # the track is gone or trashed
             record = library.tracks[item["id"]]
         now = snapshot(library, record, item["kind"])
-        if item.get("wire") and same_artists(item["wire"], now):
+        if item.get("wire") and same_credits(item["wire"], now):
             return "confirmed"
         desired = self._desired(library, item)
-        if desired and same_artists(desired, now):
+        if desired and same_credits(desired, now):
             return "confirmed"  # already as previewed
-        if not same_artists(item["before"], now):
+        if verify:
+            item["found"] = [library.artist_name(now["artist_id"]),
+                             *(library.artist_name(e["artist_id"]) for e in now["artists_additional"])]
+            return "unconfirmed"  # a read-back never replans
+        if not same_credits(item["before"], now):
             # The artists changed during the run, most often because iBroadcast joined two
             # copies of an album and kept one copy's artist. Apply the same plan to what
             # the record holds now; other values it gained are preserved.
@@ -752,7 +768,7 @@ class ArtistCleanup:
                     self._owner(client)
                     with self.lock:
                         for item in batch:
-                            check = self._check(after, item)
+                            check = self._check(after, item, verify=True)
                             item["status"] = check if check in ("confirmed", "skipped") else "unconfirmed"
                         self._persist()
                 except Exception:
@@ -762,8 +778,13 @@ class ArtistCleanup:
                     raise
                 if error:
                     raise LibraryError(f"iBroadcast did not confirm the request: {error}")
-                if any(i["status"] != "confirmed" for i in batch):
-                    raise LibraryError("Some writes could not be confirmed. Processing stopped; resume checks them first.")
+                missing = [i for i in batch if i["status"] not in ("confirmed", "skipped")]
+                if missing:
+                    first = missing[0]
+                    raise LibraryError(
+                        f"{len(missing)} write(s) could not be confirmed, first “{first['title']}” ({first['album']}): "
+                        f"expected {' · '.join(first['display_after'])}; iBroadcast has "
+                        f"{' · '.join(first.get('found') or ['?'])}. Processing stopped; resume checks them first.")
         except Exception as failure:
             log.warning("Artist cleanup stopped: %s", failure)
             with self.lock:
