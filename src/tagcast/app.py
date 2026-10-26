@@ -228,6 +228,8 @@ class Handler(SimpleHTTPRequestHandler):
                 query.get("q", ""), query.get("source", ""), query.get("offset", "0"), query.get("limit", "50")))
         elif url.path == "/api/galaxy/cover":
             self._cover(query)
+        elif url.path == "/api/soulseek/status":
+            self._run(self.studio.soulseek.status)
         elif url.path == "/api/galaxy/status":
             self._run(self.studio.galaxy.status)
         elif url.path == "/api/downloads/find-galaxy":
@@ -286,6 +288,10 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/bandcamp/discography": lambda b: self.studio.bandcamp.discography(b.get("url")),
             "/api/bandcamp/album": lambda b: self.studio.bandcamp.album(b.get("url")),
             "/api/bandcamp/add": lambda b: self.studio.bandcamp.add(b.get("url"), b.get("nums")),
+            "/api/soulseek/settings": lambda b: self.studio.soulseek.save_settings(b),
+            "/api/soulseek/start": lambda b: self.studio.soulseek.start(),
+            "/api/soulseek/stop": lambda b: self.studio.soulseek.stop(),
+            "/api/soulseek/add": lambda b: self.studio.soulseek.add(b.get("items")),
             "/api/downloads/control": lambda b: self.studio.download_manager.control(b.get("action"), b.get("ids")),
             "/api/galaxy/settings": lambda b: self.studio.galaxy.save_settings(b),
             "/api/galaxy/album-years": lambda b: self.studio.galaxy.album_years(b.get("artist"), b.get("albums")),

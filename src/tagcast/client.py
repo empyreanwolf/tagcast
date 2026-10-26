@@ -50,6 +50,7 @@ from .metadata_export import MetadataExport
 from .playlist_import import PlaylistImport
 from .queue_sync import QUEUE_SCOPES, QueueSync
 from .service_status import ServiceStatus
+from .soulseek import Soulseek
 from .sources import KEYS as SOURCE_KEYS
 from .sources import Lookup
 from .tags import Tags
@@ -383,6 +384,7 @@ class Studio:
         self.download_manager = Downloads(self)  # self.downloads counts library downloads
         self.galaxy = Galaxy(self)
         self.bandcamp = Bandcamp(self)
+        self.soulseek = Soulseek(self)
         self.artist_cards = ArtistCards(self)
         self.duplicate_cleanup = DuplicateCleanup(self)
         tokens = self._read("tokens.json")

@@ -1121,3 +1121,7 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 .bandcamp-release{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}
 .bandcamp-release-body{flex:1;min-width:0}
 .bandcamp-release .dl-actions{margin:6px 0}
+
+/* Soulseek (fork v14) */
+#soulseek-settings .dl-settings label{max-width:640px}
+#soulseek-settings .dl-path{max-width:420px}

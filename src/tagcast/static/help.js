@@ -157,6 +157,7 @@ const HELP_TOPICS = {
   downloads: {title: "Downloads", scope: "#downloads-page", steps: [
     ["Galaxy", "Search GD Studio by artist, album or track. Artists who share a name get separate cards; pick the right one under Which artist? and Tagcast remembers it. Only exact albums can be downloaded.", ["#downloads-tabs", "#downloads-content"]],
     ["Bandcamp", "Paste an artist or album link to see every release marked Have, Partly, Downloaded before or Missing. Download the whole discography, an album or single songs from Bandcamp's free 128 kbps streams.", ["#downloads-tabs"]],
+    ["Soulseek", "Type Artist - Album (or Artist - Title) per line. Tagcast starts Sockseek in the background and it fetches a complete, well-shared copy. Set up Sockseek and your Soulseek login under Settings.", ["#downloads-tabs"]],
     ["Check first", "Check compares songs and albums with your iBroadcast library and your download history. Titles ignore (feat. …), case and spacing but keep words such as Live or Remix.", ["#downloads-tabs", "#downloads-content"]],
     ["Your decision", "Anything you may already have waits under Needs your decision. Skip or Download anyway, one by one or in bulk. A duplicate is never downloaded automatically.", ["#downloads-tabs"]],
     ["History and folder", "Queue & history lists everything downloaded before. Settings sets the download folder, the Galaxy pauses and API quota, and imports the Galaxy and Telegram histories.", ["#downloads-tabs"]],

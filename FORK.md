@@ -41,6 +41,9 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v14** Soulseek tab: "Artist - Album" or "Artist - Title" per line; Tagcast starts Sockseek
+  (github.com/fiso64/sockseek) in the background and follows its jobs in the shared queue. Set the
+  Sockseek program, your Soulseek login and how much you share under Downloads → Settings.
 - **v13** Bandcamp tab: paste an artist or album link; every release shows Have / Partly /
   Downloaded before / Missing. Download the whole discography, an album or single songs (free
   128 kbps streams, never purchases), tagged with cover. One queue and one Pause for all sources.

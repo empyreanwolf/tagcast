@@ -8,7 +8,7 @@ const downloadsView = {
   tab: "galaxy", lines: "", galaxy: null, poll: null, info: null, queue: null, held: null, results: null, checkKind: "song",
   history: {query: "", source: "", offset: 0, data: null}, picked: new Set(), busy: false, timer: null,
 };
-const downloadsTabs = [["galaxy", "Galaxy"], ["bandcamp", "Bandcamp"], ["check", "Check"], ["decide", "Needs your decision"], ["queue", "Queue & history"], ["settings", "Settings"]];
+const downloadsTabs = [["galaxy", "Galaxy"], ["bandcamp", "Bandcamp"], ["soulseek", "Soulseek"], ["check", "Check"], ["decide", "Needs your decision"], ["queue", "Queue & history"], ["settings", "Settings"]];
 const downloadsStatusLabels = {have: "In iBroadcast", partly: "Partly (other edition)", downloaded: "Downloaded before", folder: "In your download folder", new: "New"};
 const downloadsSourceLabels = {galaxy: "Galaxy", telegram: "Telegram", bandcamp: "Bandcamp", soulseek: "Soulseek", manual: "Added here"};
 
@@ -87,7 +87,7 @@ async function loadDownloadsHistory() {
 function renderDownloads() {
   const view = downloadsView;
   $("#downloads-tabs").innerHTML = downloadsTabsHtml();
-  const body = {galaxy: galaxyHtml, bandcamp: bandcampHtml, check: downloadsCheckHtml, decide: downloadsDecideHtml, queue: downloadsQueueHtml, settings: downloadsSettingsHtml}[view.tab]();
+  const body = {galaxy: galaxyHtml, bandcamp: bandcampHtml, soulseek: soulseekHtml, check: downloadsCheckHtml, decide: downloadsDecideHtml, queue: downloadsQueueHtml, settings: downloadsSettingsHtml}[view.tab]();
   $("#downloads-content").innerHTML = body;
 }
 
@@ -206,6 +206,7 @@ function downloadsSettingsHtml() {
         <label>Pause between API calls <span><input id="galaxy-api-delay" type="number" min="0" max="60" step="0.1" value="${gs.api_delay}"> s</span></label>
         <label>API quota <span><input id="galaxy-api-quota" type="number" min="5" max="50" step="1" value="${gs.api_quota}"> calls per 5 min</span></label></div>
       <div class="dl-actions"><button type="button" class="button primary" data-galaxy-settings>Save Galaxy settings</button></div></section>
+    <section class="dl-card"><h3>Soulseek</h3><div id="soulseek-settings">${soulseekSettingsHtml()}</div></section>
     <section class="dl-card"><h3>Download folder</h3>
       <p class="muted">Every source saves here (as <code>Album Artist\\Album\\## - Title</code>). Tagcast creates the folder if needed.</p>
       <div class="dl-actions"><input id="downloads-folder" class="dl-path" maxlength="400" value="${escapeHtml(info?.folder || "")}" aria-label="Download folder">
