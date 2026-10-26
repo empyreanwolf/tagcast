@@ -65,7 +65,8 @@ Design mockups (6 screens): https://claude.ai/artifact/48RUd5CmZUQqde3ihyFqNW
 | v16 ✔ | New-release alerts (weekly, followed artists + artists with 3+ albums) |
 | v17 ✔ | Wishlist with retry every few days |
 | v18 ✔ | "Complete my albums" report |
-| v19 | Telegram check (listener inside Tagcast) |
+| v19 ✔ | Clean up: Mp3tag-style artist-field split + album artist, hip-hop/rap genre collapse into an existing genre (MusicBrainz for Chinese vs not), needs-decision mass-tag by artist |
+| v20 | Telegram check (listener inside Tagcast) |
 
 Testing: unit tests with `tests/mock_ibroadcast.py` / LocalStudio and one quick real
 check per version. Avoid full-library stress runs unless something needs it.

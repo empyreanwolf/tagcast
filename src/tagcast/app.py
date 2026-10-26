@@ -230,6 +230,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._cover(query)
         elif url.path == "/api/complete":
             self._run(self.studio.completion.view)
+        elif url.path == "/api/tagclean":
+            self._run(self.studio.tagclean.view)
         elif url.path == "/api/wishlist":
             self._run(self.studio.wishlist.view)
         elif url.path == "/api/releases":
@@ -300,6 +302,11 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/bandcamp/add": lambda b: self.studio.bandcamp.add(b.get("url"), b.get("nums")),
             "/api/complete/scan": lambda b: self.studio.completion.scan(),
             "/api/complete/tracks": lambda b: self.studio.completion.missing_tracks(b.get("key")),
+            "/api/tagclean/scan": lambda b: self.studio.tagclean.scan(b.get("scope"), b.get("path") or ""),
+            "/api/tagclean/settings": lambda b: self.studio.tagclean.save_settings(b),
+            "/api/tagclean/apply-artists": lambda b: self.studio.tagclean.apply_artists(b.get("ids")),
+            "/api/tagclean/apply-genre": lambda b: self.studio.tagclean.apply_genre(b.get("ids")),
+            "/api/tagclean/assign-genre": lambda b: self.studio.tagclean.assign_genre(b.get("ids"), b.get("genre")),
             "/api/wishlist/retry": lambda b: self.studio.wishlist.retry(b.get("ids")),
             "/api/wishlist/remove": lambda b: self.studio.wishlist.remove(b.get("ids")),
             "/api/wishlist/settings": lambda b: self.studio.wishlist.save_settings(b),

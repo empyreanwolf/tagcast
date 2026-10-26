@@ -41,6 +41,15 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v19** Downloads → Clean up: the Mp3tag fixes before an upload. A combined artist field is
+  split on your own separators (feat., &, comma, / and more, editable) into separate artists
+  joined by "; ", with the first one set as album artist. For hip-hop and rap, the genre can be
+  collapsed into whichever of your own iBroadcast genres already covers "underground" and
+  "chinese" hip-hop -- never a genre you don't already have -- deciding Chinese artists from
+  MusicBrainz's artist record. Works on a folder of files before upload (tags rewritten in
+  place) or on tracks already in your library (genre only there). An artist MusicBrainz can't
+  place with confidence is grouped so you can pick a genre once and apply it to everything by
+  that artist, the same "select all, set genre" as Mp3tag.
 - **v18** Downloads → Missing → Complete my albums: a scan of your library finds albums that are only
   partly there (gaps in track numbers, or fewer songs than Deezer lists), shows which songs are
   missing, and gets them in bulk (Bandcamp → Galaxy; not found → wishlist).

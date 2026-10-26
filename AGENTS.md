@@ -47,6 +47,14 @@ The application consists of a Python server and a plain JavaScript frontend.
 - `src/tagcast/wishlist.py` (fork): not-found items retried every few days (`wishlist.json`).
 - `src/tagcast/completion.py` (fork): library scan for partly owned albums (track-number gaps + Deezer counts,
   `completion.json`).
+- `src/tagcast/tagclean.py` (fork, v19): Mp3tag-style clean-up before upload. Splits a combined artist field
+  on editable separators (feat./&/,// etc.) into a list joined by "; ", first one as album artist. For
+  hip-hop/rap, offers to collapse the genre into an existing library genre only (`Library.genre_labels()`),
+  deciding Chinese vs not from a cached MusicBrainz artist lookup (country/area); an artist MB can't place
+  confidently is grouped by artist for a manual "pick a genre, apply to all" instead of a guess. Folder scope
+  rewrites file tags directly via `galaxy.write_tags`/its own `read_tags`; library scope patches only the
+  track `genre` field through `studio.save()`. State: `tagclean.json`. `static/tagclean.js` (its own
+  Downloads tab, "Clean up").
 - `src/tagcast/updates.py`: public stable-release checks, version comparison and a
   daily persistent cache, independent of iBroadcast credentials.
 - `src/tagcast/album_guide.py`: opt-in, explicitly started comparison with the bundled

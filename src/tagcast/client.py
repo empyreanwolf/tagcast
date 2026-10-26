@@ -56,6 +56,7 @@ from .service_status import ServiceStatus
 from .soulseek import Soulseek
 from .sources import KEYS as SOURCE_KEYS
 from .sources import Lookup
+from .tagclean import TagClean
 from .tags import Tags
 from .updates import UpdateChecker
 from .wishlist import Wishlist
@@ -393,6 +394,7 @@ class Studio:
         self.new_releases = NewReleases(self)
         self.wishlist = Wishlist(self)
         self.completion = Completion(self)
+        self.tagclean = TagClean(self)
         self.artist_cards = ArtistCards(self)
         self.duplicate_cleanup = DuplicateCleanup(self)
         tokens = self._read("tokens.json")
