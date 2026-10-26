@@ -31,6 +31,7 @@ from .artist_cleanup import ArtistCleanup
 from .bandcamp import Bandcamp
 from .cleanup import Cleanup
 from .collections import Collections
+from .completion import Completion
 from .discography import Discography
 from .downloads import Downloads
 from .duplicate_cleanup import DuplicateCleanup
@@ -391,6 +392,7 @@ class Studio:
         self.discography = Discography(self)
         self.new_releases = NewReleases(self)
         self.wishlist = Wishlist(self)
+        self.completion = Completion(self)
         self.artist_cards = ArtistCards(self)
         self.duplicate_cleanup = DuplicateCleanup(self)
         tokens = self._read("tokens.json")

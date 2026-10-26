@@ -228,6 +228,8 @@ class Handler(SimpleHTTPRequestHandler):
                 query.get("q", ""), query.get("source", ""), query.get("offset", "0"), query.get("limit", "50")))
         elif url.path == "/api/galaxy/cover":
             self._cover(query)
+        elif url.path == "/api/complete":
+            self._run(self.studio.completion.view)
         elif url.path == "/api/wishlist":
             self._run(self.studio.wishlist.view)
         elif url.path == "/api/releases":
@@ -296,6 +298,8 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/bandcamp/discography": lambda b: self.studio.bandcamp.discography(b.get("url")),
             "/api/bandcamp/album": lambda b: self.studio.bandcamp.album(b.get("url")),
             "/api/bandcamp/add": lambda b: self.studio.bandcamp.add(b.get("url"), b.get("nums")),
+            "/api/complete/scan": lambda b: self.studio.completion.scan(),
+            "/api/complete/tracks": lambda b: self.studio.completion.missing_tracks(b.get("key")),
             "/api/wishlist/retry": lambda b: self.studio.wishlist.retry(b.get("ids")),
             "/api/wishlist/remove": lambda b: self.studio.wishlist.remove(b.get("ids")),
             "/api/wishlist/settings": lambda b: self.studio.wishlist.save_settings(b),

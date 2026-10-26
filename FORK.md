@@ -41,6 +41,9 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v18** Downloads → Missing → Complete my albums: a scan of your library finds albums that are only
+  partly there (gaps in track numbers, or fewer songs than Deezer lists), shows which songs are
+  missing, and gets them in bulk (Bandcamp → Galaxy; not found → wishlist).
 - **v17** Downloads → Missing → Wishlist: what Bandcamp, Soulseek and Galaxy didn't have (also a
   failed Soulseek job whose Galaxy fallback found nothing) is tried again every 3 days while
   Tagcast is open; found items go to the queue, items you meanwhile have are removed. Add wishes by hand too.

@@ -3,8 +3,8 @@
 // "Missing" on the Downloads page (fork v16+): New releases of the artists you follow,
 // albums in your library that are only partly there, and the wishlist of things no source had.
 // "Get the missing" sends each artist's albums through Bandcamp → Soulseek → Galaxy.
-const missingView = {wishlist: null, wishKind: "album", settingsOpen: false, sub: "releases", releases: null, picked: new Set(), jobs: [], timer: null, jobTimer: null};
-const missingSubs = [["releases", "New releases"], ["wishlist", "Wishlist"]];
+const missingView = {complete: null, completeQuery: "", completeOpen: new Map(), wishlist: null, wishKind: "album", settingsOpen: false, sub: "releases", releases: null, picked: new Set(), jobs: [], timer: null, jobTimer: null};
+const missingSubs = [["releases", "New releases"], ["complete", "Complete my albums"], ["wishlist", "Wishlist"]];
 
 function missingHtml() {
   const view = missingView;
@@ -15,7 +15,7 @@ function missingHtml() {
 }
 
 function missingBodyHtml() {
-  const body = {releases: releasesHtml, wishlist: wishlistHtml};
+  const body = {releases: releasesHtml, complete: completeHtml, wishlist: wishlistHtml};
   return (body[missingView.sub] || (() => ""))();
 }
 
@@ -67,6 +67,48 @@ function releasesHtml() {
           <div class="muted">${escapeHtml([x.date, ({album: "Album", ep: "EP", single: "Single", compile: "Compilation"})[x.type], x.tracks ? `${x.tracks} tracks` : ""].filter(Boolean).join(" · "))}</div></div>
         <div>${discographyBadge(x.status)}</div></li>`).join("")}</ul>`
       : `<p class="muted">${r.last_check ? "Nothing new that you don't have yet." : "Not checked yet. Check now, or wait for the weekly check."}</p>`}`;
+}
+
+// -- complete my albums -------------------------------------------------------------------------
+
+async function completeLoad() {
+  try { missingView.complete = await api("/api/complete"); } catch (error) { missingView.complete = {error: error.message}; }
+  missingRefresh();
+  clearTimeout(missingView.timer);
+  if (missingView.complete?.progress && state.screen === "downloads" && downloadsView.tab === "missing") missingView.timer = setTimeout(completeLoad, 2000);
+}
+
+function completeRows() {
+  const q = missingView.completeQuery.trim().toLowerCase(), c = missingView.complete;
+  return (c?.albums || []).filter(a => !q || `${a.artist} ${a.title}`.toLowerCase().includes(q));
+}
+
+function completeHtml() {
+  const c = missingView.complete;
+  if (!c) { completeLoad(); return '<p class="muted">Loading…</p>'; }
+  if (c.error) return `<p class="error-text">${escapeHtml(c.error)}</p>`;
+  const p = c.progress, rows = completeRows(), picked = rows.filter(a => missingView.picked.has(a.key)).length;
+  const head = `<p class="muted">Albums in your library that are only partly there: gaps in the track numbers, or fewer songs than Deezer lists. Discs of one set count together.</p>
+    <div class="dl-actions"><button type="button" class="button primary" data-complete="scan" ${p ? "disabled" : ""}>${c.scanned ? "Scan again" : "Scan my library"}</button>
+      <span class="muted" role="status">${p ? `Checking ${p.done} of ${p.total}: ${escapeHtml(p.title || "")}…` : c.scanned ? `Last scan: ${missingDate(c.scanned)} · ${c.total.toLocaleString("en")} albums checked` : "Not scanned yet. It asks Deezer about each album (about 7 per second)."}</span></div>`;
+  if (!c.albums.length) return head + (c.scanned ? '<p class="muted">Every album looks complete.</p>' : "");
+  return `${head}
+    <div class="dl-actions"><div class="search"><span aria-hidden="true">⌕</span><input id="complete-search" maxlength="200" placeholder="Filter artists or albums" aria-label="Filter the report" value="${escapeHtml(missingView.completeQuery)}"></div>
+      <label><input type="checkbox" data-complete-all ${rows.length && rows.every(a => missingView.picked.has(a.key)) ? "checked" : ""}> Select all (${rows.length})</label>
+      <button type="button" class="button primary" data-complete="get" ${picked ? "" : "disabled"}>⬇ Get the missing (${picked})</button>
+      <span class="muted">Order: Bandcamp → Galaxy (whole albums from Soulseek would bring back what you have).</span></div>
+    <ul class="discography-list">${rows.map(a => {
+      const open = missingView.completeOpen.get(a.key);
+      const holes = Object.entries(a.gaps || {}).map(([disc, n]) => `${Object.keys(a.gaps).length > 1 ? `disc ${disc}: ` : ""}#${n.join(", #")}`).join("; ");
+      return `<li><input type="checkbox" data-complete-pick="${escapeHtml(a.key)}" aria-label="Select ${escapeHtml(a.title)}" ${missingView.picked.has(a.key) ? "checked" : ""}>
+        ${bandcampThumb(a.cover, "galaxy-album-art")}
+        <div><b>${escapeHtml(a.title)}</b> <span class="muted">· ${escapeHtml(a.artist)}</span>
+          <div class="muted">You have ${a.have} of ${a.expected} (${escapeHtml(a.basis)})${holes ? ` · missing numbers ${escapeHtml(holes)}` : ""}</div>
+          <button type="button" class="text-action" data-complete-open="${escapeHtml(a.key)}" aria-expanded="${Boolean(open)}">${open ? "Hide songs" : "Which songs?"}</button>
+          ${open === "loading" ? '<div class="muted">Asking Deezer…</div>' : open?.error ? `<div class="error-text">${escapeHtml(open.error)}</div>`
+            : open ? `${open.note ? `<div class="muted">${escapeHtml(open.note)}</div>` : ""}<ol class="complete-tracks">${open.tracks.map(t => `<li class="${t.have ? "have" : "missing"}">${escapeHtml(t.title)} ${t.have ? '<span class="muted">✓</span>' : '<span class="dl-badge new">Missing</span>'}</li>`).join("")}</ol>` : ""}</div>
+        <div>${discographyBadge("partly")}</div></li>`;
+    }).join("")}</ul>`;
 }
 
 // -- wishlist ---------------------------------------------------------------------------------
@@ -123,7 +165,7 @@ async function missingGet(groups) {
     else {
       if (missingView.jobs.some(j => j.log.some(e => !e.source))) artistCleanupAlarm();
       loadDownloads();
-      if (missingView.sub === "releases") releasesLoad(); else if (missingView.sub === "wishlist") wishlistLoad(); else missingRefresh();
+      if (missingView.sub === "releases") releasesLoad(); else if (missingView.sub === "wishlist") wishlistLoad(); else completeLoad();
     }
   };
   missingView.jobTimer = setTimeout(poll, 1000);
@@ -164,6 +206,24 @@ document.addEventListener("click", event => {
   if (target.closest('[data-missing="close-jobs"]')) { view.jobs = []; missingJobsRefresh(); return; }
   const remove = target.closest("[data-releases-remove]");
   if (remove) { downloadsRun(async () => { view.releases = await api("/api/releases/settings", {remove: remove.dataset.releasesRemove}); missingRefresh(); }); return; }
+  const comp = target.closest("[data-complete]");
+  if (comp) {
+    const action = comp.dataset.complete;
+    if (action === "scan") downloadsRun(async () => { view.complete = await api("/api/complete/scan", {}); missingRefresh(); completeLoad(); });
+    else if (action === "get") {
+      const rows = completeRows().filter(a => view.picked.has(a.key)).map(a => ({...a, status: "partly", tracks: a.expected}));
+      downloadsRun(() => missingGet(missingGroups(rows)));
+    }
+    return;
+  }
+  const openSongs = target.closest("[data-complete-open]");
+  if (openSongs) {
+    const key = openSongs.dataset.completeOpen;
+    if (view.completeOpen.has(key)) { view.completeOpen.delete(key); missingRefresh(); return; }
+    view.completeOpen.set(key, "loading"); missingRefresh();
+    api("/api/complete/tracks", {key}).then(r => view.completeOpen.set(key, r)).catch(e => view.completeOpen.set(key, {error: e.message})).finally(missingRefresh);
+    return;
+  }
   const wish = target.closest("[data-wishlist]");
   if (wish) {
     const action = wish.dataset.wishlist;
@@ -199,6 +259,8 @@ document.addEventListener("change", event => {
   if (target.matches("[data-releases-pick]")) { view.picked[target.checked ? "add" : "delete"](target.dataset.releasesPick); missingRefresh(); }
   else if (target.matches("[data-releases-all]")) { view.picked = new Set(target.checked ? view.releases.results.map(x => x.id) : []); missingRefresh(); }
   else if (target.matches("[data-releases-auto]")) downloadsRun(async () => { view.releases = await api("/api/releases/settings", {auto: target.checked}); missingRefresh(); });
+  else if (target.matches("[data-complete-pick]")) { view.picked[target.checked ? "add" : "delete"](target.dataset.completePick); missingRefresh(); }
+  else if (target.matches("[data-complete-all]")) { view.picked = new Set(target.checked ? completeRows().map(a => a.key) : []); missingRefresh(); }
   else if (target.matches("[data-wishlist-pick]")) { view.picked[target.checked ? "add" : "delete"](target.dataset.wishlistPick); missingRefresh(); }
   else if (target.matches("[data-wishlist-all]")) { view.picked = new Set(target.checked ? view.wishlist.items.map(i => i.id) : []); missingRefresh(); }
   else if (target.id === "wishlist-kind") { view.wishKind = target.value; }
@@ -209,6 +271,17 @@ document.addEventListener("change", event => {
 document.addEventListener("toggle", event => {
   if (event.target.classList?.contains("releases-settings")) missingView.settingsOpen = event.target.open;
 }, true);
+
+document.addEventListener("input", event => {
+  if (event.target.id !== "complete-search") return;
+  missingView.completeQuery = event.target.value;
+  clearTimeout(missingView.searchTimer);
+  missingView.searchTimer = setTimeout(() => {
+    missingRefresh();
+    const input = $("#complete-search");
+    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  }, 250);
+});
 
 document.addEventListener("keydown", event => {
   if (event.key === "Enter" && event.target.id === "releases-add") { event.preventDefault(); $('[data-releases="add"]').click(); }

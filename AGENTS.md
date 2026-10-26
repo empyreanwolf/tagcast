@@ -45,6 +45,8 @@ The application consists of a Python server and a plain JavaScript frontend.
 - `src/tagcast/releases.py` (fork): weekly new-release check (`releases.json`); `static/missing.js` is the
   Downloads → Missing tab (New releases, and from v17/v18 Wishlist and Complete my albums).
 - `src/tagcast/wishlist.py` (fork): not-found items retried every few days (`wishlist.json`).
+- `src/tagcast/completion.py` (fork): library scan for partly owned albums (track-number gaps + Deezer counts,
+  `completion.json`).
 - `src/tagcast/updates.py`: public stable-release checks, version comparison and a
   daily persistent cache, independent of iBroadcast credentials.
 - `src/tagcast/album_guide.py`: opt-in, explicitly started comparison with the bundled
