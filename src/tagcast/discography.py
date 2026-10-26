@@ -269,6 +269,8 @@ class Discography:
             except Exception as error:  # one album never stops the rest
                 log.exception("Getting %s failed", title)
                 source, note = None, str(error)
+            if not source:
+                note = self._wish("album", job["name"], title, status=a.get("status"), note=note)
             job["log"].append({"kind": "album", "title": title, "source": source, "note": note})
             job["done"] += 1
         for s in songs:
@@ -278,6 +280,8 @@ class Discography:
             except Exception as error:
                 log.exception("Getting %s failed", title)
                 source, note = None, str(error)
+            if not source:
+                note = self._wish("song", job["name"], title, album=match.clean(s.get("album")), note=note)
             job["log"].append({"kind": "song", "title": title, "source": source, "note": note})
             job["done"] += 1
         job["state"] = "done"
@@ -352,6 +356,17 @@ class Discography:
             return None, "Not found on Bandcamp, Soulseek or Galaxy"
         return "Galaxy", self._summary(galaxy.add([best]))
 
+    def _wish(self, kind, artist, title, album="", status="missing", note=""):
+        """Not found anywhere: put it on the wishlist, which tries again every few days."""
+        wishlist = getattr(self.studio, "wishlist", None)
+        if wishlist is None or not title:
+            return note
+        try:
+            wishlist.add(kind, artist, title, album, status or "missing", note)
+            return f"{note} · on your wishlist"
+        except LibraryError:
+            return note
+
     def fallback(self, item):
         """A Soulseek job of "get the missing" failed: try Galaxy."""
         if not item:
@@ -363,5 +378,7 @@ class Discography:
                 source, note = self._galaxy_song(item["artist"], item["title"])
         except Exception as error:
             source, note = None, str(error)
+        if not source:
+            note = self._wish(item["kind"], item["artist"], item["title"], item.get("album", ""), note=note)
         self.manager.update_item(item["id"], persist=True,
                                  note=f"{item.get('note', '')} · {'Galaxy: ' + note if source else note}".strip(" ·"))

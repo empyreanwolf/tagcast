@@ -57,6 +57,7 @@ from .sources import KEYS as SOURCE_KEYS
 from .sources import Lookup
 from .tags import Tags
 from .updates import UpdateChecker
+from .wishlist import Wishlist
 
 log = logging.getLogger("tagcast")
 
@@ -389,6 +390,7 @@ class Studio:
         self.soulseek = Soulseek(self)
         self.discography = Discography(self)
         self.new_releases = NewReleases(self)
+        self.wishlist = Wishlist(self)
         self.artist_cards = ArtistCards(self)
         self.duplicate_cleanup = DuplicateCleanup(self)
         tokens = self._read("tokens.json")

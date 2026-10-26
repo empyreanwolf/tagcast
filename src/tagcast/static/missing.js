@@ -3,8 +3,8 @@
 // "Missing" on the Downloads page (fork v16+): New releases of the artists you follow,
 // albums in your library that are only partly there, and the wishlist of things no source had.
 // "Get the missing" sends each artist's albums through Bandcamp → Soulseek → Galaxy.
-const missingView = {settingsOpen: false, sub: "releases", releases: null, picked: new Set(), jobs: [], timer: null, jobTimer: null};
-const missingSubs = [["releases", "New releases"]];
+const missingView = {wishlist: null, wishKind: "album", settingsOpen: false, sub: "releases", releases: null, picked: new Set(), jobs: [], timer: null, jobTimer: null};
+const missingSubs = [["releases", "New releases"], ["wishlist", "Wishlist"]];
 
 function missingHtml() {
   const view = missingView;
@@ -15,7 +15,7 @@ function missingHtml() {
 }
 
 function missingBodyHtml() {
-  const body = {releases: releasesHtml};
+  const body = {releases: releasesHtml, wishlist: wishlistHtml};
   return (body[missingView.sub] || (() => ""))();
 }
 
@@ -69,6 +69,41 @@ function releasesHtml() {
       : `<p class="muted">${r.last_check ? "Nothing new that you don't have yet." : "Not checked yet. Check now, or wait for the weekly check."}</p>`}`;
 }
 
+// -- wishlist ---------------------------------------------------------------------------------
+
+async function wishlistLoad() {
+  try { missingView.wishlist = await api("/api/wishlist"); } catch (error) { missingView.wishlist = {error: error.message}; }
+  missingRefresh();
+  clearTimeout(missingView.timer);
+  if (missingView.wishlist?.progress && state.screen === "downloads" && downloadsView.tab === "missing") missingView.timer = setTimeout(wishlistLoad, 1500);
+  else if (missingView.wishlist && !missingView.wishlist.progress && missingView.wishlistWasRunning) { missingView.wishlistWasRunning = false; loadDownloads(); }
+  if (missingView.wishlist?.progress) missingView.wishlistWasRunning = true;
+}
+
+function wishlistHtml() {
+  const w = missingView.wishlist;
+  if (!w) { wishlistLoad(); return '<p class="muted">Loading…</p>'; }
+  if (w.error) return `<p class="error-text">${escapeHtml(w.error)}</p>`;
+  const picked = w.items.filter(i => missingView.picked.has(i.id)).length, p = w.progress;
+  return `<p class="muted">Albums and songs that Bandcamp, Soulseek and Galaxy didn't have. Tagcast tries them again every
+      <input id="wishlist-days" type="number" min="1" max="30" value="${w.every_days}" class="releases-days" aria-label="Days between tries"> days while it is open.</p>
+    <div class="dl-actions"><input id="wishlist-line" class="dl-path" maxlength="300" placeholder="${missingView.wishKind === "album" ? "Artist - Album" : "Artist - Title"}" aria-label="Add a wish">
+      <select id="wishlist-kind" aria-label="Album or song"><option value="album" ${missingView.wishKind === "album" ? "selected" : ""}>Album</option><option value="song" ${missingView.wishKind === "song" ? "selected" : ""}>Song</option></select>
+      <button type="button" class="button" data-wishlist="add">Add to wishlist</button></div>
+    ${p ? `<p class="muted" role="status">Trying ${p.done + 1 > p.total ? p.total : p.done + 1} of ${p.total}: ${escapeHtml(p.title || "")}…</p>` : ""}
+    ${w.items.length ? `<div class="dl-actions">
+        <label><input type="checkbox" data-wishlist-all ${w.items.every(i => missingView.picked.has(i.id)) ? "checked" : ""}> Select all (${w.items.length})</label>
+        <button type="button" class="button primary" data-wishlist="retry" ${picked && !p ? "" : "disabled"}>Try selected now (${picked})</button>
+        <button type="button" class="button" data-wishlist="remove" ${picked ? "" : "disabled"}>Remove</button></div>
+      <ul class="dl-list">${w.items.map(i => `<li><input type="checkbox" data-wishlist-pick="${i.id}" aria-label="Select ${escapeHtml(i.title)}" ${missingView.picked.has(i.id) ? "checked" : ""}>
+        <span class="dl-badge new">${i.kind === "album" ? "Album" : "Song"}</span>
+        <div><b>${escapeHtml(i.title)}</b> <span class="muted">· ${escapeHtml(i.artist)}${i.album ? ` · ${escapeHtml(i.album)}` : ""}</span>
+          <div class="muted">${i.tries} ${i.tries === 1 ? "try" : "tries"} · ${escapeHtml(i.note || "")} · next try ${missingDate(i.next_try)}</div></div></li>`).join("")}</ul>`
+      : '<p class="muted">Your wishlist is empty.</p>'}
+    ${w.found.length ? `<h3>Found lately</h3><ul class="dl-list">${w.found.slice(0, 20).map(f => `<li><span class="dl-badge have">${escapeHtml(f.source)}</span>
+      <div><b>${escapeHtml(f.title)}</b> <span class="muted">· ${escapeHtml(f.artist)} · ${escapeHtml(f.note || "")} · ${missingDate(f.when)}</span></div></li>`).join("")}</ul>` : ""}`;
+}
+
 // -- get the missing, grouped by artist ----------------------------------------------------
 
 async function missingGet(groups) {
@@ -88,7 +123,7 @@ async function missingGet(groups) {
     else {
       if (missingView.jobs.some(j => j.log.some(e => !e.source))) artistCleanupAlarm();
       loadDownloads();
-      if (missingView.sub === "releases") releasesLoad(); else missingRefresh();
+      if (missingView.sub === "releases") releasesLoad(); else if (missingView.sub === "wishlist") wishlistLoad(); else missingRefresh();
     }
   };
   missingView.jobTimer = setTimeout(poll, 1000);
@@ -129,6 +164,21 @@ document.addEventListener("click", event => {
   if (target.closest('[data-missing="close-jobs"]')) { view.jobs = []; missingJobsRefresh(); return; }
   const remove = target.closest("[data-releases-remove]");
   if (remove) { downloadsRun(async () => { view.releases = await api("/api/releases/settings", {remove: remove.dataset.releasesRemove}); missingRefresh(); }); return; }
+  const wish = target.closest("[data-wishlist]");
+  if (wish) {
+    const action = wish.dataset.wishlist;
+    if (action === "add") {
+      const line = $("#wishlist-line").value.trim(), at = line.indexOf(" - ");
+      if (at <= 0) { toast("Type Artist - Title."); return; }
+      const kind = $("#wishlist-kind").value, artist = line.slice(0, at), title = line.slice(at + 3);
+      downloadsRun(async () => { await api("/api/wishlist/add", {kind, artist, title}); await wishlistLoad(); });
+    } else if (action === "retry") {
+      downloadsRun(async () => { view.wishlist = await api("/api/wishlist/retry", {ids: [...view.picked]}); view.picked.clear(); missingRefresh(); wishlistLoad(); });
+    } else if (action === "remove") {
+      downloadsRun(async () => { view.wishlist = await api("/api/wishlist/remove", {ids: [...view.picked]}); view.picked.clear(); missingRefresh(); });
+    }
+    return;
+  }
   const button = target.closest("[data-releases]");
   if (!button) return;
   const action = button.dataset.releases, r = view.releases;
@@ -149,6 +199,10 @@ document.addEventListener("change", event => {
   if (target.matches("[data-releases-pick]")) { view.picked[target.checked ? "add" : "delete"](target.dataset.releasesPick); missingRefresh(); }
   else if (target.matches("[data-releases-all]")) { view.picked = new Set(target.checked ? view.releases.results.map(x => x.id) : []); missingRefresh(); }
   else if (target.matches("[data-releases-auto]")) downloadsRun(async () => { view.releases = await api("/api/releases/settings", {auto: target.checked}); missingRefresh(); });
+  else if (target.matches("[data-wishlist-pick]")) { view.picked[target.checked ? "add" : "delete"](target.dataset.wishlistPick); missingRefresh(); }
+  else if (target.matches("[data-wishlist-all]")) { view.picked = new Set(target.checked ? view.wishlist.items.map(i => i.id) : []); missingRefresh(); }
+  else if (target.id === "wishlist-kind") { view.wishKind = target.value; }
+  else if (target.id === "wishlist-days") downloadsRun(async () => { view.wishlist = await api("/api/wishlist/settings", {every_days: target.value}); missingRefresh(); });
   else if (target.id === "releases-days") downloadsRun(async () => { view.releases = await api("/api/releases/settings", {every_days: target.value}); missingRefresh(); });
 });
 
