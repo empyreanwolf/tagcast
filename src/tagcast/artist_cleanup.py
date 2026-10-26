@@ -568,7 +568,7 @@ class ArtistCleanup:
         return self.view()
 
     def _settings(self, library):
-        albums = any(i["kind"] == "album" and i["status"] not in ("confirmed", "excluded") for i in self.task["items"])
+        albums = any(i["kind"] == "album" and i["status"] not in ("confirmed", "excluded", "skipped") for i in self.task["items"])
         if albums and library.combine_sets:
             raise LibraryError("Combine Multi-Disc Album Sets is enabled. Disable it in iBroadcast and resume.")
 
@@ -600,23 +600,51 @@ class ArtistCleanup:
                                         "phrase": c.get("phrase"), "type": c.get("type")}
                                        for c in after["credits"]]}
 
+    def _desired(self, library, item):
+        """The wire value the preview asked for, if every name already has an ID."""
+        def known(ref):
+            if "id" in ref:
+                return ref["id"]
+            return self.task["artists"].get(ref["name"]) or names_of(library).find(ref["name"])
+        after = item["after"]
+        ids = [known(after["primary"]), *(known(c) for c in after["credits"])]
+        if any(i is None for i in ids):
+            return None
+        return {"artist_id": ids[0], "artists_additional": [
+            {"artist_id": i, "phrase": c.get("phrase"), "type": c.get("type")} for i, c in zip(ids[1:], after["credits"])]}
+
     def _check(self, library, item):
+        """confirmed, pending, skipped (record gone) or conflict.
+
+        Only the artist fields decide. iBroadcast joins albums that end up with the
+        same title and artist, which moves tracks between album records: that is
+        expected here, so a changed track list or album is followed, not a conflict.
+        """
         if item["kind"] == "album":
-            if album_context(library, item["id"]) != item["context"]:
-                return "conflict"
+            context = album_context(library, item["id"])
+            if context is None or not context["tracks"]:
+                return "skipped"  # emptied or joined into another album by iBroadcast
             record = library.albums[item["id"]]
         else:
             try:
                 album_id = library.active_track_album(item["id"])
             except LibraryError:
-                return "conflict"
-            if album_id != item["album_id"] or number(library.tracks[item["id"]].get("album_id")) != item["original_album_id"]:
-                return "conflict"
+                return "skipped"  # the track is gone or trashed
             record = library.tracks[item["id"]]
         now = snapshot(library, record, item["kind"])
         if item.get("wire") and same_artists(item["wire"], now):
             return "confirmed"
-        return "pending" if same_artists(item["before"], now) else "conflict"
+        desired = self._desired(library, item)
+        if desired and same_artists(desired, now):
+            return "confirmed"  # already as previewed
+        if not same_artists(item["before"], now):
+            return "conflict"  # someone else changed these artists
+        # Unchanged artists: follow any album moves so later checks compare the new place.
+        if item["kind"] == "album":
+            item["context"] = context
+        else:
+            item["album_id"], item["original_album_id"] = album_id, number(record.get("album_id"))
+        return "pending"
 
     def _run(self, client):
         try:
@@ -630,11 +658,11 @@ class ArtistCleanup:
                 batch, groups, weight = [], set(), 0
                 with self.lock:
                     for item in self.task["items"]:
-                        if item["status"] in ("confirmed", "excluded"):
+                        if item["status"] in ("confirmed", "excluded", "skipped"):
                             continue
                         checked = self._check(fresh, item)
-                        if checked == "confirmed":
-                            item["status"] = "confirmed"
+                        if checked in ("confirmed", "skipped"):
+                            item["status"] = checked
                             continue
                         if checked == "conflict":
                             item["status"] = "conflict"
@@ -686,7 +714,8 @@ class ArtistCleanup:
                     self._owner(client)
                     with self.lock:
                         for item in batch:
-                            item["status"] = "confirmed" if self._check(after, item) == "confirmed" else "unconfirmed"
+                            check = self._check(after, item)
+                            item["status"] = check if check in ("confirmed", "skipped") else "unconfirmed"
                         self._persist()
                 except Exception:
                     with self.lock:

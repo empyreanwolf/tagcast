@@ -224,6 +224,41 @@ class ArtistCleanupTests(unittest.TestCase):
         self.assertEqual(items[109]["after"]["credits"], [{"id": 30, "type": "artist", "phrase": None}])
         self.assertNotIn("黃旭", preview["new_artists"])
 
+    def test_albums_joined_by_ibroadcast_during_a_merge_are_followed_not_conflicts(self):
+        raw = data()
+        # The same album uploaded twice, under two spellings of the artist.
+        raw["library"]["albums"]["28"] = {"name": "Gangsta Rap", "artist_id": 1, "disc": 1, "tracks": [110]}
+        raw["library"]["tracks"]["110"] = {"title": "Chainsaw", "artist_id": 1, "album_id": 28, "genre": "Hip Hop"}
+        studio = LocalStudio(raw)
+
+        def join_albums():  # what iBroadcast does once both copies share title and artist
+            albums = studio.raw["library"]["albums"]
+            if albums["20"]["artist_id"] == albums["28"]["artist_id"] and albums["28"]["tracks"]:
+                albums["20"]["tracks"] += albums["28"]["tracks"]
+                for track_id in albums["28"]["tracks"]:
+                    studio.raw["library"]["tracks"][str(track_id)]["album_id"] = 20
+                albums["28"]["tracks"] = []
+        studio.on_write = join_albums
+        # Write tracks of album 20 in an earlier batch than album 28's own record.
+        preview = studio.artist_cleanup.prepare("merge", groups=[{"members": [1, 2], "target": {"id": 1}}])
+        studio.artist_cleanup.start(preview["id"], [])
+        report = finished(studio)
+        self.assertEqual(report["state"], "done", report["error"])
+        self.assertNotIn("conflict", report["counts"])
+        library = Library(studio.raw)
+        self.assertEqual(library.albums[20].get("artist_id"), 1)
+        self.assertEqual(library.tracks[101].get("artist_id"), 1)
+
+    def test_resume_after_an_old_conflict_rechecks_and_continues(self):
+        studio = LocalStudio(data())
+        preview = studio.artist_cleanup.prepare("merge", groups=[{"members": [1, 2], "target": {"id": 1}}])
+        studio.artist_cleanup.task["items"][0]["status"] = "conflict"
+        studio.artist_cleanup.task["state"] = "error"
+        studio.artist_cleanup.start(preview["id"])
+        report = finished(studio)
+        self.assertEqual(report["state"], "done", report["error"])
+        self.assertEqual(report["counts"], {"confirmed": 2})
+
     def test_conflict_since_preview_stops_without_writing(self):
         studio = LocalStudio(data())
         preview = studio.artist_cleanup.prepare("merge", groups=[{"members": [1, 2], "target": {"id": 1}}])
