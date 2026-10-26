@@ -24,3 +24,18 @@ on 8912. Close the black window to stop it.
    the iBroadcast app that the old entry disappeared.
 3. **Duplicates** → **Combined names** → **Featured in titles** → **Duplicates** again.
 4. Export each report before preparing the next preview if you want to keep it.
+
+## Versions
+
+The fork version is shown beside the **Artist cleanup** title and in its error messages.
+A short alert sound plays when a run stops with an error or an action fails.
+
+- **v8** Version label and error sound.
+- **v7** The approval tick stays ticked when the review list redraws.
+- **v6** Additional artists stored in another order count as saved; unconfirmed writes
+  name the record, what was expected and what iBroadcast has.
+- **v5** Records changed during a run are replanned from their current artists.
+- **v4** Albums that iBroadcast joins during a merge are followed, not conflicts.
+- **v3** A duplicates card can never lock itself.
+- **v2** Faster previews, bracket-aware feat. reading, port 8913 launcher.
+- **v1** Artist cleanup: duplicates, combined names, featured artists, search & merge.

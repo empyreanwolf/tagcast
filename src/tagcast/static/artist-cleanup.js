@@ -14,6 +14,27 @@ const artistCleanupTabs = [["merge", "Duplicates"], ["split", "Combined names"],
   ["search", "Search & merge"], ["review", "Review & run"]];
 const artistCleanupModes = {merge: "Merge duplicates", split: "Split combined names", feat: "Link featured artists"};
 const artistCleanupPage = 25;
+// Shown beside the dialog title; raise it with every update of this fork.
+const artistCleanupVersion = "fork v8";
+let artistCleanupAudio = null;
+
+// A short falling two-tone alert. Browsers only allow sound after a click on the page,
+// which has always happened before a run can stop.
+function artistCleanupAlarm() {
+  try {
+    artistCleanupAudio = artistCleanupAudio || new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = artistCleanupAudio, start = ctx.currentTime;
+    [[660, 0], [440, 0.22], [660, 0.5], [440, 0.72]].forEach(([frequency, at]) => {
+      const tone = ctx.createOscillator(), gain = ctx.createGain();
+      tone.type = "square"; tone.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, start + at);
+      gain.gain.exponentialRampToValueAtTime(0.15, start + at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + at + 0.2);
+      tone.connect(gain).connect(ctx.destination);
+      tone.start(start + at); tone.stop(start + at + 0.21);
+    });
+  } catch { /* no audio available: the message on screen still says what happened */ }
+}
 
 function resetArtistCleanup(close = false) {
   const view = artistCleanupView;
@@ -51,6 +72,7 @@ async function fetchArtistCleanupTask() {
     const data = await api(`/api/artist-cleanup?offset=${view.offset}&limit=${artistCleanupPage}`);
     if (request !== view.request || details !== state.details || !live()) return;
     if (data.id !== view.data?.id || data.state !== "preview") view.excluded = new Set(data.excluded || []);
+    if (view.data?.id === data.id && view.data.state === "running" && data.state === "error") artistCleanupAlarm();
     view.data = data;
     renderArtistCleanup();
     if (data.state === "running" && $("#artist-cleanup").open) view.timer = setTimeout(fetchArtistCleanupTask, 1500);
@@ -211,7 +233,7 @@ function renderReviewTab() {
     ${data.new_artists.length ? `<details class="ac-details"><summary>New artist entries to create (${data.new_artists.length.toLocaleString("en")}${data.created ? ` · ${data.created.toLocaleString("en")} created` : ""})</summary><p class="ac-names">${data.new_artists.map(escapeHtml).join(" · ")}</p></details>` : ""}
     ${preview ? `<div class="cleanup-controls"><button class="text-action" id="ac-review-all">Select all</button><button class="text-action" id="ac-review-none">Exclude all</button><span role="status">${selected.length.toLocaleString("en")} groups · ${selected.reduce((n, g) => n + g.tracks, 0).toLocaleString("en")} tracks selected</span></div>`
       : `<p role="status" class="operation-status" data-working="${running}"><strong>${escapeHtml(data.state)}</strong> · ${counts.confirmed || 0} confirmed · ${counts.pending || 0} pending · ${counts.sent || 0} checking · ${counts.unconfirmed || 0} unconfirmed · ${counts.conflict || 0} conflicts · ${counts.skipped || 0} skipped · ${counts.blocked || 0} blocked · ${counts.excluded || 0} excluded</p>`}
-    ${data.error ? `<p class="warn-box" role="status">${escapeHtml(data.error)}</p>` : ""}
+    ${data.error ? `<p class="warn-box" role="status">${escapeHtml(data.error)} <span class="ac-version">(${artistCleanupVersion})</span></p>` : ""}
     <div class="cleanup-albums">${data.groups.map(g => `<section class="cleanup-album"><h3>${preview ? `<label><input type="checkbox" data-ac-review="${escapeHtml(g.id)}" ${view.excluded.has(g.id) ? "" : "checked"}> ` : ""}${escapeHtml(g.title)}${preview ? "</label>" : ""}</h3><p class="muted">${g.records.toLocaleString("en")} records · ${g.tracks.toLocaleString("en")} tracks${preview ? "" : ` · ${Object.entries(g.statuses).map(([k, n]) => `${n} ${k}`).join(" · ")}`}</p>${g.examples.map(artistCleanupExample).join("")}</section>`).join("") || '<p class="muted">Nothing would change.</p>'}</div>
     ${artistCleanupPager("review", data.groups_total)}
     <p class="muted">The draft and report are saved on this computer. Stop prevents further writes; saved changes remain. Resume checks outstanding writes first. A new preview replaces this report, so export it first if you want to keep it.</p>
@@ -235,6 +257,7 @@ function artistCleanupPager(name, total) {
 function renderArtistCleanup() {
   const view = artistCleanupView, dialog = $("#artist-cleanup");
   if (!dialog) return;
+  $("#artist-cleanup-version").textContent = artistCleanupVersion;
   const running = view.data?.state === "running", disabled = view.busy || running, scroll = dialog.scrollTop;
   const body = {merge: renderMergeTab, split: renderSplitTab, feat: renderFeatTab, search: renderSearchTab, review: renderReviewTab}[view.tab](disabled);
   $("#artist-cleanup-content").innerHTML = `<div class="favourites-tabs ac-tabs" role="tablist" aria-label="Artist cleanup steps">${artistCleanupTabs.map(([key, label]) => `<button type="button" role="tab" data-ac-tab="${key}" aria-selected="${key === view.tab}" tabindex="${key === view.tab ? 0 : -1}">${label}${key === "review" && view.data?.id ? ` <span>${escapeHtml(view.data.state)}</span>` : ""}</button>`).join("")}</div>
@@ -264,13 +287,14 @@ async function artistCleanupAction(path, body, message) {
   try {
     const data = await api(`/api/artist-cleanup/${path}`, body);
     if (request !== view.request || details !== state.details || !live()) return;
+    if (data.state === "error") artistCleanupAlarm();
     view.data = data; view.offset = 0;
     view.excluded = new Set(path === "preview" ? [] : data.excluded || []);
     view.tab = "review";
     if (data.state === "running") view.timer = setTimeout(fetchArtistCleanupTask, 1500);
     setActionStatus("#artist-cleanup-status", "");
   } catch (error) {
-    if (request === view.request) setActionStatus("#artist-cleanup-status", error.message);
+    if (request === view.request) { setActionStatus("#artist-cleanup-status", error.message); artistCleanupAlarm(); }
   } finally {
     if (request === view.request && details === state.details) { view.busy = false; renderArtistCleanup(); }
   }
