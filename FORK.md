@@ -41,6 +41,8 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v11.1** The Windows launcher repairs a `.venv` that can no longer load Tagcast (moved folder or
+  interrupted update): it reinstalls, and rebuilds `.venv` once if needed.
 - **v11** Galaxy (your GD downloader) inside Downloads: Artist / Album / Track search on netease,
   joox, bilibili; artists who share a name get separate cards (MusicBrainz, Deezer, your
   library) with "Which artist?" remembered; exact albums only; one queue with pause, cancel,
