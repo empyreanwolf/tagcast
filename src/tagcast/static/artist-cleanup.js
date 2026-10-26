@@ -97,6 +97,12 @@ function mergeTarget(group, choice) {
   return options[0].value;
 }
 
+function mergeReady(group, choice) {
+  if (choice.ticked.size >= 2) return true;
+  const target = mergeTarget(group, choice);
+  return choice.ticked.size === 1 && (target.startsWith("new:") || target === "custom");
+}
+
 function mergeGroupPayload(group, choice) {
   const target = mergeTarget(group, choice);
   return {members: [...choice.ticked], target: target === "custom" ? {name: choice.custom.trim()}
@@ -131,8 +137,8 @@ function mergeCard(group, disabled) {
   const kindLabel = {same: "Case or spaces", script: "Simplified / traditional", bilingual: "English + Chinese"}[group.kind] || group.kind;
   return `<section class="ac-card${choice.include ? "" : " ac-off"}" data-ac-group="${escapeHtml(group.id)}">
     <div class="ac-card-head"><label class="checkline"><input type="checkbox" data-ac-include ${choice.include ? "checked" : ""} ${disabled ? "disabled" : ""}> <strong>${escapeHtml(mergeTargetLabel(group, choice, target))}</strong></label><span class="pill">${escapeHtml(kindLabel)}</span></div>
-    <ul class="ac-members">${group.members.map(m => `<li><label class="checkline"><input type="checkbox" data-ac-member="${m.id}" ${choice.ticked.has(m.id) ? "checked" : ""} ${disabled || !choice.include ? "disabled" : ""}> <span><span class="ac-name">${escapeHtml(m.name)}</span><span class="ac-meta">${m.tracks.toLocaleString("en")} tracks · ${escapeHtml(m.reason)}</span></span></label></li>`).join("")}</ul>
-    <label class="field">Keep as<select data-ac-target ${disabled || !choice.include ? "disabled" : ""}>${mergeTargetOptions(group, choice).map(o => `<option value="${escapeHtml(o.value)}" ${o.value === target ? "selected" : ""}>${escapeHtml(o.label)}</option>`).join("")}</select></label>
+    <ul class="ac-members">${group.members.map(m => `<li><label class="checkline"><input type="checkbox" data-ac-member="${m.id}" ${choice.ticked.has(m.id) ? "checked" : ""} ${disabled ? "disabled" : ""}> <span><span class="ac-name">${escapeHtml(m.name)}</span><span class="ac-meta">${m.tracks.toLocaleString("en")} ${m.tracks === 1 ? "track" : "tracks"} · ${escapeHtml(m.reason)}</span></span></label></li>`).join("")}</ul>
+    <label class="field">Keep as<select data-ac-target ${disabled ? "disabled" : ""}>${mergeTargetOptions(group, choice).map(o => `<option value="${escapeHtml(o.value)}" ${o.value === target ? "selected" : ""}>${escapeHtml(o.label)}</option>`).join("")}</select></label>
     ${target === "custom" ? `<label class="field">New name<input data-ac-custom maxlength="1000" value="${escapeHtml(choice.custom)}" ${disabled ? "disabled" : ""}></label>` : ""}
   </section>`;
 }
@@ -305,7 +311,7 @@ $("#artist-cleanup").addEventListener("click", async event => {
     renderArtistCleanup(); $("#artist-cleanup").scrollTop = 0; return;
   }
   const mergeAll = target.closest("[data-ac-merge-all]");
-  if (mergeAll) { for (const g of visibleMergeGroups()) { const c = view.merge.choices.get(g.id); c.include = mergeAll.dataset.acMergeAll === "1" && c.ticked.size > 0; } return renderArtistCleanup(); }
+  if (mergeAll) { for (const g of visibleMergeGroups()) { const c = view.merge.choices.get(g.id); c.include = mergeAll.dataset.acMergeAll === "1" && mergeReady(g, c); } return renderArtistCleanup(); }
   const splitAll = target.closest("[data-ac-split-all]");
   if (splitAll) { for (const i of visibleSplitItems()) splitAll.dataset.acSplitAll === "1" ? view.split.chosen.add(i.id) : view.split.chosen.delete(i.id); return renderArtistCleanup(); }
   const pick = target.closest("[data-ac-pick]");
@@ -346,12 +352,17 @@ $("#artist-cleanup").addEventListener("change", event => {
   const view = artistCleanupView, target = event.target, card = target.closest("[data-ac-group]");
   if (card) {
     const choice = view.merge.choices.get(card.dataset.acGroup);
-    if (target.matches("[data-ac-include]")) choice.include = target.checked && choice.ticked.size > 0;
-    else if (target.dataset.acMember) {
+    const group = view.merge.groups.find(g => g.id === card.dataset.acGroup);
+    if (target.matches("[data-ac-include]")) {
+      // Switching a card on with fewer than two entries ticked ticks all of them.
+      if (target.checked && !mergeReady(group, choice)) for (const m of group.members) choice.ticked.add(m.id);
+      choice.include = target.checked;
+    } else if (target.dataset.acMember) {
       const id = Number(target.dataset.acMember);
       if (target.checked) choice.ticked.add(id); else choice.ticked.delete(id);
-      if (!choice.ticked.size) choice.include = false;
+      if (target.checked && choice.ticked.size >= 2) choice.include = true;
     } else if (target.matches("[data-ac-target]")) choice.target = target.value;
+    if (!mergeReady(group, choice)) choice.include = false;
     return renderArtistCleanup();
   }
   if (target.id === "ac-merge-filter") { view.merge.filter = target.value; view.merge.page = 0; return renderArtistCleanup(); }
