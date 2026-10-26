@@ -210,6 +210,14 @@ class Handler(SimpleHTTPRequestHandler):
             self._run(lambda: self.studio.duplicate_cleanup.view(query.get("offset", "0"), query.get("limit", "10")))
         elif url.path == "/api/duplicate-cleanup/report":
             self._run(lambda: self.studio.duplicate_cleanup.view(report=True))
+        elif url.path == "/api/artist-cleanup":
+            self._run(lambda: self.studio.artist_cleanup.view(query.get("offset", "0"), query.get("limit", "25")))
+        elif url.path == "/api/artist-cleanup/report":
+            self._run(lambda: self.studio.artist_cleanup.view(report=True))
+        elif url.path == "/api/artist-cleanup/suggestions":
+            self._run(lambda: self.studio.artist_cleanup.suggestions(query.get("kind")))
+        elif url.path == "/api/artist-cleanup/search":
+            self._run(lambda: self.studio.artist_cleanup.search(query.get("q", "")))
         elif url.path == "/api/cleanup/labels":
             self._run(lambda: self.studio.cleanup.labels(query.get("q"), query.get("offset", "0"),
                                                          query.get("limit", "50")))
@@ -247,6 +255,10 @@ class Handler(SimpleHTTPRequestHandler):
                 b.get("category"), b.get("label"), b.get("replacements"), b.get("remove", False)),
             "/api/cleanup/start": lambda b: self.studio.cleanup.start(b.get("id"), b.get("excluded")),
             "/api/cleanup/stop": lambda b: self.studio.cleanup.cancel(b.get("id")),
+            "/api/artist-cleanup/preview": lambda b: self.studio.artist_cleanup.prepare(
+                b.get("mode"), b.get("groups"), b.get("ids")),
+            "/api/artist-cleanup/start": lambda b: self.studio.artist_cleanup.start(b.get("id"), b.get("excluded")),
+            "/api/artist-cleanup/stop": lambda b: self.studio.artist_cleanup.cancel(b.get("id")),
             "/api/settings": self.studio.save_settings,
             "/api/lyrics": self.studio.lyrics.view,
             "/api/lyrics/review": self.studio.lyrics.prepare,

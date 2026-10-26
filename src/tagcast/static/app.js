@@ -180,6 +180,7 @@ function useLocal(albums, mode) {
   if (typeof resetGuideAlbumNotes === "function") resetGuideAlbumNotes();
   if (typeof resetAlbumGuide === "function") resetAlbumGuide(false);
   if (typeof resetCleanup === "function") resetCleanup(true);
+  if (typeof resetArtistCleanup === "function") resetArtistCleanup(true);
   if (typeof resetDuplicateCleanup === "function") resetDuplicateCleanup(true);
   if (typeof resetSelectedAlbumTrash === "function") resetSelectedAlbumTrash();
   resetAlbumOrder();
@@ -1329,6 +1330,7 @@ async function loadLive(refresh = false) {
   if (typeof resetGuideAlbumNotes === "function") resetGuideAlbumNotes();
   if (typeof resetAlbumGuide === "function") resetAlbumGuide(false);
   if (typeof resetCleanup === "function") resetCleanup();
+  if (typeof resetArtistCleanup === "function") resetArtistCleanup();
   if (typeof resetDuplicateCleanup === "function") resetDuplicateCleanup(true);
   if (typeof resetSelectedAlbumTrash === "function") resetSelectedAlbumTrash();
   resetAlbumOrder();

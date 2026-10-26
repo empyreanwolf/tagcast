@@ -31,6 +31,7 @@ def finish_server(server):
     studio = server.RequestHandlerClass.func.studio
     studio.cleanup.stop.set()
     studio.duplicate_cleanup.stop.set()
+    studio.artist_cleanup.stop.set()
     server.shutdown()
     server.server_close()
     with studio.save_lock:
