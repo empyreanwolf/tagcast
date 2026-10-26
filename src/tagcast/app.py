@@ -14,11 +14,12 @@ from socketserver import TCPServer
 from urllib.parse import parse_qs, quote, urlparse
 from urllib.request import urlopen
 
-from . import __version__
+from . import __version__, artist_match
 from .album_info import AlbumInformationRetryError
 from .artist_bios import BiographyRetryError
 from .artwork import ArtworkError
 from .client import ApiError, NotConnected, Studio
+from .downloads import album_key
 from .library import ConflictError, LibraryError
 from .sources import SourceError
 
@@ -225,6 +226,8 @@ class Handler(SimpleHTTPRequestHandler):
         elif url.path == "/api/downloads/history":
             self._run(lambda: self.studio.download_manager.history_view(
                 query.get("q", ""), query.get("source", ""), query.get("offset", "0"), query.get("limit", "50")))
+        elif url.path == "/api/galaxy/status":
+            self._run(self.studio.galaxy.status)
         elif url.path == "/api/downloads/find-galaxy":
             self._run(self.studio.download_manager.find_galaxy)
         elif url.path == "/api/cleanup/labels":
@@ -275,6 +278,15 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/downloads/remove": lambda b: self.studio.download_manager.remove(b.get("ids")),
             "/api/downloads/folder": lambda b: self.studio.download_manager.set_folder(b.get("folder")),
             "/api/downloads/import": lambda b: self.studio.download_manager.import_history(b.get("kind"), b.get("path")),
+            "/api/galaxy/search": lambda b: self.studio.galaxy.search(b.get("mode"), b.get("q"), b.get("source")),
+            "/api/galaxy/album": lambda b: self.studio.galaxy.album(b.get("album"), b.get("artist"), b.get("source")),
+            "/api/galaxy/add": lambda b: self.studio.galaxy.add(b.get("tracks"), b.get("album_artist"), b.get("total")),
+            "/api/galaxy/control": lambda b: self.studio.galaxy.control(b.get("action"), b.get("ids")),
+            "/api/galaxy/cards": lambda b: self.studio.artist_cards.cards_for(
+                str(b.get("name") or "")[:200], [str(a)[:500] for a in (b.get("albums") or [])[:200]],
+                self.studio.galaxy.state["picks"]),
+            "/api/galaxy/pick": lambda b: self.studio.galaxy.pick(
+                artist_match.match_key(b.get("name")), album_key(b.get("album")), b.get("card")),
             "/api/settings": self.studio.save_settings,
             "/api/lyrics": self.studio.lyrics.view,
             "/api/lyrics/review": self.studio.lyrics.prepare,

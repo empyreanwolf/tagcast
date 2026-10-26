@@ -41,6 +41,12 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v11** Galaxy (your GD downloader) inside Downloads: Artist / Album / Track search on netease,
+  joox, bilibili; artists who share a name get separate cards (MusicBrainz, Deezer, your
+  library) with "Which artist?" remembered; exact albums only; one queue with pause, cancel,
+  retry, move to top, clear, progress, speed and time left; 45 API calls per 5 minutes with
+  backoff; 320 → 128 kbps → other source; preview rejection; tags + cover (needs `mutagen`,
+  installed automatically). Duplicates wait in Needs your decision.
 - **v10** Artist cleanup runs in the background: close its window and keep browsing, playing
   and using Downloads. A bar at the bottom shows the progress (Open / Stop). When it ends: a
   chime (error sound on failure), a message and a Windows notification. Album edits saved

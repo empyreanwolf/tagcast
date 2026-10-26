@@ -195,6 +195,8 @@ def clean_item(raw, source="manual"):
     link = text(raw.get("link")).strip()
     if link:
         item["link"] = link[:2000]
+    if isinstance(raw.get("payload"), dict) and len(json.dumps(raw["payload"])) < 20000:
+        item["payload"] = raw["payload"]  # what the source needs to fetch it (e.g. a Galaxy song id)
     return item
 
 
@@ -344,6 +346,8 @@ class Downloads:
                       "imports": data.get("imports") if isinstance(data.get("imports"), dict) else {}}
         self._history_index = None
         self._library_index = (None, None)
+        self.on_queued = None  # set by a source that downloads queued items (Galaxy)
+        self._last_persist = 0.0
 
     def _persist(self):
         self.studio._write(STATE_FILE, self.state)
@@ -375,7 +379,7 @@ class Downloads:
 
     def queue_view(self):
         with self.lock:
-            return {"queue": list(reversed(self.state["queue"][-500:])), "held": list(self.state["held"])}
+            return {"queue": [dict(i) for i in self.state["queue"][-1000:]], "held": list(self.state["held"])}
 
     def history_view(self, query="", source="", offset=0, limit=HISTORY_PAGE):
         offset, limit = max(0, number(offset)), min(200, max(1, number(limit) or HISTORY_PAGE))
@@ -402,8 +406,9 @@ class Downloads:
 
     # -- writing ---------------------------------------------------------------
 
-    def submit(self, items, source="manual"):
-        """Queue new items; hold everything you may already have for your decision."""
+    def submit(self, items, source="manual", pre_check=None):
+        """Queue new items; hold everything you may already have for your decision.
+        ``pre_check(item)`` may report one more place you have it (e.g. the download folder)."""
         if not isinstance(items, list) or not items or len(items) > MAX_ITEMS:
             raise LibraryError(f"Add between 1 and {MAX_ITEMS} items.")
         cleaned = [clean_item(i, source) for i in items]
@@ -417,6 +422,10 @@ class Downloads:
                     continue  # already queued or already waiting for you
                 waiting.add(self._same(item))
                 result = check_item(item, library_index, history_index)
+                if result["status"] == "new" and pre_check:
+                    hit = pre_check(item)
+                    if hit:
+                        result = {"status": "folder", "you_have": [hit]}
                 row = {**item, "id": secrets.token_hex(6), "added": time.time(), **result}
                 if result["status"] == "new":
                     row["state"] = "queued"
@@ -426,10 +435,15 @@ class Downloads:
                     self.state["held"].append(row)
                     held.append(row)
             self._persist()
+        if queued and self.on_queued:
+            self.on_queued()
         return {"queued": len(queued), "held": len(held), "skipped": len(cleaned) - len(queued) - len(held)}
 
     @staticmethod
     def _same(item):
+        payload = item.get("payload")
+        if isinstance(payload, dict) and payload.get("id"):
+            return (item.get("source"), str(payload.get("source")), str(payload["id"]))
         return (item.get("kind"), song_key(item.get("title")), match.match_key(item.get("artist")), item.get("source"))
 
     def decide(self, ids, action):
@@ -452,6 +466,8 @@ class Downloads:
                     item["state"] = "skipped"
                 self.state["queue"].append(item)
             self._persist()
+        if action == "download" and self.on_queued:
+            self.on_queued()
         return {"decided": len(chosen), "action": action, "missing": len(wanted) - len(chosen)}
 
     def remove(self, ids):
@@ -462,6 +478,63 @@ class Downloads:
             self.state["queue"] = [i for i in self.state["queue"] if i["id"] not in wanted]
             self._persist()
             return {"removed": before - len(self.state["queue"])}
+
+    # -- used by the download thread of a source ------------------------------------------
+
+    def item(self, item_id):
+        with self.lock:
+            return next((dict(i) for i in self.state["queue"] if i["id"] == item_id), None)
+
+    def update_item(self, item_id, persist=False, **fields):
+        """Progress updates stay in memory (saved at most every 5 s); state changes are saved."""
+        with self.lock:
+            for item in self.state["queue"]:
+                if item["id"] == item_id:
+                    item.update(fields)
+                    break
+            else:
+                return
+            if persist or time.monotonic() - self._last_persist > 5:
+                self._last_persist = time.monotonic()
+                self._persist()
+
+    def next_queued(self, source):
+        with self.lock:
+            for item in self.state["queue"]:
+                if item.get("state") == "queued" and item.get("source") == source and item.get("payload"):
+                    item.update(state="active", step=0, step_detail="Requesting link…", progress=0, note="")
+                    self._persist()
+                    return dict(item)
+        return None
+
+    def has_queued(self, source):
+        with self.lock:
+            return any(i.get("state") == "queued" and i.get("source") == source and i.get("payload")
+                       for i in self.state["queue"])
+
+    def requeue(self, ids=None):
+        """Retry failed items (all of them when ``ids`` is None)."""
+        wanted = set(ids) if ids else None
+        with self.lock:
+            for item in self.state["queue"]:
+                if item.get("state") == "failed" and (wanted is None or item["id"] in wanted):
+                    item.update(state="queued", note="", step=-1, step_detail="", progress=0)
+            self._persist()
+
+    def move_to_top(self, ids):
+        wanted = set(ids)
+        with self.lock:
+            queue = self.state["queue"]
+            moving = [i for i in queue if i["id"] in wanted and i.get("state") == "queued"]
+            rest = [i for i in queue if i not in moving]
+            first = next((n for n, i in enumerate(rest) if i.get("state") == "queued"), len(rest))
+            self.state["queue"] = rest[:first] + moving + rest[first:]
+            self._persist()
+
+    def clear_state(self, state, keep=None):
+        with self.lock:
+            self.state["queue"] = [i for i in self.state["queue"] if i.get("state") != state or i["id"] == keep]
+            self._persist()
 
     def record(self, entry):
         """Add a finished download to the history (used by the sources from v10 on)."""

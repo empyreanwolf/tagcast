@@ -33,6 +33,9 @@ The application consists of a Python server and a plain JavaScript frontend.
 - `src/tagcast/downloads.py` (fork): Downloads duplicate check against the loaded library and
   the download history, Needs your decision, queue, history import and download folder, kept in
   `downloads.json`; `static/downloads.js` is its page. See `docs/downloads-plan.md`.
+- `src/tagcast/galaxy.py` (fork): GD Studio search and the Galaxy download thread over the Downloads
+  queue (ported from empyreanwolf/gd-music-downloader); `artist_cards.py` tells same-name artists
+  apart (MusicBrainz, Deezer, library). `static/galaxy.js` is the Galaxy tab. Tags need `mutagen`.
 - `src/tagcast/updates.py`: public stable-release checks, version comparison and a
   daily persistent cache, independent of iBroadcast credentials.
 - `src/tagcast/album_guide.py`: opt-in, explicitly started comparison with the bundled

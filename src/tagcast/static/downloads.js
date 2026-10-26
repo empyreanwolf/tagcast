@@ -5,11 +5,11 @@
 // Galaxy/Telegram histories and choose the download folder. Duplicates are never
 // queued automatically, and nothing is uploaded to iBroadcast.
 const downloadsView = {
-  tab: "check", lines: "", info: null, queue: null, held: null, results: null, checkKind: "song",
+  tab: "galaxy", lines: "", galaxy: null, poll: null, info: null, queue: null, held: null, results: null, checkKind: "song",
   history: {query: "", source: "", offset: 0, data: null}, picked: new Set(), busy: false, timer: null,
 };
-const downloadsTabs = [["check", "Check"], ["decide", "Needs your decision"], ["queue", "Queue & history"], ["settings", "Folder & imports"]];
-const downloadsStatusLabels = {have: "In iBroadcast", partly: "Partly (other edition)", downloaded: "Downloaded before", new: "New"};
+const downloadsTabs = [["galaxy", "Galaxy"], ["check", "Check"], ["decide", "Needs your decision"], ["queue", "Queue & history"], ["settings", "Folder & imports"]];
+const downloadsStatusLabels = {have: "In iBroadcast", partly: "Partly (other edition)", downloaded: "Downloaded before", folder: "In your download folder", new: "New"};
 const downloadsSourceLabels = {galaxy: "Galaxy", telegram: "Telegram", bandcamp: "Bandcamp", soulseek: "Soulseek", manual: "Added here"};
 
 function downloadsDate(seconds) {
@@ -38,12 +38,44 @@ function showDownloads(tab) {
 
 async function loadDownloads() {
   try {
-    const [info, queue] = await Promise.all([api("/api/downloads"), api("/api/downloads/queue")]);
-    downloadsView.info = info; downloadsView.queue = queue.queue; downloadsView.held = queue.held;
+    const [info, queue, galaxy] = await Promise.all([api("/api/downloads"), api("/api/downloads/queue"), api("/api/galaxy/status")]);
+    downloadsView.info = info; downloadsView.queue = queue.queue; downloadsView.held = queue.held; downloadsView.galaxy = galaxy;
     for (const id of [...downloadsView.picked]) if (!queue.held.some(h => h.id === id)) downloadsView.picked.delete(id);
     if (downloadsView.tab === "queue") await loadDownloadsHistory();
     renderDownloads();
+    downloadsPoll();
   } catch (error) { downloadsError(error); }
+}
+
+// While songs download, refresh only the queue box and the Galaxy status line (never the
+// fields you are typing in), every 1.5 s, and only while the Downloads page is open.
+function downloadsBusy() {
+  return (downloadsView.queue || []).some(i => i.state === "active" || (i.state === "queued" && i.payload));
+}
+
+function downloadsPoll() {
+  clearTimeout(downloadsView.poll);
+  if (state.screen !== "downloads" || !downloadsBusy()) return;
+  downloadsView.poll = setTimeout(async () => {
+    if (state.screen !== "downloads") return;
+    try {
+      const before = downloadsView.held?.length || 0;
+      const [queue, galaxy] = await Promise.all([api("/api/downloads/queue"), api("/api/galaxy/status")]);
+      const failed = (downloadsView.queue || []).filter(i => i.state === "failed").length;
+      downloadsView.queue = queue.queue; downloadsView.held = queue.held; downloadsView.galaxy = galaxy;
+      if (queue.queue.filter(i => i.state === "failed").length > failed) artistCleanupAlarm();
+      if ($("#dl-queue-box")) $("#dl-queue-box").innerHTML = downloadsQueueBoxHtml();
+      if ($("#galaxy-status")) $("#galaxy-status").innerHTML = galaxyStatusHtml();
+      if (before !== queue.held.length) $("#downloads-tabs").innerHTML = downloadsTabsHtml();
+    } catch { /* the next full load shows the error */ }
+    downloadsPoll();
+  }, 1500);
+}
+
+function downloadsTabsHtml() {
+  const view = downloadsView, held = view.held?.length || 0;
+  return downloadsTabs.map(([key, label]) => `<button type="button" role="tab" data-downloads-tab="${key}"
+    aria-selected="${view.tab === key}" tabindex="${view.tab === key ? 0 : -1}">${label}${key === "decide" && held ? ` <b class="dl-count">${held}</b>` : ""}</button>`).join("");
 }
 
 async function loadDownloadsHistory() {
@@ -53,15 +85,14 @@ async function loadDownloadsHistory() {
 }
 
 function renderDownloads() {
-  const view = downloadsView, held = view.held?.length || 0;
-  $("#downloads-tabs").innerHTML = downloadsTabs.map(([key, label]) => `<button type="button" role="tab" data-downloads-tab="${key}"
-    aria-selected="${view.tab === key}" tabindex="${view.tab === key ? 0 : -1}">${label}${key === "decide" && held ? ` <b class="dl-count">${held}</b>` : ""}</button>`).join("");
-  const body = {check: downloadsCheckHtml, decide: downloadsDecideHtml, queue: downloadsQueueHtml, settings: downloadsSettingsHtml}[view.tab]();
+  const view = downloadsView;
+  $("#downloads-tabs").innerHTML = downloadsTabsHtml();
+  const body = {galaxy: galaxyHtml, check: downloadsCheckHtml, decide: downloadsDecideHtml, queue: downloadsQueueHtml, settings: downloadsSettingsHtml}[view.tab]();
   $("#downloads-content").innerHTML = body;
 }
 
 function downloadsYouHave(rows) {
-  return (rows || []).map(r => r.where === "ibroadcast"
+  return (rows || []).map(r => r.where === "folder" ? `<span>In your download folder: ${escapeHtml(r.path || r.title)}</span>` : r.where === "ibroadcast"
     ? `<span>iBroadcast: ${escapeHtml(r.title)} · ${escapeHtml(r.artist)}${r.album ? ` · <i>${escapeHtml(r.album)}</i>` : ""}${r.tracks ? ` · ${r.tracks} tracks` : ""}</span>`
     : `<span>Downloaded ${escapeHtml(downloadsDate(r.when) || "before")} via ${escapeHtml(downloadsSourceLabels[r.source] || r.source || "?")}: ${escapeHtml(r.title)}${r.artist ? ` · ${escapeHtml(r.artist)}` : ""}${r.songs ? ` (${r.songs} songs)` : ""}</span>`).join("");
 }
@@ -84,7 +115,7 @@ function downloadsCheckHtml() {
     ${results ? `<p class="dl-summary" role="status">${counts.map(([s, n]) => `<span class="dl-badge ${s}">${n} ${downloadsStatusLabels[s]}</span>`).join(" ") || "Nothing to check."}</p>
     <ul class="dl-list">${results.map(r => `<li><span class="dl-badge ${r.status}">${downloadsStatusLabels[r.status]}</span>
       <div><div>${downloadsItemLabel(r)}</div><div class="dl-have">${downloadsYouHave(r.you_have)}</div></div></li>`).join("")}</ul>` : ""}
-    <p class="muted">Bandcamp, Soulseek, Galaxy, Telegram and artist discographies arrive in later versions (v10–v14).</p>`;
+    <p class="muted">Items added here wait in the queue until a source can fetch them; Galaxy searches and downloads on its own tab. Bandcamp, Soulseek, Telegram and artist discographies arrive in later versions.</p>`;
 }
 
 function downloadsDecideHtml() {
@@ -104,17 +135,53 @@ function downloadsDecideHtml() {
         <button type="button" class="button small" data-downloads-one="download" data-id="${escapeHtml(h.id)}">Download anyway</button></div></li>`).join("")}</ul>`;
 }
 
+const downloadsSteps = ["Got link", "Downloading", "Cover", "Tagging", "Saved"];
+
+function downloadsSeconds(s) {
+  s = Math.round(s || 0);
+  return s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`;
+}
+
+function downloadsQueueBoxHtml() {
+  const queue = downloadsView.queue || [], g = downloadsView.galaxy;
+  const count = st => queue.filter(i => i.state === st).length;
+  const order = {active: 0, queued: 1, failed: 2, done: 3, skipped: 4};
+  const rows = [...queue].map((item, index) => ({item, index})).sort((a, b) => (order[a.item.state] ?? 5) - (order[b.item.state] ?? 5)
+    || (["done", "skipped"].includes(a.item.state) ? b.index - a.index : a.index - b.index)).map(r => r.item);
+  const queuedTotal = count("queued") + count("active"), doneTotal = count("done");
+  const overall = queuedTotal + doneTotal ? Math.round(doneTotal / (queuedTotal + doneTotal) * 100) : 0;
+  const label = i => i.state === "active" ? `Step ${Math.max(1, (i.step ?? 0) + 1)}/5 · ${downloadsSteps[i.step] || "Starting"}`
+    : i.state === "queued" ? (i.payload ? (i.allow_duplicate ? "Waiting (you chose Download anyway)" : "Waiting") : "Waits for a source")
+    : {done: "Saved", failed: "Failed", skipped: "Skipped"}[i.state] || i.state;
+  const badge = i => ({active: "downloaded", queued: "new", done: "have", failed: "partly", skipped: "partly"}[i.state] || "new");
+  return `<div class="dl-actions dl-queue-controls">
+      <button type="button" class="button small" data-galaxy-control="${g?.paused ? "resume" : "pause"}">${g?.paused ? "▶ Resume" : "⏸ Pause"}</button>
+      <button type="button" class="button small" data-galaxy-control="cancel" ${g?.active ? "" : "disabled"}>⏹ Cancel current</button>
+      <button type="button" class="button small" data-galaxy-control="retry" ${count("failed") ? "" : "disabled"}>Retry failed (${count("failed")})</button>
+      <button type="button" class="button small" data-galaxy-control="clear_done" ${doneTotal ? "" : "disabled"}>Clear done</button>
+      <button type="button" class="button small" data-galaxy-control="clear_waiting" ${count("queued") ? "" : "disabled"}>Clear waiting</button>
+      <button type="button" class="button small" data-galaxy-control="clear_failed" ${count("failed") ? "" : "disabled"}>Clear failed</button>
+      <button type="button" class="button small" data-galaxy-control="clear_skipped" ${count("skipped") ? "" : "disabled"}>Clear skipped</button></div>
+    <p class="muted" role="status">${galaxyStatusHtml()}</p>
+    ${queuedTotal + doneTotal ? `<div class="dl-overall"><span>Overall: ${doneTotal} of ${queuedTotal + doneTotal} saved</span><progress max="100" value="${overall}" aria-label="Overall progress"></progress></div>` : ""}
+    ${rows.length ? `<ul class="dl-list">${rows.map(i => `<li class="dl-job ${escapeHtml(i.state)}"><span class="dl-badge ${badge(i)}">${escapeHtml(label(i))}</span>
+      <div>${downloadsItemLabel(i)}${i.album ? ` <span class="muted">· ${escapeHtml(i.album)}</span>` : ""}
+        ${i.state === "active" ? `<div class="dl-progress"><progress max="100" value="${i.progress || 0}" aria-label="Download progress"></progress>
+          <span class="muted">${escapeHtml(i.step_detail || "")}${i.eta ? ` · ${downloadsSeconds(i.eta)} left` : ""}</span></div>` : ""}
+        <div class="muted">${escapeHtml(downloadsSourceLabels[i.source] || i.source)}${i.state === "done" ? ` · ${escapeHtml(i.path || "")}` : ""}${i.note && i.state !== "done" ? ` · ${escapeHtml(i.note)}` : i.state === "done" && i.note && i.note !== "Saved" ? ` · ${escapeHtml(i.note)}` : ""}</div></div>
+      <div class="dl-row-actions">
+        ${i.state === "failed" ? `<button type="button" class="button small" data-galaxy-control="retry" data-id="${escapeHtml(i.id)}">Retry</button>` : ""}
+        ${i.state === "queued" && i.payload ? `<button type="button" class="button small" data-galaxy-control="top" data-id="${escapeHtml(i.id)}" title="Move to top">⤒</button>` : ""}
+        <button type="button" class="button small" ${i.payload ? `data-galaxy-control="remove" data-id="${escapeHtml(i.id)}"` : `data-downloads-remove="${escapeHtml(i.id)}"`}
+          aria-label="${i.state === "active" ? "Cancel" : "Remove"} ${escapeHtml(i.title)}">${i.state === "active" ? "Cancel" : "✕"}</button></div></li>`).join("")}</ul>`
+      : '<p class="muted">The queue is empty. Search on the Galaxy tab and press Download.</p>'}`;
+}
+
 function downloadsQueueHtml() {
-  const queue = downloadsView.queue || [], h = downloadsView.history, data = h.data;
-  const stateLabel = item => item.state === "skipped" ? "Skipped" : item.state === "queued"
-    ? (item.allow_duplicate ? "Queued (you chose Download anyway)" : "Queued · waits for a source (v10+)") : item.state;
+  const h = downloadsView.history, data = h.data;
   const sources = Object.entries(downloadsView.info?.history_sources || {});
   const pages = data ? Math.ceil(data.total / 50) : 0, page = Math.floor(h.offset / 50);
-  return `<h3>Queue</h3>
-    ${queue.length ? `<ul class="dl-list">${queue.map(i => `<li><span class="dl-badge ${i.state === "skipped" ? "partly" : "new"}">${escapeHtml(stateLabel(i))}</span>
-      <div>${downloadsItemLabel(i)}<div class="muted">${escapeHtml(downloadsSourceLabels[i.source] || i.source)} · added ${escapeHtml(downloadsDate(i.added))}</div></div>
-      <button type="button" class="button small" data-downloads-remove="${escapeHtml(i.id)}" aria-label="Remove ${escapeHtml(i.title)} from the list">Remove</button></li>`).join("")}</ul>`
-      : '<p class="muted">The queue is empty.</p>'}
+  return `<h3>Queue</h3><div id="dl-queue-box">${downloadsQueueBoxHtml()}</div>
     <h3>History <span class="muted">${downloadsView.info ? `${downloadsView.info.history.toLocaleString("en")} songs` : ""}</span></h3>
     <div class="toolbar dl-history-tools"><div class="search"><span aria-hidden="true">⌕</span><input id="downloads-history-search" maxlength="200" placeholder="Search the history" aria-label="Search the download history" value="${escapeHtml(h.query)}"></div>
       <select id="downloads-history-source" aria-label="Source"><option value="">All sources</option>${sources.map(([s, n]) => `<option value="${escapeHtml(s)}" ${h.source === s ? "selected" : ""}>${escapeHtml(downloadsSourceLabels[s] || s)} (${n})</option>`).join("")}</select></div>
@@ -191,6 +258,16 @@ document.addEventListener("click", event => {
       const data = await api("/api/downloads/decide", {ids, action});
       for (const id of ids) downloadsView.picked.delete(id);
       downloadsNote(`${data.decided} ${action === "skip" ? "skipped" : "added to the queue"}.`);
+      await loadDownloads();
+    });
+    return;
+  }
+  const control = target.closest("[data-galaxy-control]");
+  if (control) {
+    const action = control.dataset.galaxyControl, id = control.dataset.id;
+    if (action.startsWith("clear_") && !confirm(`${control.textContent.trim()}? This only changes the list; downloaded files stay.`)) return;
+    downloadsRun(async () => {
+      downloadsView.galaxy = await api("/api/galaxy/control", {action, ids: id ? [id] : []});
       await loadDownloads();
     });
     return;

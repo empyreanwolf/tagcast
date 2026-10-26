@@ -26,11 +26,13 @@ from . import __version__, artwork, auth
 from .album_guide import AlbumGuide
 from .album_info import AlbumInformation
 from .artist_bios import ArtistBiographies
+from .artist_cards import ArtistCards
 from .artist_cleanup import ArtistCleanup
 from .cleanup import Cleanup
 from .collections import Collections
 from .downloads import Downloads
 from .duplicate_cleanup import DuplicateCleanup
+from .galaxy import Galaxy
 from .library import (
     ConflictError,
     Library,
@@ -378,6 +380,8 @@ class Studio:
         self.cleanup = Cleanup(self)
         self.artist_cleanup = ArtistCleanup(self)
         self.download_manager = Downloads(self)  # self.downloads counts library downloads
+        self.galaxy = Galaxy(self)
+        self.artist_cards = ArtistCards(self)
         self.duplicate_cleanup = DuplicateCleanup(self)
         tokens = self._read("tokens.json")
         if tokens and tokens.get("client_id") == self.client_id and tokens.get("token_set"):

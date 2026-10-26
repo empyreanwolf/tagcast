@@ -38,7 +38,7 @@ goto :launch
 
 :launch
 rem Upgrade dependencies in an existing source environment without clearing it.
-".venv\Scripts\python.exe" -c "import websocket" >nul 2>nul
+".venv\Scripts\python.exe" -c "import websocket, mutagen" >nul 2>nul
 if errorlevel 1 (
   ".venv\Scripts\python.exe" -m pip install --quiet -e . || goto :failed
 )
