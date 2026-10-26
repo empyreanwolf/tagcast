@@ -165,6 +165,7 @@ function downloadsQueueBoxHtml() {
     <p class="muted" role="status">${galaxyStatusHtml()}</p>
     ${queuedTotal + doneTotal ? `<div class="dl-overall"><span>Overall: ${doneTotal} of ${queuedTotal + doneTotal} saved</span><progress max="100" value="${overall}" aria-label="Overall progress"></progress></div>` : ""}
     ${rows.length ? `<ul class="dl-list">${rows.map(i => `<li class="dl-job ${escapeHtml(i.state)}"><span class="dl-badge ${badge(i)}">${escapeHtml(label(i))}</span>
+      ${i.payload ? galaxyThumb(i.payload.source, i.payload.pic_id, 100) : ""}
       <div>${downloadsItemLabel(i)}${i.album ? ` <span class="muted">· ${escapeHtml(i.album)}</span>` : ""}
         ${i.state === "active" ? `<div class="dl-progress"><progress max="100" value="${i.progress || 0}" aria-label="Download progress"></progress>
           <span class="muted">${escapeHtml(i.step_detail || "")}${i.eta ? ` · ${downloadsSeconds(i.eta)} left` : ""}</span></div>` : ""}

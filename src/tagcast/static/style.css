@@ -1098,3 +1098,13 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 .dl-progress{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0}
 .dl-queue-controls .button{white-space:nowrap}
 @media (max-width:760px){.galaxy-album-head{flex-direction:column}.galaxy-search .dl-path{flex-basis:100%}}
+
+/* Galaxy covers (fork v11.2) */
+.galaxy-thumb{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:6px;overflow:hidden;background:var(--palette-soft,#f0f3ed);color:var(--muted);font-size:18px;vertical-align:middle}
+.galaxy-thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.galaxy-thumb.galaxy-cover{width:160px;height:160px;border-radius:10px;font-size:40px}
+.galaxy-thumb.galaxy-album-art{width:64px;height:64px;font-size:24px}
+.galaxy-albums{display:grid!important;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px!important}
+.galaxy-albums li{flex-direction:column;align-items:flex-start!important;padding:10px;border:1px solid var(--line);border-radius:10px}
+.galaxy-album-card{display:flex;gap:10px;align-items:center;padding:0;border:0;background:transparent;color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+.galaxy-album-card:hover b{text-decoration:underline}

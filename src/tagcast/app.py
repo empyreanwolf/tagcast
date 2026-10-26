@@ -226,6 +226,8 @@ class Handler(SimpleHTTPRequestHandler):
         elif url.path == "/api/downloads/history":
             self._run(lambda: self.studio.download_manager.history_view(
                 query.get("q", ""), query.get("source", ""), query.get("offset", "0"), query.get("limit", "50")))
+        elif url.path == "/api/galaxy/cover":
+            self._cover(query)
         elif url.path == "/api/galaxy/status":
             self._run(self.studio.galaxy.status)
         elif url.path == "/api/downloads/find-galaxy":
@@ -337,6 +339,30 @@ class Handler(SimpleHTTPRequestHandler):
             self._json(404, {"error": "Unknown endpoint."})
             return
         self._run(lambda: routes[path](self._body()))
+
+    def _cover(self, query):
+        """A Galaxy cover picture for <img>; 404 when there is none (the page shows ♪)."""
+        try:
+            data = self.studio.galaxy.thumbnail(query.get("source"), query.get("pic_id"), query.get("size", "300"))
+        except LibraryError:
+            data = None
+        except Exception:
+            logging.exception("Galaxy cover failed")
+            data = None
+        try:
+            if not data:
+                self.send_response(404)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png" if data[:4] == b"\x89PNG" else "image/jpeg")
+            self.send_header("Cache-Control", "private, max-age=604800")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection = True
 
     def _metadata_download(self, job_id, session):
         """Stream the prepared private file without buffering it in a JSON response."""

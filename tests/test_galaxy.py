@@ -253,6 +253,24 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(self.manager.state["queue"][0]["state"], "done")
 
 
+class CoverTests(unittest.TestCase):
+    def test_covers_are_cached_and_netease_needs_no_api_call(self):
+        studio = LocalStudio()
+        studio.home = tempfile.mkdtemp()
+        g = studio.galaxy
+        self.assertEqual(g.thumbnail("netease", "109951", 300), JPEG)
+        self.assertEqual([c for c in studio.gd.calls if c["types"] == "pic"], [])
+        g.fetch = lambda url, **kw: FakeResponse(500)  # cached on disk: no new download
+        self.assertEqual(g.thumbnail("netease", "109951", 300), JPEG)
+        # joox needs one low-priority API call; a missing cover is not asked for again.
+        self.assertIsNone(g.thumbnail("joox", "abc", 300))
+        calls = len(studio.gd.calls)
+        self.assertIsNone(g.thumbnail("joox", "abc", 300))
+        self.assertEqual(len(studio.gd.calls), calls)
+        with self.assertRaises(GalaxyError):
+            g.thumbnail("netease", "../etc", 300)
+
+
 class FakeHttp:
     def __init__(self, answers):
         self.answers, self.calls = answers, []

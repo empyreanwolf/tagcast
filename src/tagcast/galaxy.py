@@ -527,6 +527,8 @@ class Galaxy:
         self.waiting_until = 0.0
         self.active = None  # id of the song downloading now
         self._t0 = 0.0
+        self._cover_gate = threading.Semaphore(2)
+        self._cover_memory, self._cover_misses = {}, {}
         manager = studio.download_manager
         manager.on_queued = self.ensure_worker  # "Download anyway" restarts the thread
         with manager.lock:  # a download that was running when Tagcast stopped starts again
@@ -592,10 +594,11 @@ class Galaxy:
             tracks = artist_tracks(self.api, source, query)
             albums = {}
             for t in tracks:
-                albums.setdefault(t["album"] or "Unknown Album", 0)
-                albums[t["album"] or "Unknown Album"] += 1
+                entry = albums.setdefault(t["album"] or "Unknown Album", {"songs": 0, "source": t["source"], "pic_id": ""})
+                entry["songs"] += 1
+                entry["pic_id"] = entry["pic_id"] or t["pic_id"]
             return {"mode": mode, "query": query, "source": source, "tracks": self._annotate(tracks),
-                    "albums": [{"name": n, "songs": c} for n, c in albums.items()], **self.status()}
+                    "albums": [{"name": n, **e} for n, e in albums.items()], **self.status()}
         if mode == "track":
             return {"mode": mode, "query": query, "source": source,
                     "tracks": self._annotate(self.api.search(source, query, SEARCH_COUNT, 1)), **self.status()}
@@ -619,7 +622,7 @@ class Galaxy:
         cover = next((t for t in tracks if t["pic_id"]), None)
         return {"mode": "album", "query": album, "source": source, "found": True, "album": found,
                 "album_artist": album_artist, "tracks": rows,
-                "cover": netease_pic_url(cover["pic_id"], 300) if cover and cover["source"] == "netease" else "",
+                "cover": {"source": cover["source"], "pic_id": cover["pic_id"]} if cover else None,
                 **self.status()}
 
     # -- queueing --------------------------------------------------------------------
@@ -925,16 +928,16 @@ class Galaxy:
             raise JobFailed(f"Preview only ({real:.0f}s" + (f", {why})" if why else ")"))
         return fmt
 
-    def fetch_cover(self, p):
+    def fetch_cover(self, p, size=500):
         if not p.get("pic_id"):
             return None
         urls = []
         if p["source"] == "netease":
-            urls.append(netease_pic_url(p["pic_id"], 500))
+            urls.append(netease_pic_url(p["pic_id"], size))
         for url in urls + [None]:
             try:
                 if url is None:
-                    url = self.api.pic(p["source"], p["pic_id"], 500, low=True)
+                    url = self.api.pic(p["source"], p["pic_id"], size, low=True)
                     if not url:
                         return None
                 r = self.fetch(url, timeout=20)
@@ -945,6 +948,51 @@ class Galaxy:
             except Exception as e:
                 log.info("Galaxy cover fetch failed: %s", e)
         return None
+
+    # -- cover pictures for the page ---------------------------------------------------
+    # Like the Galaxy app's cover cache: NetEase covers come straight from NetEase (no API
+    # call); other sources use a low-priority API call that never takes the slots downloads
+    # need. Pictures are kept on disk (galaxy-covers in the settings folder, at most 3,000);
+    # a cover that could not be found is not asked for again within an hour.
+
+    def _cover_dir(self):
+        home = getattr(self.studio, "home", None)
+        return Path(home) / "galaxy-covers" if home else None
+
+    def thumbnail(self, source, pic_id, size=300):
+        source = self._source(source)
+        pic_id = str(pic_id or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_.\-]{1,200}", pic_id):
+            raise GalaxyError("Unknown cover.")
+        size = to_int(size, 300)
+        size = 100 if size <= 100 else 300 if size <= 300 else 500
+        key = f"{source}_{pic_id}_{size}"
+        folder = self._cover_dir()
+        path = folder / f"{hashlib.sha1(key.encode()).hexdigest()}.img" if folder else None
+        if path and path.is_file():
+            return path.read_bytes()
+        if key in self._cover_memory:
+            return self._cover_memory[key]
+        if self._cover_misses.get(key, 0) > time.time() - 3600:
+            return None
+        with self._cover_gate:  # at most two fetches at once
+            data = self.fetch_cover({"source": source, "pic_id": pic_id}, size)
+        if not data:
+            self._cover_misses[key] = time.time()
+            return None
+        if path:
+            try:
+                folder.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+                files = list(folder.glob("*.img"))
+                if len(files) > 3000:
+                    for old in sorted(files, key=lambda f: f.stat().st_mtime)[:500]:
+                        old.unlink(missing_ok=True)
+            except OSError:
+                pass
+        else:
+            self._cover_memory[key] = data
+        return data
 
     # -- remembered artist choices (used by the artist cards) ----------------------------
 

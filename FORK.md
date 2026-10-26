@@ -41,6 +41,9 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v11.2** Galaxy shows album covers, as in the Galaxy app: on every song row, album card, the
+  album page and the queue. Tagcast fetches them (NetEase without using the API limit; other
+  sources with a low-priority call) and keeps them in `galaxy-covers` in the settings folder.
 - **v11.1** The Windows launcher repairs a `.venv` that can no longer load Tagcast (moved folder or
   interrupted update): it reinstalls, and rebuilds `.venv` once if needed.
 - **v11** Galaxy (your GD downloader) inside Downloads: Artist / Album / Track search on netease,

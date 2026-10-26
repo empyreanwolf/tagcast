@@ -202,6 +202,7 @@
 :root[data-theme="dark"] .galaxy-card img,:root[data-theme="dark"] .galaxy-card-letter{background:var(--palette-soft,#2b2c2a)}
 :root[data-theme="dark"] .galaxy-yours{color:#9bd99e}
 :root[data-theme="dark"] .galaxy-unsure select{background:var(--palette-surface,#1b2520)}
+:root[data-theme="dark"] .galaxy-thumb{background:var(--palette-soft,#2b2c2a)}
 
 /* set by hand */
 :root[data-theme="dark"]{color-scheme:dark}
@@ -419,6 +420,7 @@
 :root:not([data-theme="light"]) .galaxy-card img,:root:not([data-theme="light"]) .galaxy-card-letter{background:var(--palette-soft,#2b2c2a)}
 :root:not([data-theme="light"]) .galaxy-yours{color:#9bd99e}
 :root:not([data-theme="light"]) .galaxy-unsure select{background:var(--palette-surface,#1b2520)}
+:root:not([data-theme="light"]) .galaxy-thumb{background:var(--palette-soft,#2b2c2a)}
 
 /* set by hand */
 :root:not([data-theme="light"]){color-scheme:dark}
