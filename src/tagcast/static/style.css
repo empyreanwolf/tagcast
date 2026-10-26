@@ -1108,3 +1108,8 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 .galaxy-albums li{flex-direction:column;align-items:flex-start!important;padding:10px;border:1px solid var(--line);border-radius:10px}
 .galaxy-album-card{display:flex;gap:10px;align-items:center;padding:0;border:0;background:transparent;color:var(--ink);font:inherit;text-align:left;cursor:pointer}
 .galaxy-album-card:hover b{text-decoration:underline}
+
+/* Galaxy settings (fork v12) */
+.dl-settings{display:grid;gap:10px;margin:8px 0}
+.dl-settings label{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;max-width:520px}
+.dl-settings input{width:90px;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--palette-surface,#fff);color:var(--ink)}

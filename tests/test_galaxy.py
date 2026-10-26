@@ -68,6 +68,19 @@ def fetch(url, **kw):
     return FakeResponse(404)
 
 
+class FakeMB:
+    """MusicBrainz answers: nothing unless a test sets one."""
+
+    def __init__(self):
+        self.answers, self.years = {}, {}
+
+    def lookup(self, artists, title, album):
+        return self.answers.get(title)
+
+    def album_year(self, artist, album):
+        return self.years.get(album, "")
+
+
 class LocalStudio(DownloadsStudio):
     def __init__(self):
         super().__init__()
@@ -75,7 +88,8 @@ class LocalStudio(DownloadsStudio):
         self.download_manager.set_folder(str(self.folder))
         self.gd = FakeGD()
         limiter = QuotaLimiter(interval=0)
-        self.galaxy = Galaxy(self, api=gx.GDApi(limiter, self.gd), fetch=fetch, track_delay=0)
+        self.mb = FakeMB()
+        self.galaxy = Galaxy(self, api=gx.GDApi(limiter, self.gd), fetch=fetch, track_delay=0, mb=self.mb)
         self.galaxy.limiter = limiter
 
 
@@ -251,6 +265,78 @@ class DownloadTests(unittest.TestCase):
         self.manager.decide([held[0]["id"]], "download")
         wait_idle(self.studio)
         self.assertEqual(self.manager.state["queue"][0]["state"], "done")
+
+
+class MusicBrainzTests(unittest.TestCase):
+    def test_lookup_picks_the_matching_release(self):
+        recording = {"id": "rec-1", "title": "Magic", "score": 100, "first-release-date": "2014-03-03",
+                     "artist-credit": [{"name": "Coldplay"}],
+                     "releases": [{"id": "rel-live", "title": "Live 2014", "date": "2014-11-17", "status": "Official",
+                                   "media": [{"track-count": 12, "track": [{"number": "3"}]}]},
+                                  {"id": "rel-1", "title": "Ghost Stories", "date": "2014-05-16", "status": "Official",
+                                   "release-group": {"id": "rg-1"},
+                                   "media": [{"track-count": 9, "track": [{"number": "2"}]}]}]}
+
+        class Http:
+            def json(self, url, params=None, ttl=None):
+                if url.endswith("/recording"):
+                    return {"recordings": [recording, {"title": "Magic", "artist-credit": [{"name": "Other"}]}]}
+                if url.endswith("/rec-1"):
+                    return {"genres": [{"name": "alternative rock", "count": 3}, {"name": "pop", "count": 1}]}
+                if url.endswith("/release"):
+                    return {"releases": [{"title": "Ghost Stories", "date": "2014-05-16"},
+                                         {"title": "Ghost Stories", "date": "2015-01-01"}]}
+                return None
+        mb = gx.MusicBrainz(Http())
+        info = mb.lookup(["Coldplay"], "Magic", "Ghost Stories")
+        self.assertEqual((info["release_id"], info["year"], info["track_no"], info["track_total"], info["genre"]),
+                         ("rel-1", "2014", 2, 9, "Alternative Rock"))
+        self.assertIsNone(mb.lookup(["Nobody"], "Magic", "Ghost Stories"))
+        self.assertEqual(mb.album_year("Coldplay", "Ghost Stories"), "2014")
+
+    def test_download_gets_year_genre_numbers_and_ids(self):
+        studio = LocalStudio()
+        studio.gd.urls[("netease", "1", 320)] = "https://cdn.example/1.mp3"
+        studio.gd.urls[("netease", "2", 320)] = "https://cdn.example/2.mp3"
+        info = {"year": "2014", "genre": "Alternative Rock", "track_no": 2, "track_total": 9,
+                "recording_id": "rec-1", "release_id": "rel-1", "release_title": "Ghost Stories"}
+        studio.mb.answers = {"Magic": info, "Midnight": dict(info, track_no=5)}
+        song_ = lambda i, t, n=None: {"id": str(i), "title": t, "artists": ["Coldplay"], "album": "Ghost Stories",
+                                      "source": "netease", "pic_id": "", "track_no": n}
+        studio.galaxy.add([song_(1, "Magic")])                       # a single song: MusicBrainz numbers it
+        studio.galaxy.add([song_(2, "Midnight", 7)], "Coldplay", 9)  # from a full album: its number stays
+        wait_idle(studio)
+        from mutagen.id3 import ID3
+        items = {i["title"]: i for i in studio.download_manager.state["queue"]}
+        magic = ID3(items["Magic"]["path"])
+        self.assertEqual((str(magic["TDRC"]), str(magic["TCON"]), str(magic["TRCK"])), ("2014", "Alternative Rock", "2/9"))
+        self.assertEqual(str(magic["TXXX:MusicBrainz Album Id"]), "rel-1")
+        self.assertTrue(items["Magic"]["path"].replace("\\", "/").endswith("Ghost Stories/02 - Magic.mp3"))
+        self.assertEqual(str(ID3(items["Midnight"]["path"])["TRCK"]), "7/9")
+        self.assertEqual(items["Midnight"]["note"], "Saved · no cover")
+
+    def test_no_match_still_saves(self):
+        studio = LocalStudio()
+        studio.gd.urls[("netease", "1", 320)] = "https://cdn.example/1.mp3"
+        studio.galaxy.add([{"id": "1", "title": "Ink", "artists": ["Coldplay"], "album": "Ghost Stories", "source": "netease"}])
+        wait_idle(studio)
+        self.assertEqual(studio.download_manager.state["queue"][0]["state"], "done")
+        self.assertIn("year/genre missing", studio.download_manager.state["queue"][0]["note"])
+
+    def test_album_years_and_settings(self):
+        studio = LocalStudio()
+        studio.mb.years = {"Ghost Stories": "2014"}
+        self.assertEqual(studio.galaxy.album_years("Coldplay", ["Ghost Stories", "Unknown Album", "X"])["years"],
+                         {"Ghost Stories": "2014", "X": ""})
+        status = studio.galaxy.save_settings({"track_delay": 10, "api_delay": "2.5", "api_quota": 30})
+        self.assertEqual(status["settings"], {"track_delay": 10.0, "api_delay": 2.5, "api_quota": 30})
+        self.assertEqual((studio.galaxy.limiter.max_calls, studio.galaxy.limiter.interval, studio.galaxy.track_delay),
+                         (30, 2.5, 10.0))
+        for bad in ({"api_quota": 60}, {"track_delay": -1}, {"api_delay": "x"}):
+            with self.assertRaises(GalaxyError):
+                studio.galaxy.save_settings(bad)
+        again = Galaxy(studio, api=studio.galaxy.api, fetch=fetch, mb=studio.mb)
+        self.assertEqual(again.settings()["api_quota"], 30)
 
 
 class CoverTests(unittest.TestCase):

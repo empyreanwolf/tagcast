@@ -41,6 +41,10 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v12** Galaxy part 2: every download is looked up on MusicBrainz for year, genre, track
+  number/total (unless it came from a full album) and MusicBrainz IDs; album cards and the album
+  page show the year. Downloads → Settings has the pause between songs, the pause between API
+  calls and the API quota. (Lyrics and history extras were left out on request.)
 - **v11.2** Galaxy shows album covers, as in the Galaxy app: on every song row, album card, the
   album page and the queue. Tagcast fetches them (NetEase without using the API limit; other
   sources with a low-priority call) and keeps them in `galaxy-covers` in the settings folder.

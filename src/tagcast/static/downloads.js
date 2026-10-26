@@ -8,7 +8,7 @@ const downloadsView = {
   tab: "galaxy", lines: "", galaxy: null, poll: null, info: null, queue: null, held: null, results: null, checkKind: "song",
   history: {query: "", source: "", offset: 0, data: null}, picked: new Set(), busy: false, timer: null,
 };
-const downloadsTabs = [["galaxy", "Galaxy"], ["check", "Check"], ["decide", "Needs your decision"], ["queue", "Queue & history"], ["settings", "Folder & imports"]];
+const downloadsTabs = [["galaxy", "Galaxy"], ["check", "Check"], ["decide", "Needs your decision"], ["queue", "Queue & history"], ["settings", "Settings"]];
 const downloadsStatusLabels = {have: "In iBroadcast", partly: "Partly (other edition)", downloaded: "Downloaded before", folder: "In your download folder", new: "New"};
 const downloadsSourceLabels = {galaxy: "Galaxy", telegram: "Telegram", bandcamp: "Bandcamp", soulseek: "Soulseek", manual: "Added here"};
 
@@ -135,7 +135,7 @@ function downloadsDecideHtml() {
         <button type="button" class="button small" data-downloads-one="download" data-id="${escapeHtml(h.id)}">Download anyway</button></div></li>`).join("")}</ul>`;
 }
 
-const downloadsSteps = ["Got link", "Downloading", "Cover", "Tagging", "Saved"];
+const downloadsSteps = ["Got link", "Downloading", "MusicBrainz lookup", "Tagging", "Saved"];
 
 function downloadsSeconds(s) {
   s = Math.round(s || 0);
@@ -186,7 +186,7 @@ function downloadsQueueHtml() {
     <h3>History <span class="muted">${downloadsView.info ? `${downloadsView.info.history.toLocaleString("en")} songs` : ""}</span></h3>
     <div class="toolbar dl-history-tools"><div class="search"><span aria-hidden="true">⌕</span><input id="downloads-history-search" maxlength="200" placeholder="Search the history" aria-label="Search the download history" value="${escapeHtml(h.query)}"></div>
       <select id="downloads-history-source" aria-label="Source"><option value="">All sources</option>${sources.map(([s, n]) => `<option value="${escapeHtml(s)}" ${h.source === s ? "selected" : ""}>${escapeHtml(downloadsSourceLabels[s] || s)} (${n})</option>`).join("")}</select></div>
-    ${!data ? '<p class="muted">Loading…</p>' : !data.total ? '<p class="muted">No songs yet. Import your Galaxy and Telegram histories under Folder &amp; imports.</p>'
+    ${!data ? '<p class="muted">Loading…</p>' : !data.total ? '<p class="muted">No songs yet. Downloads from Galaxy appear here; you can also import old histories under Settings.</p>'
       : `<table class="dl-table"><thead><tr><th>Song</th><th>Artist</th><th>Album</th><th>Source</th><th>Date</th></tr></thead><tbody>${data.entries.map(e => `<tr>
         <td>${escapeHtml(e.title)}</td><td>${escapeHtml((e.artists || []).join(", ") || "—")}</td><td>${escapeHtml(e.album || "—")}</td>
         <td>${escapeHtml(downloadsSourceLabels[e.source] || e.source || "")}</td><td>${escapeHtml(downloadsDate(e.when))}</td></tr>`).join("")}</tbody></table>
@@ -198,7 +198,15 @@ function downloadsQueueHtml() {
 function downloadsSettingsHtml() {
   const info = downloadsView.info, imports = info?.imports || {};
   const done = kind => imports[kind] ? `<p class="muted">Last import ${escapeHtml(downloadsDate(imports[kind].when))}: ${imports[kind].added} new of ${imports[kind].found} (${escapeHtml(imports[kind].path)}).</p>` : "";
-  return `<section class="dl-card"><h3>Download folder</h3>
+  const gs = downloadsView.galaxy?.settings || {track_delay: 6, api_delay: 1.5, api_quota: 45};
+  return `<section class="dl-card"><h3>Galaxy</h3>
+      <p class="muted">GD Studio allows 50 API calls per 5 minutes; a download uses 2–3. Year, genre and track numbers come from MusicBrainz for every download.</p>
+      <div class="dl-settings">
+        <label>Pause between songs <span><input id="galaxy-track-delay" type="number" min="0" max="600" step="0.5" value="${gs.track_delay}"> s</span></label>
+        <label>Pause between API calls <span><input id="galaxy-api-delay" type="number" min="0" max="60" step="0.1" value="${gs.api_delay}"> s</span></label>
+        <label>API quota <span><input id="galaxy-api-quota" type="number" min="5" max="50" step="1" value="${gs.api_quota}"> calls per 5 min</span></label></div>
+      <div class="dl-actions"><button type="button" class="button primary" data-galaxy-settings>Save Galaxy settings</button></div></section>
+    <section class="dl-card"><h3>Download folder</h3>
       <p class="muted">Every source saves here (as <code>Album Artist\\Album\\## - Title</code>). Tagcast creates the folder if needed.</p>
       <div class="dl-actions"><input id="downloads-folder" class="dl-path" maxlength="400" value="${escapeHtml(info?.folder || "")}" aria-label="Download folder">
       <button type="button" class="button primary" data-downloads-folder>Save folder</button></div>
@@ -279,6 +287,14 @@ document.addEventListener("click", event => {
   if (page) {
     downloadsView.history.offset = Math.max(0, Number(page.dataset.downloadsPage)) * 50;
     downloadsRun(async () => { await loadDownloadsHistory(); renderDownloads(); });
+    return;
+  }
+  if (target.closest("[data-galaxy-settings]")) {
+    downloadsRun(async () => {
+      downloadsView.galaxy = await api("/api/galaxy/settings", {track_delay: $("#galaxy-track-delay").value,
+        api_delay: $("#galaxy-api-delay").value, api_quota: $("#galaxy-api-quota").value});
+      renderDownloads(); downloadsNote("Galaxy settings saved.");
+    });
     return;
   }
   if (target.closest("[data-downloads-folder]")) {

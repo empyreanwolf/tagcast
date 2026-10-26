@@ -48,7 +48,9 @@ API_PERIOD = 300.0
 API_DELAY = 1.5
 TRACK_DELAY = 6.0
 AUDIO_EXTS = ("mp3", "flac", "m4a")
-STEP_NAMES = ["Got link", "Downloading", "Cover", "Tagging", "Saved"]
+STEP_NAMES = ["Got link", "Downloading", "MusicBrainz lookup", "Tagging", "Saved"]
+MB_BASE = "https://musicbrainz.org/ws/2"
+SETTING_LIMITS = {"track_delay": (0, 600), "api_delay": (0, 60), "api_quota": (5, 50)}
 STATE_FILE = "galaxy.json"
 
 
@@ -430,7 +432,8 @@ def read_duration(path, fmt):
     return float(info.length or 0), int((getattr(info, "bitrate", 0) or 0) / 1000)
 
 
-def write_tags(path, fmt, *, title, artists, album_artist, album, track_no, track_total, year="", genre="", cover=None):
+def write_tags(path, fmt, *, title, artists, album_artist, album, track_no, track_total, year="", genre="", cover=None,
+               mb_track_id="", mb_release_id=""):
     """Fresh tags in the native format: ID3v2.4 for MP3, Vorbis comments for FLAC, MP4 atoms for M4A."""
     mime = image_mime(cover or b"")
     artists = list(artists) or ["Unknown Artist"]
@@ -453,13 +456,17 @@ def write_tags(path, fmt, *, title, artists, album_artist, album, track_no, trac
             t["DATE"] = [str(year)]
         if genre:
             t["GENRE"] = [genre]
+        if mb_track_id:
+            t["MUSICBRAINZ_TRACKID"] = [mb_track_id]
+        if mb_release_id:
+            t["MUSICBRAINZ_ALBUMID"] = [mb_release_id]
         if mime:
             pic = Picture()
             pic.type, pic.mime, pic.desc, pic.data = 3, mime, "Cover", cover
             audio.add_picture(pic)
         audio.save(deleteid3=True)
     elif fmt == "m4a":
-        from mutagen.mp4 import MP4, MP4Cover
+        from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
         audio = MP4(str(path))
         if audio.tags is None:
             audio.add_tags()
@@ -473,11 +480,15 @@ def write_tags(path, fmt, *, title, artists, album_artist, album, track_no, trac
             t["\xa9day"] = [str(year)]
         if genre:
             t["\xa9gen"] = [genre]
+        if mb_track_id:
+            t["----:com.apple.iTunes:MusicBrainz Track Id"] = [MP4FreeForm(mb_track_id.encode("utf-8"))]
+        if mb_release_id:
+            t["----:com.apple.iTunes:MusicBrainz Album Id"] = [MP4FreeForm(mb_release_id.encode("utf-8"))]
         if mime:
             t["covr"] = [MP4Cover(cover, imageformat=MP4Cover.FORMAT_JPEG if mime == "image/jpeg" else MP4Cover.FORMAT_PNG)]
         audio.save()
     else:
-        from mutagen.id3 import APIC, ID3, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK
+        from mutagen.id3 import APIC, ID3, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK, TXXX, UFID
         tags = ID3()  # a fresh tag replaces whatever the source embedded
         tags.add(TIT2(encoding=3, text=[title]))
         tags.add(TPE1(encoding=3, text=artists))
@@ -490,6 +501,11 @@ def write_tags(path, fmt, *, title, artists, album_artist, album, track_no, trac
             tags.add(TDRC(encoding=3, text=[str(year)]))
         if genre:
             tags.add(TCON(encoding=3, text=[genre]))
+        if mb_track_id:
+            tags.add(TXXX(encoding=3, desc="MusicBrainz Track Id", text=[mb_track_id]))
+            tags.add(UFID(owner="http://musicbrainz.org", data=mb_track_id.encode("ascii", "ignore")))
+        if mb_release_id:
+            tags.add(TXXX(encoding=3, desc="MusicBrainz Album Id", text=[mb_release_id]))
         if mime:
             tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=cover))
         tags.save(str(path), v2_version=4, v1=0)
@@ -498,9 +514,114 @@ def write_tags(path, fmt, *, title, artists, album_artist, album, track_no, trac
 def tag_preview(track, album_artist, track_no, track_total):
     return [["Title", track.get("title", "")], ["Artists", " ; ".join(track.get("artists") or [])],
             ["Album artist", album_artist], ["Album", track.get("album", "")],
-            ["Track", f"{track_no}/{track_total}" if track_no and track_total else str(track_no or "—")],
+            ["Track", f"{track_no}/{track_total}" if track_no and track_total else str(track_no or "from MusicBrainz")],
             ["Disc", "1/1"], ["Cover", "front cover, 500px"],
-            ["Year / genre", "added in v12 (MusicBrainz)"], ["Format", "MP3 → ID3v2.4 · FLAC → Vorbis · M4A → MP4"]]
+            ["Year", "from MusicBrainz"], ["Genre", "from MusicBrainz"], ["MB IDs", "MusicBrainz Track Id / Album Id"], ["Format", "MP3 → ID3v2.4 · FLAC → Vorbis · M4A → MP4"]]
+
+
+# -- MusicBrainz (as in the Galaxy app; max ~1 request per second) -------------------------
+
+def _phrase(s):
+    return '"' + str(s or "").replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _year(date):
+    m = re.match(r"(\d{4})", str(date or ""))
+    return m.group(1) if m else ""
+
+
+def _top_genre(obj):
+    if not obj:
+        return ""
+    for key in ("genres", "tags"):
+        items = [g for g in (obj.get(key) or []) if g.get("name")]
+        if items:
+            name = str(max(items, key=lambda g: to_int(g.get("count"), 0))["name"]).strip()
+            return " ".join(w[:1].upper() + w[1:] for w in name.split())
+    return ""
+
+
+class MusicBrainz:
+    def __init__(self, http=None):
+        if http is None:
+            from .sources import PACING, Http
+            http = Http(PACING)  # musicbrainz.org is paced at 1.1 s per request
+        self.http = http
+
+    def _get(self, path, params):
+        return self.http.json(f"{MB_BASE}/{path}", {**params, "fmt": "json"}, ttl=86400)
+
+    @staticmethod
+    def _pick(recs, artists, title, album):
+        best = None
+        for rec in recs:
+            t_sim = sim(rec.get("title", ""), title)
+            if t_sim < 0.75:
+                continue
+            names = []
+            for c in rec.get("artist-credit") or []:
+                if isinstance(c, dict):
+                    names += [c.get("name") or "", (c.get("artist") or {}).get("name") or ""]
+            if artists and not any(sim(n, a) >= 0.8 for n in names if n for a in artists):
+                continue
+            mb_score = to_int(rec.get("score"), 0) / 100.0
+            for rel in rec.get("releases") or []:
+                a_sim = sim(rel.get("title", ""), album) if album else 0.5
+                if album and a_sim < 0.6:
+                    continue
+                bonus = 0.05 if rel.get("status") == "Official" else 0.0
+                score = t_sim * 0.4 + a_sim * 0.5 + mb_score * 0.1 + bonus
+                date_key = rel.get("date") or "9999"
+                if best is None or score > best["score"] + 1e-9 or (
+                        abs(score - best["score"]) < 1e-9 and date_key < best["date_key"]):
+                    best = {"score": score, "date_key": date_key, "rec": rec, "rel": rel, "album_sim": a_sim}
+        return best
+
+    def lookup(self, artists, title, album):
+        """{year, track_no, track_total, genre, recording_id, release_id, release_title} or None."""
+        base = f"recording:{_phrase(title)}" + (f" AND artist:{_phrase(artists[0])}" if artists else "")
+        best = None
+        for q in ([base + f" AND release:{_phrase(album)}"] if album else []) + [base]:
+            data = self._get("recording", {"query": q, "limit": 15}) or {}
+            cand = self._pick(data.get("recordings") or [], artists, title, album)
+            if cand and (best is None or cand["score"] > best["score"]):
+                best = cand
+            if best and best["album_sim"] >= 0.85:
+                break
+        if not best:
+            return None
+        rec, rel = best["rec"], best["rel"]
+        track_no = track_total = 0
+        media = rel.get("media") or []
+        if media:
+            m = media[0]
+            track_total = to_int(m.get("track-count"), 0)
+            tracks = m.get("track") or []
+            if tracks:
+                track_no = to_int(tracks[0].get("number"), 0)
+            if not track_no and m.get("track-offset") is not None:
+                track_no = to_int(m.get("track-offset"), -1) + 1
+        year = _year(rel.get("date")) or _year(rec.get("first-release-date"))
+        genre = ""
+        try:
+            genre = _top_genre(self._get(f"recording/{rec['id']}", {"inc": "genres+tags"}))
+            group = (rel.get("release-group") or {}).get("id")
+            if not genre and group:
+                genre = _top_genre(self._get(f"release-group/{group}", {"inc": "genres+tags"}))
+        except Exception as e:
+            log.info("MusicBrainz genre lookup failed: %s", e)
+        return {"year": year, "track_no": track_no, "track_total": track_total, "genre": genre,
+                "recording_id": rec.get("id", ""), "release_id": rel.get("id", ""), "release_title": rel.get("title", "")}
+
+    def album_year(self, artist, album):
+        q = f"release:{_phrase(album)}" + (f" AND artist:{_phrase(artist)}" if artist else "")
+        data = self._get("release", {"query": q, "limit": 10}) or {}
+        best_year, best_score = "", 0.0
+        for rel in data.get("releases") or []:
+            s, y = sim(rel.get("title", ""), album), _year(rel.get("date"))
+            if s >= 0.6 and y and (s > best_score + 0.05 or (abs(s - best_score) <= 0.05 and y < best_year)):
+                best_year, best_score = y, max(s, best_score)
+        return best_year
 
 
 # -- the service --------------------------------------------------------------------------
@@ -508,14 +629,18 @@ def tag_preview(track, album_artist, track_no, track_total):
 class Galaxy:
     """Search endpoints plus one background download thread over the shared Downloads queue."""
 
-    def __init__(self, studio, api=None, fetch=None, track_delay=TRACK_DELAY):
+    def __init__(self, studio, api=None, fetch=None, track_delay=None, mb=None):
         self.studio = studio
+        self.mb = mb or MusicBrainz()
         self.limiter = QuotaLimiter()
         self.api = api or GDApi(self.limiter)
         self.fetch = fetch or (lambda url, **kw: _session().get(url, **kw))  # file and cover downloads
-        self.track_delay = track_delay
         data = studio._read(STATE_FILE)
         self.state = data if isinstance(data, dict) else {}
+        self.state.setdefault("settings", {})
+        self.apply_settings()
+        if track_delay is not None:
+            self.track_delay = track_delay
         self.state.setdefault("paused", False)
         self.state.setdefault("source", "netease")
         self.state.setdefault("picks", {})
@@ -688,7 +813,7 @@ class Galaxy:
 
     def status(self):
         api = self.limiter.status()
-        return {"paused": self.state["paused"], "api": api, "active": self.active,
+        return {"paused": self.state["paused"], "api": api, "active": self.active, "settings": self.settings(),
                 "next_in": max(0, round(self.waiting_until - time.monotonic())),
                 "running": bool(self.thread and self.thread.is_alive())}
 
@@ -786,12 +911,27 @@ class Galaxy:
         nbytes = self.download(jid, link["url"], part)
         fmt = self.check_audio(part, link, nbytes)
         self._step(jid, 1, f"{nbytes / 1048576:.1f} MB · {fmt.upper()}")
-        self._step(jid, 2, "Fetching cover…")
-        cover = self.fetch_cover(p)
+        self._step(jid, 2, "Searching recordings…")
+        try:
+            mbinfo = self.mb.lookup(p["artists"], job["title"], p["album"])
+        except (StopRequested, JobCancelled):
+            raise
+        except Exception as e:  # a lookup failure never fails the download
+            log.info("MusicBrainz lookup failed for %s: %s", job["title"], e)
+            mbinfo = None
+        self._step(jid, 2, f"Matched “{mbinfo['release_title']}” {mbinfo['year']}".strip() if mbinfo
+                   else "No match - year/genre missing")
         track_no, total = to_int(p.get("track_no"), 0), to_int(p.get("track_total"), 0)
+        if mbinfo and not p.get("fixed_numbering"):
+            track_no = mbinfo.get("track_no") or track_no
+            total = mbinfo.get("track_total") or total
+        year, genre = (mbinfo or {}).get("year", ""), (mbinfo or {}).get("genre", "")
+        self._step(jid, 3, "Fetching cover…")
+        cover = self.fetch_cover(p)
         self._step(jid, 3, {"flac": "Writing FLAC tags…", "m4a": "Writing M4A tags…"}.get(fmt, "Writing ID3v2.4…"))
         write_tags(part, fmt, title=job["title"], artists=p["artists"], album_artist=p["album_artist"],
-                   album=p["album"], track_no=track_no, track_total=total, cover=cover)
+                   album=p["album"], track_no=track_no, track_total=total, year=year, genre=genre, cover=cover,
+                   mb_track_id=(mbinfo or {}).get("recording_id", ""), mb_release_id=(mbinfo or {}).get("release_id", ""))
         final = build_path(self.folder(), p["album_artist"], p["album"], track_no, job["title"], fmt)
         final.parent.mkdir(parents=True, exist_ok=True)
         os.replace(part, final)
@@ -801,11 +941,12 @@ class Galaxy:
                     final.with_suffix("." + other).unlink(missing_ok=True)
                 except OSError:
                     pass
-        extras = ["no cover"] if not cover else []
+        missing = [name for name, value in (("year", year), ("genre", genre)) if not value]
+        extras = ([f"{'/'.join(missing)} missing"] if missing else []) + (["no cover"] if not cover else [])
         self.manager.update_item(jid, persist=True, state="done", step=4, step_detail=str(final),
                                  note="Saved" + (f" · {', '.join(extras)}" if extras else ""), path=str(final),
                                  progress=100, finished=time.time(), size_mb=round(nbytes / 1048576, 2),
-                                 format=fmt, speed=0, eta=0)
+                                 format=fmt, speed=0, eta=0, year=year, genre=genre, track_no=track_no)
         self.manager.record({"title": job["title"], "artists": p["artists"], "album": p["album"],
                              "source": "galaxy", "path": str(final)})
 
@@ -948,6 +1089,54 @@ class Galaxy:
             except Exception as e:
                 log.info("Galaxy cover fetch failed: %s", e)
         return None
+
+    # -- settings ------------------------------------------------------------------------
+
+    def settings(self):
+        saved = self.state["settings"]
+        return {"track_delay": float(saved.get("track_delay", TRACK_DELAY)),
+                "api_delay": float(saved.get("api_delay", API_DELAY)),
+                "api_quota": int(saved.get("api_quota", API_QUOTA))}
+
+    def apply_settings(self):
+        s = self.settings()
+        self.track_delay = s["track_delay"]
+        self.limiter.interval, self.limiter.max_calls = s["api_delay"], s["api_quota"]
+
+    def save_settings(self, body):
+        if not isinstance(body, dict):
+            raise GalaxyError("Choose the Galaxy settings.")
+        new = dict(self.state["settings"])
+        for key, (low, high) in SETTING_LIMITS.items():
+            if key not in body:
+                continue
+            try:
+                value = float(body[key])
+            except (TypeError, ValueError):
+                raise GalaxyError("Enter numbers for the Galaxy settings.") from None
+            if not low <= value <= high:
+                labels = {"track_delay": "The pause between songs", "api_delay": "The pause between API calls",
+                          "api_quota": "The API quota"}
+                raise GalaxyError(f"{labels[key]} must be between {low} and {high}.")
+            new[key] = int(value) if key == "api_quota" else round(value, 1)
+        with self.lock:
+            self.state["settings"] = new
+            self.apply_settings()
+            self._persist()
+        return self.status()
+
+    def album_years(self, artist, albums):
+        """Release years for the album cards (MusicBrainz, about one album per second)."""
+        if not isinstance(albums, list):
+            raise GalaxyError("Choose albums.")
+        years = {}
+        for album in [str(a) for a in albums if str(a).strip() and a != "Unknown Album"][:40]:
+            try:
+                years[album] = self.mb.album_year(str(artist or ""), album)
+            except Exception as e:
+                log.info("MusicBrainz album year failed for %s: %s", album, e)
+                years[album] = ""
+        return {"years": years}
 
     # -- cover pictures for the page ---------------------------------------------------
     # Like the Galaxy app's cover cache: NetEase covers come straight from NetEase (no API

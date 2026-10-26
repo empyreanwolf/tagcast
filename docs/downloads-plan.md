@@ -58,7 +58,7 @@ Design mockups (6 screens): https://claude.ai/artifact/48RUd5CmZUQqde3ihyFqNW
 | v9 ✔ | Downloads page + tabs, duplicate engine, Needs your decision, Queue & history (+ history import), download folder setting |
 | v10 ✔ | Artist cleanup in the background (not a download step) |
 | v11 ✔ | Galaxy part 1: search, same-name artist cards, exact albums, queue, limits, tags + cover |
-| v12 | Galaxy part 2: MusicBrainz lookup, lyrics, history extras (forget, CSV, clear), all Galaxy settings |
+| v12 ✔ | Galaxy part 2: MusicBrainz lookup (year, genre, track numbers, IDs, album years) and Galaxy settings (pauses, API quota). Lyrics shelved; no history extras |
 | v13 | Bandcamp |
 | v14 | Soulseek via Sockseek |
 | v15 | Discography + Top 30 + "get missing" source order |

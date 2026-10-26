@@ -158,7 +158,7 @@ const HELP_TOPICS = {
     ["Galaxy", "Search GD Studio by artist, album or track. Artists who share a name get separate cards; pick the right one under Which artist? and Tagcast remembers it. Only exact albums can be downloaded.", ["#downloads-tabs", "#downloads-content"]],
     ["Check first", "Check compares songs and albums with your iBroadcast library and your download history. Titles ignore (feat. …), case and spacing but keep words such as Live or Remix.", ["#downloads-tabs", "#downloads-content"]],
     ["Your decision", "Anything you may already have waits under Needs your decision. Skip or Download anyway, one by one or in bulk. A duplicate is never downloaded automatically.", ["#downloads-tabs"]],
-    ["History and folder", "Queue & history lists everything downloaded before. Folder & imports sets the download folder and imports the Galaxy and Telegram histories.", ["#downloads-tabs"]],
+    ["History and folder", "Queue & history lists everything downloaded before. Settings sets the download folder, the Galaxy pauses and API quota, and imports the Galaxy and Telegram histories.", ["#downloads-tabs"]],
   ]},
   overview: {title: "Overview", scope: "#overview-page", steps: [
     ["Your library in numbers", "Overview summarises your collection and account using the loaded library. Album totals use the same displayed sets as the album browser.", ["#overview-page"]],

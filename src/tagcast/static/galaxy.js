@@ -7,7 +7,7 @@
 // Downloads go to the shared queue; songs you may have go to Needs your decision.
 const galaxyView = {
   mode: "artist", query: "", source: "netease", data: null, album: null, cards: null, cardsFor: "",
-  cardFilter: "all", selected: new Set(), sort: {key: "", dir: 1}, preview: "", loading: false, request: 0,
+  cardFilter: "all", years: {}, selected: new Set(), sort: {key: "", dir: 1}, preview: "", loading: false, request: 0,
 };
 const galaxyModes = [["artist", "Artist"], ["album", "Album"], ["track", "Track"]];
 const galaxySources = [["netease", ""], ["joox", ""], ["bilibili", ""], ["tencent", "often closed"], ["kuwo", "often closed"],
@@ -91,13 +91,13 @@ function galaxyResultsHtml() {
       <td>${galaxyThumb(t.source, t.pic_id, 100)}</td>
       <td>${escapeHtml(t.title)}</td>
       <td>${t.artists.map(a => `<button type="button" class="text-action" data-galaxy-artist="${escapeHtml(a)}">${escapeHtml(a)}</button>`).join(", ") || "—"}</td>
-      <td>${t.album ? `<button type="button" class="text-action" data-galaxy-album="${escapeHtml(t.album)}" data-artist="${escapeHtml(t.artists[0] || "")}">${escapeHtml(t.album)}</button>` : "—"}</td>
+      <td>${t.album ? `<button type="button" class="text-action" data-galaxy-album="${escapeHtml(t.album)}" data-artist="${escapeHtml(t.artists[0] || "")}">${escapeHtml(t.album)}</button>${view.years[t.album] ? ` <span class="muted">(${view.years[t.album]})</span>` : ""}` : "—"}</td>
       <td>${galaxyBadge(t)}</td>
       <td><button type="button" class="button small" data-galaxy-dl="${escapeHtml(galaxyKey(t))}" ${t.queued ? "disabled" : ""}>⬇ Download</button></td></tr>`).join("")}</tbody></table></div>`
       : `<p class="muted">${data.mode === "artist" ? `No songs where “${escapeHtml(data.query)}” is credited.` : "Nothing found."}</p>`}
     ${albums.length ? `<h3>Albums (${albums.length})</h3><ul class="galaxy-albums">${albums.map(a => `<li>
       <button type="button" class="galaxy-album-card" data-galaxy-album="${escapeHtml(a.name)}" data-artist="${escapeHtml(data.query)}" aria-label="Open ${escapeHtml(a.name)}">
-        ${galaxyThumb(a.source, a.pic_id, 300, "galaxy-album-art")}<b>${escapeHtml(a.name)}</b></button>
+        ${galaxyThumb(a.source, a.pic_id, 300, "galaxy-album-art")}<span><b>${escapeHtml(a.name)}</b>${view.years[a.name] ? `<br><span class="muted">${view.years[a.name]}</span>` : ""}</span></button>
       <span class="muted">${a.songs} ${a.songs === 1 ? "song" : "songs"} here</span>
       <button type="button" class="button small" data-galaxy-album-dl="${escapeHtml(a.name)}" data-artist="${escapeHtml(data.query)}" ${a.name === "Unknown Album" ? "disabled" : ""}>⬇ Download album</button></li>`).join("")}</ul>` : ""}`;
 }
@@ -141,7 +141,7 @@ function galaxyAlbumHtml() {
   const picked = a.tracks.filter(t => view.selected.has(galaxyKey(t))).length;
   return `${back}<div class="galaxy-album-head">${galaxyThumb(a.cover?.source || a.source, a.cover?.pic_id || "", 500, "galaxy-cover")}
       <div><div class="eyebrow">ALBUM · ${escapeHtml(a.source)}</div><h2>${escapeHtml(a.album)}</h2>
-      <p>${escapeHtml(a.album_artist)} · ${a.tracks.length} tracks${have ? ` · ✓ you have ${have}` : ""}</p>
+      <p>${escapeHtml(a.album_artist)}${view.years[a.album] ? ` · ${view.years[a.album]}` : ""} · ${a.tracks.length} tracks${have ? ` · ✓ you have ${have}` : ""}</p>
       <div class="dl-actions"><button type="button" class="button primary" data-galaxy-album-all>⬇ Download album (${a.tracks.length})</button>
         <button type="button" class="button" data-galaxy-dl-selected ${picked ? "" : "disabled"}>⬇ Download selected (${picked})</button></div>
       <p class="muted">Missing songs are queued; songs you may have wait in Needs your decision. Click a song to see its tags and file name.</p></div></div>
@@ -169,7 +169,11 @@ async function galaxySearch() {
     downloadsView.galaxy = {paused: data.paused, api: data.api, active: data.active, next_in: data.next_in, running: data.running};
     if (data.mode === "album") { view.album = data; view.data = null; } else view.data = data;
     setActionStatus("#downloads-status", "");
-    if (data.mode === "artist" && data.tracks.length) galaxyLoadCards(data, request);
+    if (data.mode === "artist" && data.tracks.length) {
+      galaxyLoadCards(data, request);
+      galaxyLoadYears(data.query, data.albums.map(a => a.name), request);
+    }
+    if (data.mode === "album" && data.found) galaxyLoadYears(data.album_artist, [data.album], request);
   } catch (error) {
     if (request === view.request) downloadsError(error);
   } finally {
@@ -187,12 +191,25 @@ async function galaxyLoadCards(data, request) {
   if (request === galaxyView.request && galaxyView.data) renderDownloads();
 }
 
+// Album years from MusicBrainz (about one album per second), filled in when they arrive.
+async function galaxyLoadYears(artist, albums, request) {
+  const wanted = albums.filter(a => a && a !== "Unknown Album" && !(a in galaxyView.years));
+  if (!wanted.length) return;
+  try {
+    const {years} = await api("/api/galaxy/album-years", {artist, albums: wanted});
+    Object.assign(galaxyView.years, years);
+    if (request === galaxyView.request && !galaxyView.loading && downloadsView.tab === "galaxy" && state.screen === "downloads"
+      && !document.activeElement?.closest?.("#downloads-content")) renderDownloads();
+  } catch { /* years are a nicety; the search itself worked */ }
+}
+
 async function galaxyOpenAlbum(album, artist) {
   const view = galaxyView, request = ++view.request;
   Object.assign(view, {loading: true, preview: ""});
   view.selected.clear(); renderDownloads();
   try {
     view.album = await api("/api/galaxy/album", {album, artist, source: view.source});
+    if (view.album.found && !view.years[view.album.album]) galaxyLoadYears(view.album.album_artist, [view.album.album], request);
   } catch (error) {
     if (request === view.request) downloadsError(error);
   } finally {

@@ -283,6 +283,8 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/galaxy/search": lambda b: self.studio.galaxy.search(b.get("mode"), b.get("q"), b.get("source")),
             "/api/galaxy/album": lambda b: self.studio.galaxy.album(b.get("album"), b.get("artist"), b.get("source")),
             "/api/galaxy/add": lambda b: self.studio.galaxy.add(b.get("tracks"), b.get("album_artist"), b.get("total")),
+            "/api/galaxy/settings": lambda b: self.studio.galaxy.save_settings(b),
+            "/api/galaxy/album-years": lambda b: self.studio.galaxy.album_years(b.get("artist"), b.get("albums")),
             "/api/galaxy/control": lambda b: self.studio.galaxy.control(b.get("action"), b.get("ids")),
             "/api/galaxy/cards": lambda b: self.studio.artist_cards.cards_for(
                 str(b.get("name") or "")[:200], [str(a)[:500] for a in (b.get("albums") or [])[:200]],
