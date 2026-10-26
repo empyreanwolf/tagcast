@@ -56,11 +56,12 @@ Design mockups (6 screens): https://claude.ai/artifact/48RUd5CmZUQqde3ihyFqNW
 | Version | Scope |
 |---|---|
 | v9 ✔ | Downloads page + tabs, duplicate engine, Needs your decision, Queue & history (+ history import), download folder setting |
-| v10 | Bandcamp |
-| v11 | Soulseek via Sockseek |
-| v12 | Discography + Top 30 + "get missing" source order |
-| v13 | Galaxy with artist cards |
-| v14 | Telegram check (listener inside Tagcast) |
+| v10 ✔ | Artist cleanup in the background (not a download step) |
+| v11 | Bandcamp |
+| v12 | Soulseek via Sockseek |
+| v13 | Discography + Top 30 + "get missing" source order |
+| v14 | Galaxy with artist cards |
+| v15 | Telegram check (listener inside Tagcast) |
 
 Testing: unit tests with `tests/mock_ibroadcast.py` / LocalStudio and one quick real
 check per version. Avoid full-library stress runs unless something needs it.

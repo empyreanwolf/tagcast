@@ -41,6 +41,10 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v10** Artist cleanup runs in the background: close its window and keep browsing, playing
+  and using Downloads. A bar at the bottom shows the progress (Open / Stop). When it ends: a
+  chime (error sound on failure), a message and a Windows notification. Album edits saved
+  during a run wait and are sent when it finishes.
 - **v9** Downloads page: duplicate check against iBroadcast and the download history,
   Needs your decision (Skip / Download anyway, in bulk or one by one), queue & history,
   Galaxy and Telegram history import, download folder setting. No sources yet (v10+).

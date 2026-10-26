@@ -1495,6 +1495,13 @@ function overallStatus(statuses) {
 
 async function saveDraft() {
   if (saving || !pending) return;
+  // While an artist cleanup runs, iBroadcast saves are paused: hold this one until it ends.
+  if (typeof artistCleanupBusy === "function" && artistCleanupBusy()) {
+    holdSaveForArtistCleanup(pending);
+    pending = null; editing = null;
+    $("#review").close(); $("#editor").close();
+    return;
+  }
   saving = true;
   const apply = $("#apply-draft");
   apply.disabled = true; $("#review-cancel").disabled = true; apply.textContent = "Saving…";

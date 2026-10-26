@@ -15,7 +15,7 @@ const artistCleanupTabs = [["merge", "Duplicates"], ["split", "Combined names"],
 const artistCleanupModes = {merge: "Merge duplicates", split: "Split combined names", feat: "Link featured artists"};
 const artistCleanupPage = 25;
 // Shown beside the dialog title; raise it with every update of this fork.
-const artistCleanupVersion = "fork v9";
+const artistCleanupVersion = "fork v10";
 let artistCleanupAudio = null;
 
 // A short falling two-tone alert. Browsers only allow sound after a click on the page,
@@ -72,10 +72,12 @@ async function fetchArtistCleanupTask() {
     const data = await api(`/api/artist-cleanup?offset=${view.offset}&limit=${artistCleanupPage}`);
     if (request !== view.request || details !== state.details || !live()) return;
     if (data.id !== view.data?.id || data.state !== "preview") view.excluded = new Set(data.excluded || []);
-    if (view.data?.id === data.id && view.data.state === "running" && data.state === "error") artistCleanupAlarm();
+    const before = view.data;
     view.data = data;
     renderArtistCleanup();
-    if (data.state === "running" && $("#artist-cleanup").open) view.timer = setTimeout(fetchArtistCleanupTask, 1500);
+    artistCleanupFollow(before, data);
+    // Keep following a run with the dialog closed: the bottom bar shows its progress.
+    if (data.state === "running") view.timer = setTimeout(fetchArtistCleanupTask, $("#artist-cleanup").open ? 1500 : 2500);
   } catch (error) {
     if (request === view.request) setActionStatus("#artist-cleanup-status", error.message);
   }
@@ -261,7 +263,7 @@ function renderArtistCleanup() {
   const running = view.data?.state === "running", disabled = view.busy || running, scroll = dialog.scrollTop;
   const body = {merge: renderMergeTab, split: renderSplitTab, feat: renderFeatTab, search: renderSearchTab, review: renderReviewTab}[view.tab](disabled);
   $("#artist-cleanup-content").innerHTML = `<div class="favourites-tabs ac-tabs" role="tablist" aria-label="Artist cleanup steps">${artistCleanupTabs.map(([key, label]) => `<button type="button" role="tab" data-ac-tab="${key}" aria-selected="${key === view.tab}" tabindex="${key === view.tab ? 0 : -1}">${label}${key === "review" && view.data?.id ? ` <span>${escapeHtml(view.data.state)}</span>` : ""}</button>`).join("")}</div>
-    ${running && view.tab !== "review" ? '<p class="warn-box">A cleanup is running. Open Review &amp; run to follow it; new previews wait until it stops.</p>' : ""}
+    ${running ? `<p class="warn-box">${view.tab !== "review" ? "A cleanup is running. Open Review &amp; run to follow it; new previews wait until it stops. " : "Running. "}You can close this window: it keeps running and the bar at the bottom shows the progress. <button type="button" class="button small" data-ac-background>Continue in the background</button></p>` : ""}
     <div role="tabpanel">${body}</div>`;
   dialog.scrollTop = scroll;
   updateArtistCleanupStart();
@@ -287,8 +289,9 @@ async function artistCleanupAction(path, body, message) {
   try {
     const data = await api(`/api/artist-cleanup/${path}`, body);
     if (request !== view.request || details !== state.details || !live()) return;
-    if (data.state === "error") artistCleanupAlarm();
+    const before = view.data;
     view.data = data; view.offset = 0;
+    artistCleanupFollow(before, data);
     view.excluded = new Set(path === "preview" ? [] : data.excluded || []);
     view.tab = "review";
     if (data.state === "running") view.timer = setTimeout(fetchArtistCleanupTask, 1500);
@@ -359,7 +362,8 @@ $("#artist-cleanup").addEventListener("click", async event => {
     view.excluded = new Set(target.closest("#ac-review-none") ? (view.data.selection || []).map(g => g.id) : []);
     return renderArtistCleanup();
   }
-  if (target.closest("#ac-start")) return artistCleanupAction("start", {id: view.data.id, excluded: [...view.excluded]}, "Checking your library and starting…");
+  if (target.closest("[data-ac-background]")) { $("#artist-cleanup").close(); toast("Artist cleanup keeps running. Follow it in the bar at the bottom."); return; }
+  if (target.closest("#ac-start")) { artistCleanupAskNotify(); return artistCleanupAction("start", {id: view.data.id, excluded: [...view.excluded]}, "Checking your library and starting…"); }
   if (target.closest("#ac-stop")) return artistCleanupAction("stop", {id: view.data.id}, "Stopping after the current request…");
   if (target.closest("#ac-export")) return exportArtistCleanupReport();
   if (target.closest("#ac-refresh")) {
@@ -422,8 +426,134 @@ $("#artist-cleanup").addEventListener("input", event => {
 $("#artist-cleanup").addEventListener("keydown", event => {
   if (event.key === "Enter" && event.target.id === "ac-search-input") { event.preventDefault(); searchArtistsForMerge(); }
 });
-$("#artist-cleanup").addEventListener("close", () => clearTimeout(artistCleanupView.timer));
+// Closing the dialog keeps following a running cleanup in the background.
+$("#artist-cleanup").addEventListener("close", () => {
+  if (artistCleanupView.data?.state !== "running") clearTimeout(artistCleanupView.timer);
+  renderArtistCleanupBar();
+});
 // Closing during a run is safe (the server stops between batches), but ask first.
 window.addEventListener("beforeunload", event => {
   if (artistCleanupView.data?.state === "running") { event.preventDefault(); event.returnValue = ""; }
+});
+
+
+// -- running in the background (fork v10) --------------------------------------------
+// The run happens on the Tagcast server, so the page stays free for browsing, playing and
+// Downloads. A bar at the bottom shows the progress; when the run ends you get a sound, a
+// message and (if allowed) a Windows notification. Album edits saved during the run wait
+// and are sent once it ends.
+const artistCleanupHeldSaves = [];
+let artistCleanupNotifyAsked = false;
+
+function artistCleanupBusy() { return artistCleanupView.data?.state === "running"; }
+
+function artistCleanupProgress(data) {
+  const counts = data?.counts || {}, total = data?.records || 0;
+  const done = (counts.confirmed || 0) + (counts.skipped || 0) + (counts.excluded || 0);
+  return {done, total, percent: total ? Math.round(done / total * 100) : 0};
+}
+
+// A short rising two-tone chime for a finished run.
+function artistCleanupChime() {
+  try {
+    artistCleanupAudio = artistCleanupAudio || new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = artistCleanupAudio, start = ctx.currentTime;
+    [[523, 0], [784, 0.18]].forEach(([frequency, at]) => {
+      const tone = ctx.createOscillator(), gain = ctx.createGain();
+      tone.type = "sine"; tone.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, start + at);
+      gain.gain.exponentialRampToValueAtTime(0.2, start + at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + at + 0.35);
+      tone.connect(gain).connect(ctx.destination);
+      tone.start(start + at); tone.stop(start + at + 0.36);
+    });
+  } catch { /* no audio available */ }
+}
+
+// Asked once, on the Start click (browsers only allow the question after a click).
+function artistCleanupAskNotify() {
+  if (artistCleanupNotifyAsked || !("Notification" in window) || Notification.permission !== "default") return;
+  artistCleanupNotifyAsked = true;
+  try { Notification.requestPermission().catch(() => {}); } catch { /* older browser */ }
+}
+
+function artistCleanupFollow(before, data) {
+  renderArtistCleanupBar();
+  if (before?.id !== data?.id || before?.state !== "running" || data.state === "running") return;
+  const {done, total} = artistCleanupProgress(data);
+  const ok = data.state === "done";
+  const message = ok ? `Artist cleanup finished: ${done} of ${total} records done.`
+    : data.state === "stopped" ? `Artist cleanup stopped after ${done} of ${total} records.`
+    : `Artist cleanup stopped with an error (${artistCleanupVersion}): ${data.error || "see Review & run."}`;
+  if (ok) artistCleanupChime(); else artistCleanupAlarm();
+  toast(message);
+  try {
+    if ("Notification" in window && Notification.permission === "granted") {
+      const note = new Notification(`Tagcast · Artist cleanup ${ok ? "finished" : "stopped"}`, {body: message, tag: "tagcast-artist-cleanup"});
+      note.onclick = () => { window.focus(); openArtistCleanup("review"); note.close(); };
+    }
+  } catch { /* notifications unavailable */ }
+  artistCleanupFlushSaves();
+}
+
+function renderArtistCleanupBar() {
+  let bar = $("#ac-runbar");
+  const data = artistCleanupView.data, running = data?.state === "running", held = artistCleanupHeldSaves.length;
+  if (!running && !held) { if (bar) bar.hidden = true; return; }
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "ac-runbar"; bar.className = "ac-runbar"; bar.setAttribute("role", "status");
+    document.body.appendChild(bar);
+  }
+  const {done, total, percent} = artistCleanupProgress(data);
+  bar.hidden = false;
+  bar.innerHTML = `${running ? `<span class="ac-runbar-text"><b>Artist cleanup</b> · ${escapeHtml(artistCleanupModes[data.mode] || "")} · ${done.toLocaleString("en")} of ${total.toLocaleString("en")} (${percent}%)</span>
+    <progress max="100" value="${percent}" aria-label="Artist cleanup progress"></progress>` : "<span class=\"ac-runbar-text\"><b>Saving</b> your waiting edits…</span>"}
+    ${held ? `<span class="ac-runbar-held">${held} ${held === 1 ? "edit waits" : "edits wait"} to be saved <button type="button" class="text-action" data-ac-drop-held>Discard</button></span>` : ""}
+    <span class="ac-version">${artistCleanupVersion}</span>
+    ${running ? '<button type="button" class="button small" data-ac-open-run>Open</button><button type="button" class="button small" data-ac-stop-run>Stop</button>' : ""}`;
+}
+
+// Called by the album editor: keep this reviewed save until the cleanup has finished.
+function holdSaveForArtistCleanup(draft) {
+  artistCleanupHeldSaves.push(structuredClone(draft));
+  renderArtistCleanupBar();
+  toast("Artist cleanup is running. Your edit waits and is saved as soon as it finishes.");
+}
+
+async function artistCleanupFlushSaves() {
+  if (!artistCleanupHeldSaves.length || artistCleanupBusy()) return;
+  // Never replace an editor or review you are working in; try again shortly.
+  if ($("#editor").open || $("#review").open || saving) { setTimeout(artistCleanupFlushSaves, 2000); return; }
+  pending = artistCleanupHeldSaves.shift();
+  renderArtistCleanupBar();
+  showReview(pending.changes);
+  await saveDraft();
+  if (artistCleanupHeldSaves.length) setTimeout(artistCleanupFlushSaves, 1000);
+  else renderArtistCleanupBar();
+}
+
+document.addEventListener("click", event => {
+  const target = event.target;
+  if (target.closest("[data-ac-open-run]")) { openArtistCleanup("review"); return; }
+  if (target.closest("[data-ac-stop-run]") && artistCleanupView.data?.id) {
+    if (confirm("Stop the artist cleanup after the current request? You can resume it later.")) {
+      api("/api/artist-cleanup/stop", {id: artistCleanupView.data.id}).then(fetchArtistCleanupTask)
+        .catch(error => { toast(`${error.message} (${artistCleanupVersion})`); artistCleanupAlarm(); });
+    }
+    return;
+  }
+  if (target.closest("[data-ac-drop-held]") && confirm("Discard the edits that wait for the artist cleanup? They are not saved.")) {
+    artistCleanupHeldSaves.length = 0; renderArtistCleanupBar();
+  }
+});
+
+// A run that is still going after a reload (or started in another tab) shows its bar too.
+window.addEventListener("DOMContentLoaded", () => {
+  let tries = 0;
+  const look = () => {
+    if (live()) { fetchArtistCleanupTask(); return; }
+    if (++tries < 20) setTimeout(look, 1500);
+  };
+  setTimeout(look, 1500);
 });
