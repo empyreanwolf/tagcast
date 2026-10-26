@@ -14,7 +14,7 @@ const SIDEBAR_ITEMS = [
   ["show-genres", "Genres"], ["show-tags", "Tags"], ["show-years", "Release year"], ["show-decades", "Decades"],
   ["show-tracks", "Tracks"], ["show-favourites", "Favourites"], ["show-playlists", "Playlists"],
   ["show-recently-played", "Recently played"],
-  ["show-album-guide", "1001 Albums"], ["show-overview", "Overview"], ["show-history", "Change history", true],
+  ["show-album-guide", "1001 Albums"], ["show-downloads", "Downloads"], ["show-overview", "Overview"], ["show-history", "Change history", true],
 ];
 const sidebarLayout = readSidebarLayout();
 
@@ -125,7 +125,7 @@ function currentRoute() {
   if (state.screen === "browse") return `${browseView.kind}${browseView.key === null ? "" : `/${encodeURIComponent(browseView.key)}`}`;
   if (state.screen === "playlists" && collectionsView.playlist) return `playlist/${encodeURIComponent(collectionsView.playlist)}`;
   if (state.screen === "album" && albumView.id) return `album/${encodeURIComponent(albumView.id)}`;
-  if (["overview", "artists", "tracks", "favourites", "playlists", "album-favourites", "artist-favourites", "recently-played", "album-guide"].includes(state.screen)) return state.screen;
+  if (["overview", "artists", "tracks", "favourites", "playlists", "album-favourites", "artist-favourites", "recently-played", "album-guide", "downloads"].includes(state.screen)) return state.screen;
   return state.artist ? `artist/${encodeURIComponent(state.artist)}` : "albums";
 }
 
@@ -135,7 +135,7 @@ function parseRoute(hash) {
   try { value = decodeURIComponent(rest.join("/")); } catch { return null; }
   if (kind === "settings") return {screen: "settings", category: Object.hasOwn(SETTINGS_CATEGORIES, value) ? value : "interface"};
   if (Object.hasOwn(browseKinds, kind)) return {screen: "browse", kind, key: rest.length ? value : null};
-  if (["artists", "albums", "tracks", "favourites", "playlists", "album-favourites", "artist-favourites", "recently-played", "overview", "album-guide"].includes(kind)) return {screen: kind};
+  if (["artists", "albums", "tracks", "favourites", "playlists", "album-favourites", "artist-favourites", "recently-played", "overview", "album-guide", "downloads"].includes(kind)) return {screen: kind};
   if (kind === "playlist" && /^\d+$/.test(value)) return {screen: "playlists", playlist: value};
   if (kind === "artist" && value) return {screen: "albums", artist: value};
   if (kind === "album" && value) return {screen: "album", album: value};
@@ -150,7 +150,7 @@ function routeLabel(hash, saved = history.state) {
   if (route.screen === "browse") return route.key === null ? browseKinds[route.kind].label : saved?.browse?.label || browseKinds[route.kind].label;
   if (route.playlist) return saved?.label || (String(collectionsView.data?.id) === route.playlist ? collectionsView.data.name : "Playlist");
   if (route.album) return state.albums.find(a => String(a.id) === route.album)?.name || "the album";
-  return route.artist || {artists: "Album artists", albums: "Albums", tracks: "Tracks", favourites: "Favourite tracks", playlists: "Playlists", "album-favourites": "Album favourites", "artist-favourites": "Favourite album artists", "recently-played": "Recently played", overview: "Overview"}[route.screen];
+  return route.artist || {artists: "Album artists", albums: "Albums", tracks: "Tracks", favourites: "Favourite tracks", playlists: "Playlists", "album-favourites": "Album favourites", "artist-favourites": "Favourite album artists", "recently-played": "Recently played", overview: "Overview", downloads: "Downloads"}[route.screen];
 }
 
 function viewState(index, from) {
@@ -330,6 +330,8 @@ function showRoute(route, saved = {}) {
     showRecentlyPlayed(saved.recentPage || 0);
   } else if (["playlists", "album-favourites"].includes(route.screen)) {
     showCollections(route.screen, route.playlist || null, saved.collections || {});
+  } else if (route.screen === "downloads") {
+    showDownloads();
   } else if (route.screen === "overview") {
     showScreen("overview");
   } else if (route.screen === "album" && state.albums.some(a => String(a.id) === route.album)) {

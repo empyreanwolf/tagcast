@@ -4,6 +4,17 @@ Based on Tagcast 0.85.1 (cyberdeliaAI/tagcast, MIT). Adds **Artist cleanup**:
 merge duplicate artist entries, split combined names such as `Coldplay/BTS`, and
 link guests named in titles such as `(feat. X)`. See `docs/artist-cleanup.md`.
 
+## Downloads (from v9)
+
+**Downloads** in the sidebar. **Check** compares songs/albums (`Artist - Title`, albums
+may end with `| 12` for the track count) with your iBroadcast library and download
+history. Anything you may already have waits in **Needs your decision**; it is never
+downloaded automatically. **Folder & imports** sets the download folder (default: your
+Music folder) and imports the Galaxy `history.json` (use **Find it**, or paste the path:
+it sits next to the Galaxy app's `app.py`) and the Telegram history from
+`%APPDATA%\TelegramAutoDownloader\`. Importing again adds only new songs. Nothing is
+uploaded to iBroadcast.
+
 ## Run it on Windows
 
 1. Install Python 3.11 or newer from python.org (tick "Add python.exe to PATH"), or uv.
@@ -30,6 +41,9 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v9** Downloads page: duplicate check against iBroadcast and the download history,
+  Needs your decision (Skip / Download anyway, in bulk or one by one), queue & history,
+  Galaxy and Telegram history import, download folder setting. No sources yet (v10+).
 - **v8** Version label and error sound.
 - **v7** The approval tick stays ticked when the review list redraws.
 - **v6** Additional artists stored in another order count as saved; unconfirmed writes

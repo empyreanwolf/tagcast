@@ -218,6 +218,15 @@ class Handler(SimpleHTTPRequestHandler):
             self._run(lambda: self.studio.artist_cleanup.suggestions(query.get("kind")))
         elif url.path == "/api/artist-cleanup/search":
             self._run(lambda: self.studio.artist_cleanup.search(query.get("q", "")))
+        elif url.path == "/api/downloads":
+            self._run(self.studio.download_manager.view)
+        elif url.path == "/api/downloads/queue":
+            self._run(self.studio.download_manager.queue_view)
+        elif url.path == "/api/downloads/history":
+            self._run(lambda: self.studio.download_manager.history_view(
+                query.get("q", ""), query.get("source", ""), query.get("offset", "0"), query.get("limit", "50")))
+        elif url.path == "/api/downloads/find-galaxy":
+            self._run(self.studio.download_manager.find_galaxy)
         elif url.path == "/api/cleanup/labels":
             self._run(lambda: self.studio.cleanup.labels(query.get("q"), query.get("offset", "0"),
                                                          query.get("limit", "50")))
@@ -259,6 +268,13 @@ class Handler(SimpleHTTPRequestHandler):
                 b.get("mode"), b.get("groups"), b.get("ids")),
             "/api/artist-cleanup/start": lambda b: self.studio.artist_cleanup.start(b.get("id"), b.get("excluded")),
             "/api/artist-cleanup/stop": lambda b: self.studio.artist_cleanup.cancel(b.get("id")),
+            "/api/downloads/check": lambda b: self.studio.download_manager.check(
+                b.get("items"), b.get("lines"), b.get("kind", "song")),
+            "/api/downloads/submit": lambda b: self.studio.download_manager.submit(b.get("items"), "manual"),
+            "/api/downloads/decide": lambda b: self.studio.download_manager.decide(b.get("ids"), b.get("action")),
+            "/api/downloads/remove": lambda b: self.studio.download_manager.remove(b.get("ids")),
+            "/api/downloads/folder": lambda b: self.studio.download_manager.set_folder(b.get("folder")),
+            "/api/downloads/import": lambda b: self.studio.download_manager.import_history(b.get("kind"), b.get("path")),
             "/api/settings": self.studio.save_settings,
             "/api/lyrics": self.studio.lyrics.view,
             "/api/lyrics/review": self.studio.lyrics.prepare,

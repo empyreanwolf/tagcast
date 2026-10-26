@@ -55,7 +55,7 @@ Design mockups (6 screens): https://claude.ai/artifact/48RUd5CmZUQqde3ihyFqNW
 
 | Version | Scope |
 |---|---|
-| v9 | Downloads page + tabs, duplicate engine, Needs your decision, Queue & history (+ history import), download folder setting |
+| v9 ✔ | Downloads page + tabs, duplicate engine, Needs your decision, Queue & history (+ history import), download folder setting |
 | v10 | Bandcamp |
 | v11 | Soulseek via Sockseek |
 | v12 | Discography + Top 30 + "get missing" source order |

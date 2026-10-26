@@ -154,6 +154,11 @@ const HELP_TOPICS = {
     ["Search or refresh", "Search and page through the current list. Refresh from iBroadcast fetches the latest ordering. This page is available while optional play reporting is enabled.", ["#recently-played-page .toolbar", "#recently-played-refresh"]],
     ["Listen again", "Play a track, open its album or use its + menu for queue and playlist actions. Listening history is separate from metadata Change history.", ["#recently-played-list"]],
   ]},
+  downloads: {title: "Downloads", scope: "#downloads-page", steps: [
+    ["Check first", "Check compares songs and albums with your iBroadcast library and your download history. Titles ignore (feat. …), case and spacing but keep words such as Live or Remix.", ["#downloads-tabs", "#downloads-content"]],
+    ["Your decision", "Anything you may already have waits under Needs your decision. Skip or Download anyway, one by one or in bulk. A duplicate is never downloaded automatically.", ["#downloads-tabs"]],
+    ["History and folder", "Queue & history lists everything downloaded before. Folder & imports sets the download folder and imports the Galaxy and Telegram histories.", ["#downloads-tabs"]],
+  ]},
   overview: {title: "Overview", scope: "#overview-page", steps: [
     ["Your library in numbers", "Overview summarises your collection and account using the loaded library. Album totals use the same displayed sets as the album browser.", ["#overview-page"]],
     ["Explore metadata", "Metadata health counts highlight missing or combined values. Follow a count’s link to inspect the matching albums or album artists before deciding whether to edit them.", ["#overview-page [data-health]", "#overview-page"]],

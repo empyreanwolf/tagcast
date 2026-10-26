@@ -30,6 +30,9 @@ The application consists of a Python server and a plain JavaScript frontend.
   account-scoped reports, bounded batches and explicit stop/resume with fresh checks.
 - `src/tagcast/duplicate_cleanup.py`: explicitly analysed, account-scoped duplicate-copy
   drafts, reviewed track exclusions and bounded trash batches with persisted intent and read-back.
+- `src/tagcast/downloads.py` (fork): Downloads duplicate check against the loaded library and
+  the download history, Needs your decision, queue, history import and download folder, kept in
+  `downloads.json`; `static/downloads.js` is its page. See `docs/downloads-plan.md`.
 - `src/tagcast/updates.py`: public stable-release checks, version comparison and a
   daily persistent cache, independent of iBroadcast credentials.
 - `src/tagcast/album_guide.py`: opt-in, explicitly started comparison with the bundled
