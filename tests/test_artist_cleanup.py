@@ -210,6 +210,20 @@ class ArtistCleanupTests(unittest.TestCase):
         finished(studio)
         self.assertEqual(credits(studio.raw["library"]["tracks"]["106"]), [(11, "artist"), (6, "artist")])
 
+    def test_feat_guest_prefers_artist_already_on_the_track_and_never_a_merged_away_entry(self):
+        raw = data()
+        raw["library"]["artists"].update({"30": {"name": "BooM 黄旭"}, "31": {"name": "黃旭"}})
+        raw["library"]["albums"]["27"] = {"name": "Cypher", "artist_id": 8, "disc": 1, "tracks": [108, 109]}
+        raw["library"]["tracks"]["108"] = {"title": "Song ft 黃旭", "artist_id": 8, "album_id": 27, "genre": "",
+                                           "artists_additional": [{"artist_id": 30, "type": "artist", "phrase": None}]}
+        raw["library"]["tracks"]["109"] = {"title": "Other ft 黃旭", "artist_id": 8, "album_id": 27, "genre": "Rock"}
+        studio = LocalStudio(raw)
+        preview = studio.artist_cleanup.prepare("feat")
+        items = {i["id"]: i for i in studio.artist_cleanup.view(report=True)["items"]}
+        self.assertNotIn(108, items)  # already credited through "BooM 黄旭"
+        self.assertEqual(items[109]["after"]["credits"], [{"id": 30, "type": "artist", "phrase": None}])
+        self.assertNotIn("黃旭", preview["new_artists"])
+
     def test_conflict_since_preview_stops_without_writing(self):
         studio = LocalStudio(data())
         preview = studio.artist_cleanup.prepare("merge", groups=[{"members": [1, 2], "target": {"id": 1}}])

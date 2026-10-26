@@ -81,8 +81,13 @@ class Index:
     def best(self, ids):
         return max(ids, key=lambda i: (self.usage[i], -i))
 
-    def resolve(self, name, genres=None):
-        """{"id": n} for an entry in use (or an existing name), else {"name": new name}."""
+    def resolve(self, name, genres=None, context=()):
+        """{"id": n} for an entry in use (or an existing name), else {"name": new name}.
+
+        ``genres``: the record's genres, to confirm a one-language match ("王菲" →
+        "Faye Wong 王菲"); empty means unknown. ``context``: artist IDs already on the
+        record; a part of one of them always matches it ("黃旭" → "BooM 黄旭").
+        """
         cleaned = match.clean(name)
         if not cleaned:
             raise LibraryError("An artist name cannot be empty.")
@@ -96,16 +101,69 @@ class Index:
             same = self.pairs.get(frozenset(match.match_key(p) for p in pair))
             if same:
                 return {"id": self.best(same)}
-        owners = set(self.parts.get(key, ()))
-        if len(owners) == 1 and len(key) >= (2 if match.HAS_CJK.search(key) else 3):
-            owner = owners.pop()
-            if genres is None or match.top_genres(genres) & match.top_genres(self.genres.get(owner, Counter())):
+            # "SHARK衛彬月" → the one-language entry "SHarK" or "衛彬月": its Chinese part
+            # first, then a Latin part on the record or in the same genre.
+            latin, chinese = (match.match_key(p) for p in pair)
+            for part, strict in ((chinese, False), (latin, True)):
+                found = self.by_key.get(part, [])
+                if len(found) == 1 and len(part) >= (2 if not strict else 3) and (
+                        not strict or found[0] in context or not genres or
+                        match.top_genres(genres) & match.top_genres(self.genres.get(found[0], Counter()))):
+                    return {"id": found[0]}
+        cjk = bool(match.HAS_CJK.search(key))
+        owners, owner = set(self.parts.get(key, ())), None
+        if owners and len(key) >= (2 if cjk else 3):
+            # Several entries share this part: the one already on the record, or one
+            # that is clearly the main entry ("BooM 黄旭" over a stray "黃旭 VaVa").
+            ranked = sorted(owners, key=lambda i: -self.usage[i])
+            on_record = [i for i in ranked if i in context]
+            if on_record:
+                owner = on_record[0]
+            elif len(ranked) == 1 or self.usage[ranked[0]] >= 5 * max(1, self.usage[ranked[1]]):
+                owner = ranked[0]
+        if owner is not None:
+            # Chinese names of two or more characters are distinctive; a Latin part
+            # ("Air") must share a genre or already be on the record.
+            if owner in context or cjk or not genres or \
+                    match.top_genres(genres) & match.top_genres(self.genres.get(owner, Counter())):
                 return {"id": owner}
-        existing = self.library.find_artist(cleaned)
+        existing = names_of(self.library).find(cleaned)
         if existing:
-            return {"id": existing}
+            # An unused entry with this exact name was most likely merged into the owner.
+            return {"id": owner} if owner and not self.usage.get(existing) else {"id": existing}
         # Two spellings of one new name ("269B", "269b") create one entry.
         return {"name": self.new_names.setdefault(key, cleaned)}
+
+
+class Names:
+    """``Library.find_artist`` with one pass over the artists instead of one per lookup."""
+
+    def __init__(self, library):
+        self.exact, self.folded = {}, {}
+        for artist_id, row in library.artists.items():
+            name = text(row.get("name")).strip()
+            if artist_id not in self.exact.get(name, ()):
+                self.exact.setdefault(name, []).append(artist_id)
+            self.folded.setdefault(name.casefold(), []).append(artist_id)
+
+    def find(self, name):
+        wanted = name.strip()
+        if wanted in self.exact:
+            return min(self.exact[wanted])
+        folded = self.folded.get(wanted.casefold(), [])
+        if len(folded) == 1:
+            return folded[0]
+        if wanted == "Various Artists" and not folded:
+            return 0
+        return None
+
+
+def names_of(library):
+    found = getattr(library, "_artist_cleanup_names", None)
+    if found is None:
+        found = Names(library)
+        library._artist_cleanup_names = found
+    return found
 
 
 def ref_key(ref):
@@ -211,8 +269,14 @@ class ArtistCleanup:
             return {"kind": kind, "items": items, "total": len(items)}
         if kind == "feat":
             plan = self._feat_plan(library, index)
-            return {"kind": kind, "tracks": len(plan["tracks"]), "guests": len(plan["guests"]),
-                    "new_guests": sorted(n for n, ref in plan["guests"].items() if "name" in ref),
+            changing = {}
+            for track_id, refs in plan["tracks"].items():
+                before = snapshot(library, library.tracks[track_id], "track")
+                if not unchanged(before, transform(before, {}, refs)):
+                    changing[track_id] = refs
+            guests = {ref_key(r): r for refs in changing.values() for r in refs}
+            return {"kind": kind, "tracks": len(changing), "guests": len(guests),
+                    "new_guests": sorted(r["name"] for r in guests.values() if "name" in r),
                     "problems": plan["problems"][:200], "problem_count": len(plan["problems"])}
         raise LibraryError("Choose merge, split or feat suggestions.")
 
@@ -253,7 +317,7 @@ class ArtistCleanup:
                 if not name or len(name) > 1000:
                     raise LibraryError("A new artist name must contain 1–1,000 characters.")
                 exact = [i for i in members if text(library.artists[i].get("name")) == name]
-                existing = exact[0] if exact else library.find_artist(name)
+                existing = exact[0] if exact else names_of(library).find(name)
                 target = {"id": existing} if existing and existing not in seen - set(members) else {"name": name}
                 if target.get("id") == 0:
                     raise LibraryError("Choose a named artist, not Various Artists.")
@@ -309,10 +373,14 @@ class ArtistCleanup:
                 if not names:
                     continue
                 genres = Counter(g for g in stored_genres(track) if g)
+                album = library.albums[album_id]
+                context = {number(track.get("artist_id")), number(album.get("artist_id")),
+                           *(e["artist_id"] for e in library.extra_artists(track)),
+                           *(e["artist_id"] for e in snapshot(library, album, "album")["artists_additional"])}
                 refs = []
                 for name in names:
                     try:
-                        ref = index.resolve(name, genres)
+                        ref = index.resolve(name, genres, context)
                     except LibraryError:
                         continue
                     plan["guests"].setdefault(ref["name"] if "name" in ref else f"#{ref['id']}", ref)
@@ -510,7 +578,7 @@ class ArtistCleanup:
                 raise LibraryError("An artist chosen in the preview no longer exists. Prepare a new preview.")
             return ref["id"]
         name = ref["name"]
-        found = self.task["artists"].get(name) or library.find_artist(name)
+        found = self.task["artists"].get(name) or names_of(library).find(name)
         if found is None:
             self._owner(client)
             if self.stop.is_set():

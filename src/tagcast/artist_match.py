@@ -15,6 +15,7 @@ checked against any library snapshot:
 - ``featured``: guest names from "(feat. X & Y)" style track titles.
 """
 
+import functools
 import re
 import unicodedata
 from collections import Counter
@@ -384,7 +385,15 @@ def _guest_spans(value):
     return spans
 
 
+# Words that end up after a guest name in video and upload titles.
+TITLE_NOISE = re.compile(r"\s*(?:official\s+(?:music\s+)?video|music\s+video|lyrics?\s+video|official\s+audio|"
+                         r"\bmv\b|\bm/v\b|\blyrics?\b|\bhd\b|\b4k\b)\s*$", re.I)
+
+
 def _strip_wrapping(name):
+    previous = None
+    while previous != name:
+        previous, name = name, TITLE_NOISE.sub("", name)
     name = name.strip(" .-–")
     while len(name) > 1 and name[0] in OPEN and name[-1] in CLOSE and \
             OPEN.index(name[0]) == CLOSE.index(name[-1]):
@@ -410,6 +419,12 @@ def _top_level_split(text):
     return parts
 
 
+@functools.lru_cache(maxsize=4)
+def _duo_patterns(duos):
+    keep = sorted({clean(d) for d in duos if GUEST_SPLIT.search(clean(d))}, key=len, reverse=True)
+    return [re.compile(rf"(?<!\w){re.escape(d)}(?!\w)", re.I) for d in keep]
+
+
 def featured(title, duos=()):
     """Guest names in a title: (names, problem). ``duos``: names of acts kept whole ("Blu & Exile").
 
@@ -420,12 +435,11 @@ def featured(title, duos=()):
     spans = [s for s in _guest_spans(value)]
     if not spans:
         return [], ("no name after feat/ft" if FEAT_WORD.search(value) else None)
-    keep = sorted({clean(d) for d in duos if GUEST_SPLIT.search(clean(d))}, key=len, reverse=True)
     names = []
     for span in spans:
         rest = span
-        for duo in keep:
-            found = re.search(rf"(?<!\w){re.escape(duo)}(?!\w)", rest, re.I)
+        for duo in _duo_patterns(tuple(duos)):
+            found = duo.search(rest)
             if found:
                 names.append(found.group())
                 rest = f"{rest[:found.start()]} , {rest[found.end():]}"

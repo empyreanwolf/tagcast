@@ -133,6 +133,7 @@ class ElectronHostTests(unittest.TestCase):
     def test_shutdown_stops_batches_and_waits_for_writes_and_readback(self):
         studio = types.SimpleNamespace(cleanup=types.SimpleNamespace(stop=threading.Event()),
                                        duplicate_cleanup=types.SimpleNamespace(stop=threading.Event()),
+                                       artist_cleanup=types.SimpleNamespace(stop=threading.Event()),
                                        save_lock=threading.Lock(), cache_lock=threading.Lock(),
                                        lock=threading.Lock(), jobs={"job": {"state": "checking"}})
         server = MagicMock()
@@ -142,6 +143,7 @@ class ElectronHostTests(unittest.TestCase):
         worker.start()
         self.assertTrue(studio.cleanup.stop.wait(timeout=2))
         self.assertTrue(studio.duplicate_cleanup.stop.is_set())
+        self.assertTrue(studio.artist_cleanup.stop.is_set())
         self.assertTrue(worker.is_alive())
         studio.save_lock.release()
         time.sleep(.15)

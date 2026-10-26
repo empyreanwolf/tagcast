@@ -31,7 +31,10 @@ Local music files are never changed.
    `feat.X`, `Song ft. X`, `(with X)` — become additional track artists. Titles stay
    unchanged. Known `&` acts (`Blu & Exile`) stay whole; names with brackets
    (`(G)I-DLE`, `派克特（PACT）`) are kept intact. Unreadable titles are listed.
-   Run **Duplicates** first so guests join the merged entries.
+   Run **Duplicates** first so guests join the merged entries, and check
+   **Duplicates** again afterwards for guests spelled differently in titles.
+   Chinese names of two or more characters match an existing English + Chinese entry
+   directly; Latin names only when that artist is already on the track or shares a genre.
 4. **Search & merge.** Find any entries by name, add them, choose the name to keep.
 5. **Review & run.** Every affected group with before/after examples. Untick groups
    to exclude them, approve, start. Stop, resume and the exported report work like
