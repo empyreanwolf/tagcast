@@ -641,7 +641,8 @@ class Galaxy:
         self.apply_settings()
         if track_delay is not None:
             self.track_delay = track_delay
-        self.state.setdefault("paused", False)
+        if self.state.pop("paused", False):  # v11/v12 kept the pause here; it is shared now
+            studio.download_manager.state["paused"] = True
         self.state.setdefault("source", "netease")
         self.state.setdefault("picks", {})
         self.lock = threading.RLock()
@@ -655,10 +656,10 @@ class Galaxy:
         self._cover_gate = threading.Semaphore(2)
         self._cover_memory, self._cover_misses = {}, {}
         manager = studio.download_manager
-        manager.on_queued = self.ensure_worker  # "Download anyway" restarts the thread
+        manager.register("galaxy", self)
         with manager.lock:  # a download that was running when Tagcast stopped starts again
             for item in manager.state["queue"]:
-                if item.get("state") == "active":
+                if item.get("state") == "active" and item.get("source") == "galaxy":
                     item.update(state="queued", step=-1, step_detail="", progress=0)
         if any(i.get("state") == "queued" and i.get("source") == "galaxy" for i in manager.state["queue"]):
             self.ensure_worker()
@@ -783,37 +784,20 @@ class Galaxy:
     # -- queue controls ----------------------------------------------------------------
 
     def control(self, action, ids=None):
-        ids = [str(i) for i in ids or []]
-        m = self.manager
-        if action in ("pause", "resume"):
-            with self.lock:
-                self.state["paused"] = action == "pause"
-                self._persist()
-            self.wake.set()
-            self.ensure_worker()
-        elif action == "cancel":
-            self.cancel_id = self.active
-        elif action == "remove":
-            with m.lock:
-                if self.active in ids:
-                    self.cancel_id = self.active
-            m.remove([i for i in ids if i != self.active])
-        elif action == "retry":
-            m.requeue(ids or None)
-            self.ensure_worker()
-        elif action == "top":
-            m.move_to_top(ids)
-        elif action in ("clear_done", "clear_failed", "clear_waiting", "clear_skipped"):
-            m.clear_state({"clear_done": "done", "clear_failed": "failed", "clear_waiting": "queued",
-                           "clear_skipped": "skipped"}[action], keep=self.active)
-        else:
-            raise GalaxyError("Unknown queue action.")
+        self.manager.control(action, ids)
         self.wake.set()
         return self.status()
 
+    def active_ids(self):
+        return [self.active] if self.active else []
+
+    def cancel(self, item_id):
+        if item_id == self.active:
+            self.cancel_id = item_id
+
     def status(self):
         api = self.limiter.status()
-        return {"paused": self.state["paused"], "api": api, "active": self.active, "settings": self.settings(),
+        return {"paused": self.manager.is_paused(), "api": api, "active": self.active, "settings": self.settings(),
                 "next_in": max(0, round(self.waiting_until - time.monotonic())),
                 "running": bool(self.thread and self.thread.is_alive())}
 
@@ -856,11 +840,11 @@ class Galaxy:
             self.active, self.manager.item(self.active).get("step", 0) if self.manager.item(self.active) else 0,
             f"API limit reached (45 per 5 min) - waiting {secs:.0f} s")
         while not self.stopping:
-            job = None if self.state["paused"] else self.manager.next_queued("galaxy")
+            job = None if self.manager.is_paused() else self.manager.next_queued("galaxy")
             if job is None:
                 self.wake.wait(0.5)
                 self.wake.clear()
-                if not self.manager.has_queued("galaxy") and not self.state["paused"]:
+                if not self.manager.has_queued("galaxy") and not self.manager.is_paused():
                     return  # nothing left; add() starts a new thread
                 continue
             self.active, self.cancel_id = job["id"], None
@@ -879,7 +863,7 @@ class Galaxy:
             finally:
                 self._cleanup(job["id"])
                 self.active = self.cancel_id = None
-            if self.manager.has_queued("galaxy") and not self.state["paused"] and not self.stopping:
+            if self.manager.has_queued("galaxy") and not self.manager.is_paused() and not self.stopping:
                 self.waiting_until = time.monotonic() + self.track_delay
                 try:
                     self._sleep(self.track_delay)

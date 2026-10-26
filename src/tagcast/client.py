@@ -28,6 +28,7 @@ from .album_info import AlbumInformation
 from .artist_bios import ArtistBiographies
 from .artist_cards import ArtistCards
 from .artist_cleanup import ArtistCleanup
+from .bandcamp import Bandcamp
 from .cleanup import Cleanup
 from .collections import Collections
 from .downloads import Downloads
@@ -381,6 +382,7 @@ class Studio:
         self.artist_cleanup = ArtistCleanup(self)
         self.download_manager = Downloads(self)  # self.downloads counts library downloads
         self.galaxy = Galaxy(self)
+        self.bandcamp = Bandcamp(self)
         self.artist_cards = ArtistCards(self)
         self.duplicate_cleanup = DuplicateCleanup(self)
         tokens = self._read("tokens.json")

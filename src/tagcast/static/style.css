@@ -1113,3 +1113,11 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 .dl-settings{display:grid;gap:10px;margin:8px 0}
 .dl-settings label{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;max-width:520px}
 .dl-settings input{width:90px;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--palette-surface,#fff);color:var(--ink)}
+
+/* Bandcamp (fork v13) and the growing Downloads tab row */
+.dl-tabs{display:flex!important;flex-wrap:wrap;width:100%!important}
+.dl-tabs button{flex:1 1 130px}
+.bandcamp-releases{list-style:none;margin:8px 0;padding:0;border-top:1px solid var(--line)}
+.bandcamp-release{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}
+.bandcamp-release-body{flex:1;min-width:0}
+.bandcamp-release .dl-actions{margin:6px 0}

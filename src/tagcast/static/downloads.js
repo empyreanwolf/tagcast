@@ -8,7 +8,7 @@ const downloadsView = {
   tab: "galaxy", lines: "", galaxy: null, poll: null, info: null, queue: null, held: null, results: null, checkKind: "song",
   history: {query: "", source: "", offset: 0, data: null}, picked: new Set(), busy: false, timer: null,
 };
-const downloadsTabs = [["galaxy", "Galaxy"], ["check", "Check"], ["decide", "Needs your decision"], ["queue", "Queue & history"], ["settings", "Settings"]];
+const downloadsTabs = [["galaxy", "Galaxy"], ["bandcamp", "Bandcamp"], ["check", "Check"], ["decide", "Needs your decision"], ["queue", "Queue & history"], ["settings", "Settings"]];
 const downloadsStatusLabels = {have: "In iBroadcast", partly: "Partly (other edition)", downloaded: "Downloaded before", folder: "In your download folder", new: "New"};
 const downloadsSourceLabels = {galaxy: "Galaxy", telegram: "Telegram", bandcamp: "Bandcamp", soulseek: "Soulseek", manual: "Added here"};
 
@@ -87,7 +87,7 @@ async function loadDownloadsHistory() {
 function renderDownloads() {
   const view = downloadsView;
   $("#downloads-tabs").innerHTML = downloadsTabsHtml();
-  const body = {galaxy: galaxyHtml, check: downloadsCheckHtml, decide: downloadsDecideHtml, queue: downloadsQueueHtml, settings: downloadsSettingsHtml}[view.tab]();
+  const body = {galaxy: galaxyHtml, bandcamp: bandcampHtml, check: downloadsCheckHtml, decide: downloadsDecideHtml, queue: downloadsQueueHtml, settings: downloadsSettingsHtml}[view.tab]();
   $("#downloads-content").innerHTML = body;
 }
 

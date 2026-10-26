@@ -41,6 +41,9 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v13** Bandcamp tab: paste an artist or album link; every release shows Have / Partly /
+  Downloaded before / Missing. Download the whole discography, an album or single songs (free
+  128 kbps streams, never purchases), tagged with cover. One queue and one Pause for all sources.
 - **v12** Galaxy part 2: every download is looked up on MusicBrainz for year, genre, track
   number/total (unless it came from a full album) and MusicBrainz IDs; album cards and the album
   page show the year. Downloads → Settings has the pause between songs, the pause between API

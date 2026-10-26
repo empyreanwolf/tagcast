@@ -346,7 +346,8 @@ class Downloads:
                       "imports": data.get("imports") if isinstance(data.get("imports"), dict) else {}}
         self._history_index = None
         self._library_index = (None, None)
-        self.on_queued = None  # set by a source that downloads queued items (Galaxy)
+        self.state["paused"] = bool(data.get("paused"))
+        self.workers = {}  # source name -> its download worker (Galaxy, Bandcamp, Soulseek)
         self._last_persist = 0.0
 
     def _persist(self):
@@ -435,8 +436,8 @@ class Downloads:
                     self.state["held"].append(row)
                     held.append(row)
             self._persist()
-        if queued and self.on_queued:
-            self.on_queued()
+        if queued:
+            self.wake_workers()
         return {"queued": len(queued), "held": len(held), "skipped": len(cleaned) - len(queued) - len(held)}
 
     @staticmethod
@@ -466,8 +467,8 @@ class Downloads:
                     item["state"] = "skipped"
                 self.state["queue"].append(item)
             self._persist()
-        if action == "download" and self.on_queued:
-            self.on_queued()
+        if action == "download":
+            self.wake_workers()
         return {"decided": len(chosen), "action": action, "missing": len(wanted) - len(chosen)}
 
     def remove(self, ids):
@@ -479,7 +480,61 @@ class Downloads:
             self._persist()
             return {"removed": before - len(self.state["queue"])}
 
-    # -- used by the download thread of a source ------------------------------------------
+    # -- the download workers of the sources ---------------------------------------------
+    # Each worker (Galaxy, Bandcamp, Soulseek) takes queued items of its own source. A worker
+    # has ``ensure_worker()``, ``active_ids()`` and ``cancel(item_id)``. Pause is shared.
+
+    def register(self, source, worker):
+        self.workers[source] = worker
+
+    def wake_workers(self):
+        for worker in list(self.workers.values()):
+            try:
+                worker.ensure_worker()
+            except Exception:  # one source never blocks another
+                pass
+
+    def is_paused(self):
+        return self.state["paused"]
+
+    def active_ids(self):
+        out = set()
+        for worker in self.workers.values():
+            out |= set(worker.active_ids())
+        return out
+
+    def control(self, action, ids=None):
+        """The queue buttons: pause/resume, cancel current, remove, retry, move to top, clear."""
+        ids = [str(i) for i in ids or []]
+        active = self.active_ids()
+        if action in ("pause", "resume"):
+            with self.lock:
+                self.state["paused"] = action == "pause"
+                self._persist()
+            self.wake_workers()
+        elif action == "cancel":
+            for worker in self.workers.values():
+                for item_id in worker.active_ids():
+                    worker.cancel(item_id)
+        elif action == "remove":
+            for worker in self.workers.values():
+                for item_id in set(worker.active_ids()) & set(ids):
+                    worker.cancel(item_id)
+            self.remove([i for i in ids if i not in active])
+        elif action == "retry":
+            self.requeue(ids or None)
+            self.wake_workers()
+        elif action == "top":
+            self.move_to_top(ids)
+        elif action in ("clear_done", "clear_failed", "clear_waiting", "clear_skipped"):
+            state = {"clear_done": "done", "clear_failed": "failed", "clear_waiting": "queued", "clear_skipped": "skipped"}[action]
+            with self.lock:
+                self.state["queue"] = [i for i in self.state["queue"] if i.get("state") != state or i["id"] in active]
+                self._persist()
+        else:
+            raise LibraryError("Unknown queue action.")
+        return {"paused": self.state["paused"], "active": sorted(self.active_ids())}
+
 
     def item(self, item_id):
         with self.lock:

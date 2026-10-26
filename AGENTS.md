@@ -36,6 +36,8 @@ The application consists of a Python server and a plain JavaScript frontend.
 - `src/tagcast/galaxy.py` (fork): GD Studio search and the Galaxy download thread over the Downloads
   queue (ported from empyreanwolf/gd-music-downloader); `artist_cards.py` tells same-name artists
   apart (MusicBrainz, Deezer, library). `static/galaxy.js` is the Galaxy tab. Tags need `mutagen`.
+- `src/tagcast/bandcamp.py` (fork): Bandcamp releases and 128 kbps stream downloads (`static/bandcamp.js`);
+  `source_worker.py` is the shared file-download thread. Pause and the queue buttons live in `downloads.py`.
 - `src/tagcast/updates.py`: public stable-release checks, version comparison and a
   daily persistent cache, independent of iBroadcast credentials.
 - `src/tagcast/album_guide.py`: opt-in, explicitly started comparison with the bundled
