@@ -130,6 +130,7 @@ class Discography:
                 if not key:
                     continue
                 releases.setdefault(key, {"title": match.clean(a.get("title")), "year": _year(a.get("release_date")),
+                                          "date": str(a.get("release_date") or "")[:10],
                                           "type": a.get("record_type") or "album", "tracks": None,
                                           "cover": a.get("cover_medium", ""), "deezer_id": a.get("id"), "sources": []})
                 releases[key]["sources"].append("Deezer")
@@ -149,6 +150,7 @@ class Discography:
                                               "tracks": None, "cover": "", "deezer_id": None, "sources": []})
             entry["tracks"] = entry["tracks"] or a.get("trackCount")
             entry["year"] = entry["year"] or _year(a.get("releaseDate"))
+            entry["date"] = entry.get("date") or str(a.get("releaseDate") or "")[:10]
             entry["cover"] = entry["cover"] or str(a.get("artworkUrl100") or "").replace("100x100", "250x250")
             entry["genre"] = a.get("primaryGenreName", "")
             if "Apple Music" not in entry["sources"]:

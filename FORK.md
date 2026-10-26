@@ -41,6 +41,10 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v16** Downloads → Missing → New releases: for the artists you follow (and, if on, every album
+  artist with 3+ albums in your library) Tagcast checks Deezer and Apple Music every 7 days while it
+  is open, or on Check now. New releases you don't fully have are listed for Get the missing; a
+  message (and Windows notification) says when there are new ones.
 - **v15** Discography tab (also "Discography & top songs" on every album artist page): every album,
   EP, single and compilation from Deezer and Apple Music (MusicBrainz on request, cached 7 days),
   each Have / Partly / Downloaded before / Missing; the top 30 songs with 30-second previews.

@@ -8,7 +8,7 @@ const downloadsView = {
   tab: "galaxy", lines: "", galaxy: null, poll: null, info: null, queue: null, held: null, results: null, checkKind: "song",
   history: {query: "", source: "", offset: 0, data: null}, picked: new Set(), busy: false, timer: null,
 };
-const downloadsTabs = [["galaxy", "Galaxy"], ["bandcamp", "Bandcamp"], ["soulseek", "Soulseek"], ["discography", "Discography"], ["check", "Check"], ["decide", "Needs your decision"], ["queue", "Queue & history"], ["settings", "Settings"]];
+const downloadsTabs = [["galaxy", "Galaxy"], ["bandcamp", "Bandcamp"], ["soulseek", "Soulseek"], ["discography", "Discography"], ["missing", "Missing"], ["check", "Check"], ["decide", "Needs your decision"], ["queue", "Queue & history"], ["settings", "Settings"]];
 const downloadsStatusLabels = {have: "In iBroadcast", partly: "Partly (other edition)", downloaded: "Downloaded before", folder: "In your download folder", new: "New"};
 const downloadsSourceLabels = {galaxy: "Galaxy", telegram: "Telegram", bandcamp: "Bandcamp", soulseek: "Soulseek", manual: "Added here"};
 
@@ -75,7 +75,7 @@ function downloadsPoll() {
 function downloadsTabsHtml() {
   const view = downloadsView, held = view.held?.length || 0;
   return downloadsTabs.map(([key, label]) => `<button type="button" role="tab" data-downloads-tab="${key}"
-    aria-selected="${view.tab === key}" tabindex="${view.tab === key ? 0 : -1}">${label}${key === "decide" && held ? ` <b class="dl-count">${held}</b>` : ""}</button>`).join("");
+    aria-selected="${view.tab === key}" tabindex="${view.tab === key ? 0 : -1}">${label}${key === "decide" && held ? ` <b class="dl-count">${held}</b>` : ""}${key === "missing" && typeof missingView !== "undefined" && missingView.releases?.unseen ? ` <b class="dl-count">${missingView.releases.unseen}</b>` : ""}</button>`).join("");
 }
 
 async function loadDownloadsHistory() {
@@ -87,7 +87,7 @@ async function loadDownloadsHistory() {
 function renderDownloads() {
   const view = downloadsView;
   $("#downloads-tabs").innerHTML = downloadsTabsHtml();
-  const body = {galaxy: galaxyHtml, bandcamp: bandcampHtml, soulseek: soulseekHtml, discography: discographyHtml, check: downloadsCheckHtml, decide: downloadsDecideHtml, queue: downloadsQueueHtml, settings: downloadsSettingsHtml}[view.tab]();
+  const body = {galaxy: galaxyHtml, bandcamp: bandcampHtml, soulseek: soulseekHtml, discography: discographyHtml, missing: missingHtml, check: downloadsCheckHtml, decide: downloadsDecideHtml, queue: downloadsQueueHtml, settings: downloadsSettingsHtml}[view.tab]();
   $("#downloads-content").innerHTML = body;
 }
 

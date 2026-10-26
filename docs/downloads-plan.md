@@ -62,7 +62,10 @@ Design mockups (6 screens): https://claude.ai/artifact/48RUd5CmZUQqde3ihyFqNW
 | v13 ✔ | Bandcamp |
 | v14 ✔ | Soulseek via Sockseek |
 | v15 ✔ | Discography + Top 30 + "get missing" source order |
-| v16 | Telegram check (listener inside Tagcast) |
+| v16 ✔ | New-release alerts (weekly, followed artists + artists with 3+ albums) |
+| v17 | Wishlist with retry every few days |
+| v18 | "Complete my albums" report |
+| v19 | Telegram check (listener inside Tagcast) |
 
 Testing: unit tests with `tests/mock_ibroadcast.py` / LocalStudio and one quick real
 check per version. Avoid full-library stress runs unless something needs it.

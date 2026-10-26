@@ -50,6 +50,7 @@ from .lyrics import Lyrics
 from .metadata_export import MetadataExport
 from .playlist_import import PlaylistImport
 from .queue_sync import QUEUE_SCOPES, QueueSync
+from .releases import NewReleases
 from .service_status import ServiceStatus
 from .soulseek import Soulseek
 from .sources import KEYS as SOURCE_KEYS
@@ -387,6 +388,7 @@ class Studio:
         self.bandcamp = Bandcamp(self)
         self.soulseek = Soulseek(self)
         self.discography = Discography(self)
+        self.new_releases = NewReleases(self)
         self.artist_cards = ArtistCards(self)
         self.duplicate_cleanup = DuplicateCleanup(self)
         tokens = self._read("tokens.json")

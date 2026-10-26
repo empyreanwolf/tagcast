@@ -228,6 +228,10 @@ class Handler(SimpleHTTPRequestHandler):
                 query.get("q", ""), query.get("source", ""), query.get("offset", "0"), query.get("limit", "50")))
         elif url.path == "/api/galaxy/cover":
             self._cover(query)
+        elif url.path == "/api/releases":
+            self._run(self.studio.new_releases.view)
+        elif url.path == "/api/releases/summary":
+            self._run(self.studio.new_releases.summary)
         elif url.path == "/api/discography/get-status":
             self._run(lambda: self.studio.discography.status(query.get("id")))
         elif url.path == "/api/soulseek/status":
@@ -290,6 +294,10 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/bandcamp/discography": lambda b: self.studio.bandcamp.discography(b.get("url")),
             "/api/bandcamp/album": lambda b: self.studio.bandcamp.album(b.get("url")),
             "/api/bandcamp/add": lambda b: self.studio.bandcamp.add(b.get("url"), b.get("nums")),
+            "/api/releases/settings": lambda b: self.studio.new_releases.save_settings(b),
+            "/api/releases/check": lambda b: self.studio.new_releases.check(),
+            "/api/releases/seen": lambda b: self.studio.new_releases.mark_seen(),
+            "/api/releases/dismiss": lambda b: self.studio.new_releases.dismiss(b.get("ids")),
             "/api/discography": lambda b: self.studio.discography.view(
                 b.get("name"), b.get("deezer_id"), b.get("musicbrainz") is True, b.get("refresh") is True),
             "/api/discography/top": lambda b: self.studio.discography.top(b.get("name"), b.get("deezer_id")),

@@ -1135,3 +1135,12 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 .discography-list li{display:grid;grid-template-columns:auto auto 1fr minmax(160px,auto);gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
 .discography-sources{font-size:12px}
 @media (max-width:760px){.discography-list li{grid-template-columns:auto auto 1fr}.discography-list li>div:last-child{grid-column:3}}
+
+/* Missing: new releases (fork v16) */
+.missing-subs{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 14px}
+.missing-subs button{padding:7px 14px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--muted);font:inherit;cursor:pointer}
+.missing-subs button[aria-selected="true"]{background:var(--palette-soft,#f0f3ed);color:var(--ink);font-weight:600}
+.releases-settings summary{cursor:pointer;font-weight:600}
+.releases-settings label{display:block;margin:8px 0}
+.releases-days{width:70px;font:inherit;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--palette-surface,#fff);color:var(--ink)}
+.releases-artists{display:flex;flex-wrap:wrap;gap:6px}
