@@ -1166,3 +1166,9 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 #gemini-search-label{display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap}
 .gemini-sources{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;padding-top:8px;border-top:1px solid var(--line);font-size:11px}
 .gemini-sources a{color:var(--palette-link,#7f8e76)}
+
+/* Daily Digest (fork v24) */
+#digest-content .dl-card h2{margin-top:0;font-size:15px}
+.digest-chart,.digest-recs{padding-top:10px;margin-top:10px;border-top:1px solid var(--line)}
+.digest-chart:first-of-type,.digest-recs:first-of-type{border-top:0;padding-top:0}
+.digest-chart h3,.digest-recs h3{margin:0 0 4px;font-size:13px}

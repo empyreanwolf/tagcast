@@ -130,6 +130,21 @@ The application consists of a Python server and a plain JavaScript frontend.
   Charts/Gemini, keyed by source (`deezer`/`gemini`) rather than a chart id. State: in-memory
   cache only (`CACHE_SECONDS`), nothing persisted. `static/recommendations.js` (its own
   sidebar page, not a Downloads tab).
+- `src/tagcast/digest.py` (fork, v24): "Daily Digest", its own top-level sidebar page that
+  reads four other modules rather than fetching anything itself: `new_releases.view()`'s
+  undismissed results, `wishlist.state["found"]` (copied per row before adding `is_new`, so
+  this never mutates Wishlist's own persisted state), `charts.view()` for each of the six
+  fixed `CHARTS` ids, and `recommendations.view()` for both sources. Chart movement is the
+  one new piece of state: Charts itself only caches in memory for `CACHE_SECONDS`, with no
+  history, so `digest.json` persists each chart's last-seen `(artist, title)`-pair set
+  (`_row_key()`) and diffs the current rows against it on every `view()`; a chart seen for
+  the first time has nothing to diff against yet and is reported as a first scan rather than
+  the whole chart being called "new". Every section goes through `_safe()`, which catches any
+  exception and turns it into `{"ok": False, "error": ...}` for that section alone, so one
+  broken chart or a missing Gemini key never takes down the rest of the page. Nothing here
+  downloads anything; "Get it" still only exists on each source's own page, which the digest
+  links back to. State: `digest.json` (chart snapshots; when wishlist "just found" was last
+  acknowledged via `mark_found_seen()`). `static/digest.js` (its own sidebar page).
 - `src/tagcast/updates.py`: public stable-release checks, version comparison and a
   daily persistent cache, independent of iBroadcast credentials.
 - `src/tagcast/album_guide.py`: opt-in, explicitly started comparison with the bundled

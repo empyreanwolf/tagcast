@@ -41,6 +41,17 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v24** **Daily Digest**, a new page on the left: one read-first page pulling together
+  what the other pages already track. New releases (its own undismissed results). Wishlist,
+  just found -- the most recent items it dug up, flagged "New" until you hit "Mark seen"
+  (same manual acknowledgement New releases already uses). Chart movement -- which songs on
+  each of the six fixed Charts tabs are there now that weren't the last time this page
+  looked (Charts itself has no history to diff against, so this keeps its own snapshot per
+  chart; the very first look at a chart has nothing to compare yet, so it says so rather
+  than listing the whole chart as "new"). The top of each Recommendations list. Every
+  section fails on its own -- one chart's site changing, or no Gemini key yet, only takes
+  out that section, never the page. Nothing downloads from here; each section links back to
+  its own page for that.
 - **v23** **Recommendations**, a new page on the left, next to Ask Gemini: two separate
   lists seeded from the artists New releases already tracks (followed artists, plus your
   library's own 3+-album artists if that setting is on). **Deezer (related artists)** is

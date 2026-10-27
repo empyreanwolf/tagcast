@@ -33,6 +33,7 @@ from .charts import Charts
 from .cleanup import Cleanup
 from .collections import Collections
 from .completion import Completion
+from .digest import Digest
 from .discography import Discography
 from .downloads import Downloads
 from .duplicate_cleanup import DuplicateCleanup
@@ -401,6 +402,7 @@ class Studio:
         self.charts = Charts(self)
         self.gemini = Gemini(self)
         self.recommendations = Recommendations(self)
+        self.digest = Digest(self)
         self.artist_cards = ArtistCards(self)
         self.duplicate_cleanup = DuplicateCleanup(self)
         tokens = self._read("tokens.json")
