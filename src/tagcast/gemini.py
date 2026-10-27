@@ -14,6 +14,14 @@ Charts) and a row of similar-artist chips, while the rest of the reply is shown 
 chat text. Songs you pick go through the same Bandcamp -> Soulseek -> Galaxy order as
 Discography/Charts, one at a time; not found anywhere lands on the wishlist.
 
+This calls the plain ``generateContent`` method -- no Google Search grounding. Grounding
+would let it answer "what's current" questions (e.g. "top hip-hop albums this month")
+accurately, but it is paid-tier only even though a small monthly quota is bundled in free
+once billing is enabled; since the brief for this feature was to stay on a free key, it
+is left out, and the system prompt instead asks the model to flag when a question is
+time-sensitive rather than guess from training data. A later "Get it" can still find a
+song it names wrong; the library/history check on each title is the actual safety net.
+
 The exact request/response shape of Gemini's REST API could not be exercised against the
 real service from this environment (no network path to generativelanguage.googleapis.com
 here), so this follows Google's long-documented ``models.{model}:generateContent`` REST
@@ -38,7 +46,7 @@ from .library import LibraryError, text
 log = logging.getLogger("tagcast")
 STATE_FILE = "gemini.json"
 API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.8-flash"  # Settings can override; raise if Google retires this
 MAX_TURNS = 40          # user+model pairs kept for context and shown in the page
 MAX_MESSAGE = 4000
 MAX_SONGS_PER_REPLY = 20
@@ -48,8 +56,13 @@ JSON_BLOCK_RE = re.compile(r"```json\s*(.*?)\s*```\s*$", re.S)
 SYSTEM_PROMPT = (
     "You are a music-discovery assistant inside a personal music app called Tagcast. "
     "Talk naturally and helpfully about whatever artist, song or music question the user "
-    "raises. Whenever you can name concrete songs worth downloading, or other artists "
-    "worth exploring, end your reply with exactly one fenced ```json code block, and "
+    "raises. You have no live internet access and only know what was in your training "
+    "data, so for anything time-sensitive (this week's/month's/year's charts, a release "
+    "date, whether something has come out yet) say plainly that you can't check current "
+    "data and give your best training-data answer labelled as possibly outdated, rather "
+    "than stating it as current fact. Whenever you can name concrete songs worth "
+    "downloading, or other artists worth exploring, end your reply with exactly one "
+    "fenced ```json code block, and "
     "nothing after it, shaped exactly like this (use empty arrays if you have nothing to "
     "suggest yet, and never invent an artist or song you are not reasonably sure exists): "
     '```json\n{"songs": [{"artist": "", "title": "", "album": ""}], "similar_artists": [""]}\n```'

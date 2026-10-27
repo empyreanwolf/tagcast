@@ -4,7 +4,7 @@ import json
 import time
 import unittest
 
-from tagcast.gemini import Gemini, GeminiError
+from tagcast.gemini import DEFAULT_MODEL, Gemini, GeminiError
 
 from test_discography import LocalStudio as DiscographyStudio
 from test_galaxy import song as gd_song
@@ -63,6 +63,11 @@ def reply(text, songs=None, similar=None):
 
 
 class SettingsTests(unittest.TestCase):
+    def test_default_model_is_a_current_free_tier_one(self):
+        studio = LocalStudio()
+        self.assertEqual(studio.gemini.settings()["model"], DEFAULT_MODEL)
+        self.assertNotIn(DEFAULT_MODEL, ("gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash"))
+
     def test_no_key_refuses_to_ask(self):
         studio = LocalStudio()
         with self.assertRaises(GeminiError):
