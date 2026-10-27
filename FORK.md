@@ -64,6 +64,18 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v31** **Short songs are no longer thrown away as "previews".** Galaxy used to reject
+  every file under 35 seconds as a 30-second preview, so a real 32-second intro or skit
+  could never be downloaded (reported: "A WORD 4RM MEL" by Kal Banx, "Preview only (32s)").
+  Being short is no longer enough on its own. A short file that otherwise arrived whole is
+  now checked against the song's length on MusicBrainz (already looked up for every
+  download): if MusicBrainz says the song really is that short, it's saved; if it says the
+  song is minutes long, it's still rejected, and the note now says so ("Preview only (30s;
+  MusicBrainz says 3:12)"). When MusicBrainz doesn't know the song, the item fails as
+  "Maybe a preview" with a **Keep it (short track)** button that downloads it again and keeps
+  it. The checks that catch a cut-off file (fewer bytes or seconds than the API announced)
+  are unchanged and still apply even after Keep it. Bandcamp already compared against each
+  track's own listed length, so it was never affected.
 - **v30** Three fixes from a report after v29, plus one small feature:
   - **The duplicate check no longer treats a "Various Artists" (or otherwise
     unrecognised-artist) library track as a wildcard.** A compilation track titled

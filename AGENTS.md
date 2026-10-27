@@ -58,6 +58,10 @@ The application consists of a Python server and a plain JavaScript frontend.
 - `src/tagcast/galaxy.py` (fork): GD Studio search and the Galaxy download thread over the Downloads
   queue (ported from empyreanwolf/gd-music-downloader); `artist_cards.py` tells same-name artists
   apart (MusicBrainz, Deezer, library). `static/galaxy.js` is the Galaxy tab. Tags need `mutagen`.
+  `Galaxy.check_audio()` only rejects on size/bitrate evidence of truncation; a whole file under
+  `SHORT_SECONDS` goes to `check_short()` (fork, v31) after the MusicBrainz lookup, which keeps it when
+  the recording's `length_s` agrees, rejects it when MusicBrainz says longer, and otherwise fails it with
+  `short_seconds` set; queue action `allow_short` requeues with `payload.allow_short` to skip that step.
   `Galaxy._loop()` (fork, v29) wraps its whole iteration, not just `process(job)`, in a broad
   `try/except` -- previously an error from `is_paused()`/`next_queued()` (e.g. a failed
   `_persist()`) could escape outside any handler and silently end the thread for good.

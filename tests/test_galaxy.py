@@ -253,6 +253,58 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(item["state"], "failed")
         self.assertIn("Preview only", item["note"])
 
+    def _short_file(self, seconds=32.0):
+        """Every download reads as a whole file this many seconds long (the fixture is 40 s)."""
+        from unittest import mock
+        self.gd.urls[("netease", "1", 320)] = "https://cdn.example/1.mp3"
+        patcher = mock.patch.object(gx, "read_duration", return_value=(seconds, 320))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def _mb(length_s):
+        return {"year": "2021", "track_no": 1, "track_total": 12, "genre": "Hip Hop", "recording_id": "r",
+                "release_id": "l", "release_title": "Ghost Stories", "length_s": length_s}
+
+    def test_short_track_kept_when_musicbrainz_agrees(self):
+        # v31: a 32 s intro is not a preview just for being short.
+        self._short_file(32.0)
+        self.studio.mb.answers["Magic"] = self._mb(33.0)
+        self.studio.galaxy.add([self.track(1, "Magic")])
+        wait_idle(self.studio)
+        item = self.manager.state["queue"][0]
+        self.assertEqual(item["state"], "done", item.get("note"))
+
+    def test_short_file_of_a_long_song_is_a_preview(self):
+        self._short_file(30.0)
+        self.studio.mb.answers["Magic"] = self._mb(192.0)
+        self.studio.galaxy.add([self.track(1, "Magic")])
+        wait_idle(self.studio)
+        item = self.manager.state["queue"][0]
+        self.assertEqual(item["state"], "failed")
+        self.assertIn("Preview only", item["note"])
+        self.assertIn("3:12", item["note"])
+        self.assertNotIn("short_seconds", item)  # no "Keep it" button for a known preview
+
+    def test_unknown_short_track_can_be_kept(self):
+        self._short_file(32.0)  # MusicBrainz knows nothing about it
+        self.studio.galaxy.add([self.track(1, "Magic")])
+        wait_idle(self.studio)
+        item = self.manager.state["queue"][0]
+        self.assertEqual(item["state"], "failed")
+        self.assertEqual(item.get("short_seconds"), 32)
+        self.assertIn("Keep it", item["note"])
+        # A plain Retry asks again; "Keep it (short track)" saves it.
+        self.studio.galaxy.control("retry", [item["id"]])
+        wait_idle(self.studio)
+        self.assertEqual(self.manager.state["queue"][0]["state"], "failed")
+        self.studio.galaxy.control("allow_short", [item["id"]])
+        wait_idle(self.studio)
+        item = self.manager.state["queue"][0]
+        self.assertEqual(item["state"], "done", item.get("note"))
+        self.assertTrue(item["payload"]["allow_short"])
+        self.assertNotIn("short_seconds", item)
+
     def test_pause_top_and_clear(self):
         self.studio.galaxy.control("pause")
         self.studio.galaxy.add([self.track(1, "A"), self.track(2, "B"), self.track(3, "C")])

@@ -50,6 +50,7 @@ TRACK_DELAY = 6.0
 AUDIO_EXTS = ("mp3", "flac", "m4a")
 STEP_NAMES = ["Got link", "Downloading", "MusicBrainz lookup", "Tagging", "Saved"]
 MB_BASE = "https://musicbrainz.org/ws/2"
+SHORT_SECONDS = 35  # under this, a file is checked against MusicBrainz before it is kept
 SETTING_LIMITS = {"track_delay": (0, 600), "api_delay": (0, 60), "api_quota": (5, 50)}
 STATE_FILE = "galaxy.json"
 
@@ -588,7 +589,7 @@ class MusicBrainz:
         return best
 
     def lookup(self, artists, title, album):
-        """{year, track_no, track_total, genre, recording_id, release_id, release_title} or None."""
+        """{year, track_no, track_total, genre, recording_id, release_id, release_title, length_s} or None."""
         base = f"recording:{_phrase(title)}" + (f" AND artist:{_phrase(artists[0])}" if artists else "")
         best = None
         for q in ([base + f" AND release:{_phrase(album)}"] if album else []) + [base]:
@@ -621,7 +622,8 @@ class MusicBrainz:
         except Exception as e:
             log.info("MusicBrainz genre lookup failed: %s", e)
         return {"year": year, "track_no": track_no, "track_total": track_total, "genre": genre,
-                "recording_id": rec.get("id", ""), "release_id": rel.get("id", ""), "release_title": rel.get("title", "")}
+                "recording_id": rec.get("id", ""), "release_id": rel.get("id", ""), "release_title": rel.get("title", ""),
+                "length_s": to_int(rec.get("length"), 0) / 1000.0}
 
     def album_year(self, artist, album):
         q = f"release:{_phrase(album)}" + (f" AND artist:{_phrase(artist)}" if artist else "")
@@ -913,7 +915,7 @@ class Galaxy:
         part.parent.mkdir(parents=True, exist_ok=True)
         self._step(jid, 1, "Connecting…")
         nbytes = self.download(jid, link["url"], part)
-        fmt = self.check_audio(part, link, nbytes)
+        fmt, real = self.check_audio(part, link, nbytes)
         self._step(jid, 1, f"{nbytes / 1048576:.1f} MB · {fmt.upper()}")
         self._step(jid, 2, "Searching recordings…")
         try:
@@ -925,6 +927,8 @@ class Galaxy:
             mbinfo = None
         self._step(jid, 2, f"Matched “{mbinfo['release_title']}” {mbinfo['year']}".strip() if mbinfo
                    else "No match - year/genre missing")
+        if real < SHORT_SECONDS and not p.get("allow_short"):
+            self.check_short(jid, real, (mbinfo or {}).get("length_s", 0))
         track_no, total = to_int(p.get("track_no"), 0), to_int(p.get("track_total"), 0)
         if mbinfo and not p.get("fixed_numbering"):
             track_no = mbinfo.get("track_no") or track_no
@@ -1059,7 +1063,7 @@ class Galaxy:
         except Exception as e:
             raise JobFailed(f"Unreadable {fmt.upper()}: {e}") from None
         api_br, size_b = to_int(link.get("br"), 0), api_size_bytes(link.get("size"))
-        preview, why = real < 35, ""
+        preview, why = False, ""
         if api_br > 320:  # lossless: "br" is a quality code, compare the sizes instead
             if size_b > 0 and nbytes < 0.6 * size_b:
                 preview, why = True, f"got {nbytes / 1048576:.1f} MB of {size_b / 1048576:.1f} MB"
@@ -1071,7 +1075,20 @@ class Galaxy:
                 preview, why = True, f"expected ~{expected:.0f}s"
         if preview:
             raise JobFailed(f"Preview only ({real:.0f}s" + (f", {why})" if why else ")"))
-        return fmt
+        return fmt, real
+
+    def check_short(self, jid, real, mb_length):
+        """A file under SHORT_SECONDS that arrived whole: a real short track (an intro, a skit)
+        or a ~30 s preview whose announced size was the preview's own. Short alone is not proof
+        (v31): MusicBrainz's length for the recording decides when it knows the song; when it
+        doesn't, the item fails with a "Keep it (short track)" button rather than guessing."""
+        if mb_length > 0:
+            if real >= 0.85 * mb_length - 2:
+                return  # MusicBrainz agrees the song is this short
+            mins, secs = divmod(round(mb_length), 60)
+            raise JobFailed(f"Preview only ({real:.0f}s; MusicBrainz says {mins}:{secs:02d})")
+        self.manager.update_item(jid, short_seconds=round(real))
+        raise JobFailed(f"Maybe a preview ({real:.0f}s) - if it really is a short track, press Keep it")
 
     def fetch_cover(self, p, size=500):
         if not p.get("pic_id"):

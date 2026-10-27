@@ -175,6 +175,7 @@ function downloadsQueueBoxHtml() {
         <div class="muted">${escapeHtml(downloadsSourceLabels[i.source] || i.source)}${i.state === "done" ? ` · ${escapeHtml(i.path || "")}` : ""}${i.note && i.state !== "done" ? ` · ${escapeHtml(i.note)}` : i.state === "done" && i.note && i.note !== "Saved" ? ` · ${escapeHtml(i.note)}` : ""}</div></div>
       <div class="dl-row-actions">
         ${i.state === "failed" ? `<button type="button" class="button small" data-galaxy-control="retry" data-id="${escapeHtml(i.id)}">Retry</button>` : ""}
+        ${i.state === "failed" && i.short_seconds ? `<button type="button" class="button small" data-galaxy-control="allow_short" data-id="${escapeHtml(i.id)}" title="It is a real ${escapeHtml(String(i.short_seconds))}-second track (an intro or skit): download it again and keep it">Keep it (short track)</button>` : ""}
         ${i.state === "queued" && i.payload ? `<button type="button" class="button small" data-galaxy-control="top" data-id="${escapeHtml(i.id)}" title="Move to top">⤒</button>` : ""}
         <button type="button" class="button small" ${i.payload ? `data-galaxy-control="remove" data-id="${escapeHtml(i.id)}"` : `data-downloads-remove="${escapeHtml(i.id)}"`}
           aria-label="${i.state === "active" ? "Cancel" : "Remove"} ${escapeHtml(i.title)}">${i.state === "active" ? "Cancel" : "✕"}</button></div></li>`).join("")}</ul>`

@@ -9493,3 +9493,14 @@ test('release Settings keeps experimental gapless without the listening-build di
  assert.equal(p.run('gaplessDiagnostics.enabled'),false);
  assert.match(readFileSync(path.join(staticDir,'index.html'),'utf8'),/<title>Tagcast ·/);
 });
+
+test('a maybe-preview Galaxy failure offers "Keep it (short track)"; other failures do not', async () => {
+ const p = page(); await settle();
+ p.run(`downloadsView.galaxy = {paused: false, running: true, api: {used: 0, quota: 45}}; downloadsView.queue = [
+   {id: "a", state: "failed", title: "A WORD 4RM MEL", source: "galaxy", payload: {source: "netease"}, short_seconds: 32, note: "Maybe a preview (32s)"},
+   {id: "b", state: "failed", title: "Magic", source: "galaxy", payload: {source: "netease"}, note: "Preview only (30s; MusicBrainz says 3:12)"}];`);
+ const html = p.run('downloadsQueueBoxHtml()');
+ assert.equal((html.match(/data-galaxy-control="allow_short"/g) || []).length, 1);
+ assert.match(html, /data-galaxy-control="allow_short" data-id="a"/);
+ assert.match(html, /Keep it \(short track\)/);
+});

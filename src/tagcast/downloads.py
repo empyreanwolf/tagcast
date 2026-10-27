@@ -593,6 +593,11 @@ class Downloads:
         elif action == "retry":
             self.requeue(ids or None)
             self.wake_workers()
+        elif action == "allow_short":
+            # "Keep it (short track)": download again without the short-file check (v31).
+            if ids:
+                self.requeue(ids, allow_short=True)
+                self.wake_workers()
         elif action == "restart":
             # A worker's thread should never actually die mid-queue (see _persist), but this
             # gives a way back without restarting Tagcast itself if one somehow does.
@@ -641,13 +646,16 @@ class Downloads:
             return any(i.get("state") == "queued" and i.get("source") == source and i.get("payload")
                        for i in self.state["queue"])
 
-    def requeue(self, ids=None):
+    def requeue(self, ids=None, allow_short=False):
         """Retry failed items (all of them when ``ids`` is None)."""
         wanted = set(ids) if ids else None
         with self.lock:
             for item in self.state["queue"]:
                 if item.get("state") == "failed" and (wanted is None or item["id"] in wanted):
                     item.update(state="queued", note="", step=-1, step_detail="", progress=0)
+                    item.pop("short_seconds", None)
+                    if allow_short and isinstance(item.get("payload"), dict):
+                        item["payload"] = {**item["payload"], "allow_short": True}
             self._persist()
 
     def move_to_top(self, ids):
