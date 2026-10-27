@@ -64,6 +64,36 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v30** Three fixes from a report after v29, plus one small feature:
+  - **The duplicate check no longer treats a "Various Artists" (or otherwise
+    unrecognised-artist) library track as a wildcard.** A compilation track titled
+    "Intro" was making every artist's own "Intro" look like a duplicate -- press
+    "Skip" enough times on a whole discography and you'd skip songs you never
+    actually had. Only a source with *no artist text at all* (an old Telegram file
+    with no "Artist - Title" in its name) still falls back to matching by title alone;
+    a *named* artist that just doesn't produce a useful key, like "Various Artists",
+    no longer does.
+  - **Galaxy no longer substitutes a different artist's album when the one you asked
+    for shares its exact title.** Downloading an artist's whole discography could
+    silently grab songs from someone else entirely (reported: asking for Moka Only's
+    discography pulled in Travis Roig and an unrelated "beaming" release) whenever
+    another artist happened to have an album with the exact same name and the search
+    turned up no exact artist match -- Galaxy used to fall back to "the biggest
+    same-named group" regardless of whose it was. It now skips an album like that
+    entirely (consistent with "skip albums with no exact edition match") rather than
+    guessing.
+  - **Shuffle play, a new 🔀 button next to "Play random album"** on any Genres, Tags,
+    Track artists, Composers, Release year or Decades detail page: builds one shuffled
+    playlist from every song in every album currently shown (not just one album at a
+    time), so you can press it on "Chinese Hip Hop" and get a random mix across your
+    whole collection in that genre.
+  - If you're running artist splitting and a download in **two separate Tagcast
+    windows/processes at once**, pointed at the same settings folder: that's very
+    likely adding to the stuck-queue problem from v29, not just the disk-write issue
+    already fixed there. Each process keeps its own copy of the download queue in
+    memory and saves over the other's file periodically, so changes can get lost or
+    conflict. Tagcast doesn't need two windows for this -- Artist cleanup and
+    Downloads are both tabs in the same app -- so please run one instance only.
 - **v29** Download manager resilience, after a report of the Galaxy queue getting stuck
   ("984 waiting", 0 saved, no way to recover but a restart). The most likely cause: the
   download queue is saved to disk after almost every change, and that save was not

@@ -161,6 +161,14 @@ class SearchTests(unittest.TestCase):
         self.gd.search_results[("netease_album", "Funcrusher", 1)] = [song(3, "Blind", "Company Flow", "Funcrusher Plus")]
         self.assertFalse(self.studio.galaxy.album("Funcrusher", "Company Flow")["found"])
 
+    def test_exact_title_by_a_different_artist_is_skipped_not_substituted(self):
+        # Another, unrelated artist's album can share the exact same title ("Intro").
+        # Fetching "Moka Only"'s "Intro" must never silently return this other artist's
+        # songs just because it's the only (or biggest) exact-titled match (fork v29 bug fix).
+        self.gd.search_results[("netease_album", "Intro", 1)] = [
+            song(1, "Opener", "Travis Roig", "Intro"), song(2, "Preface", "Travis Roig", "Intro")]
+        self.assertFalse(self.studio.galaxy.album("Intro", "Moka Only")["found"])
+
     def test_artist_search_keeps_credited_songs(self):
         self.gd.search_results[("netease", "Coldplay", 1)] = [
             song(1, "Yellow", "Coldplay", "Parachutes"), song(2, "Clocks", "Coldplay", "A Rush of Blood"),

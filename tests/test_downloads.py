@@ -117,6 +117,16 @@ class CheckTests(unittest.TestCase):
         with self.assertRaises(LibraryError):
             self.manager.check([song("Coldplay", "Yellow")])
 
+    def test_a_various_artists_track_is_not_a_title_only_wildcard(self):
+        # "Intro" by Various Artists is in the library; an unrelated artist's own "Intro"
+        # must not be flagged a duplicate just because the titles match (fork v29 bug fix).
+        custom = data()
+        custom["library"]["albums"]["23"] = {"name": "Underground Mixtape Vol. 1", "artist_id": 4, "disc": 1,
+                                              "tracks": [106]}
+        custom["library"]["tracks"]["106"] = {"title": "Intro", "artist_id": 4, "album_id": 23}
+        self.studio.library = Library(custom)
+        self.assertEqual(self.status(song("Moka Only", "Intro")), ["new"])
+
 
 class DecisionTests(unittest.TestCase):
     def setUp(self):

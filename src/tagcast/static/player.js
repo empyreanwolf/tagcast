@@ -3,7 +3,7 @@
 // Album playback for browsing and editing. Audio comes through the local server
 // (/api/stream/<track>), so the iBroadcast token never reaches this page.
 
-const player = {queue: [], index: -1, album: null, epoch: 0, pending: Promise.resolve(), randomRequest: 0, randomLoading: false, repeat: "none", shuffle: false, quality: "128", fallback: false};
+const player = {queue: [], index: -1, album: null, epoch: 0, pending: Promise.resolve(), randomRequest: 0, randomLoading: false, shuffleLoading: false, repeat: "none", shuffle: false, quality: "128", fallback: false};
 const audio = $("#audio");
 const playerTrackPosition = () => typeof gaplessPosition === "function" ? gaplessPosition() : Number(audio.currentTime) || 0;
 const playerTrackDuration = () => typeof gaplessDuration === "function" ? gaplessDuration() : audio.duration;
@@ -272,7 +272,7 @@ function playTracks(album, startId, shuffle = false, options = {}) {
 }
 
 function updateRandomControls() {
-  const albums = $("#albums-random"), browse = $("#browse-random");
+  const albums = $("#albums-random"), browse = $("#browse-random"), shuffle = $("#browse-shuffle");
   const unavailable = !live() || state.loading || player.randomLoading;
   albums.hidden = !["", "all"].includes($("#filter").value) || state.selected.size > 0;
   albums.disabled = unavailable || !filteredAlbums().some(a => a.track_count > 0);
@@ -282,11 +282,16 @@ function updateRandomControls() {
     button.textContent = player.randomLoading ? "Loading album…" : "▶ Play random album";
     button.setAttribute("aria-busy", String(player.randomLoading));
   }
+  shuffle.hidden = browseView.key === null;
+  shuffle.disabled = unavailable || !browseAlbums().some(a => a.track_count > 0);
+  shuffle.textContent = player.shuffleLoading ? "Shuffling…" : "🔀 Shuffle play";
+  shuffle.setAttribute("aria-busy", String(player.shuffleLoading));
 }
 
 function cancelRandomPlay() {
   player.randomRequest += 1;
   player.randomLoading = false;
+  player.shuffleLoading = false;
   updateRandomControls();
 }
 
@@ -315,6 +320,41 @@ async function playRandomAlbum(albums) {
     if (request === player.randomRequest) { player.randomLoading = false; updateRandomControls(); }
   }
 }
+
+// Shuffles every song from every matching album into one playlist (fork v29), rather than
+// playing just one random album at a time -- e.g. "shuffle all of Chinese Hip Hop".
+async function playShuffleGroup(albums) {
+  if (!live() || state.loading || player.shuffleLoading) return;
+  const eligible = albums.filter(a => a.track_count > 0);
+  if (!eligible.length) return;
+  const ids = eligible.map(a => a.id), details = state.details;
+  const request = ++player.randomRequest, epoch = ++player.epoch, label = browseView.label || "this group";
+  player.shuffleLoading = true; updateRandomControls();
+  try {
+    const discs = await albumDetails(ids);
+    if (request !== player.randomRequest || epoch !== player.epoch || details !== state.details || !live()) return;
+    const tracks = discs.filter(d => d.tracks.length).flatMap(d => queueTracks(d));
+    if (!tracks.length) throw Error("No playable tracks in this group.");
+    for (let i = tracks.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
+    }
+    player.shuffle = true;
+    player.queue = tracks;
+    if (typeof gaplessAlbumQueue === "function") gaplessAlbumQueue(player.queue, false);
+    player.index = 0;
+    playCurrent();
+    toast(`Shuffling ${tracks.length} songs from ${label}`);
+  } catch (error) {
+    if (request === player.randomRequest && details === state.details) toast(`Could not shuffle ${label}: ${error.message}`);
+  } finally {
+    if (request === player.randomRequest) { player.shuffleLoading = false; updateRandomControls(); }
+  }
+}
+
+$("#browse-shuffle").addEventListener("click", () => {
+  if (!$("#browse-shuffle").hidden) return playShuffleGroup(browseAlbums());
+});
 
 $("#albums-random").addEventListener("click", () => {
   if (!$("#albums-random").hidden) return playRandomAlbum(filteredAlbums());

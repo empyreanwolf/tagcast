@@ -83,6 +83,12 @@ def artist_keys(*names):
     return keys
 
 
+def _named(*names):
+    """True if at least one of these is a real artist name, even one that produces no
+    usable key (e.g. "Various Artists") -- as opposed to no artist text at all."""
+    return any(match.clean(name) for name in names)
+
+
 def parse_file_name(name):
     """"03 - Artist - Title.mp3" → ("Artist", "Title"); without " - " the artist is unknown."""
     stem = AUDIO_EXT.sub("", text(name).strip())
@@ -107,7 +113,8 @@ class LibraryIndex:
             # Discs of one set (same title and album artist) count as one album.
             set_id = (album_key(album_name), number(album.get("artist_id")))
             entry = sets.setdefault(set_id, {"title": album_name, "artist": album_artists[0] if album_artists else "",
-                                             "keys": artist_keys(*album_artists), "tracks": 0, "album_id": album_id})
+                                             "keys": artist_keys(*album_artists), "named": _named(*album_artists),
+                                             "tracks": 0, "album_id": album_id})
             entry["tracks"] += len(tracks)
             for track_id in tracks:
                 track = library.tracks[track_id]
@@ -115,7 +122,8 @@ class LibraryIndex:
                          *(library.artist_name(e["artist_id"]) for e in library.extra_artists(track)
                            if e.get("type") in (None, "", "artist", "band"))]
                 self.songs.setdefault(song_key(track.get("title")), []).append({
-                    "keys": artist_keys(*names) | entry["keys"], "title": text(track.get("title")),
+                    "keys": artist_keys(*names) | entry["keys"], "named": _named(*names) or entry["named"],
+                    "title": text(track.get("title")),
                     "artist": names[0], "album": album_name, "track_id": track_id, "album_id": album_id})
         for entry in sets.values():
             self.albums.setdefault(album_key(entry["title"]), []).append(entry)
@@ -125,35 +133,42 @@ class HistoryIndex:
     def __init__(self, entries):
         self.songs, self.albums = {}, {}
         for entry in entries:
-            keys = artist_keys(*entry.get("artists", []))
-            self.songs.setdefault(song_key(entry.get("title")), []).append((keys, entry))
+            artists = entry.get("artists", [])
+            keys, named = artist_keys(*artists), _named(*artists)
+            self.songs.setdefault(song_key(entry.get("title")), []).append((keys, named, entry))
             if entry.get("album"):
-                self.albums.setdefault(album_key(entry["album"]), []).append((keys, entry))
+                self.albums.setdefault(album_key(entry["album"]), []).append((keys, named, entry))
 
 
-def _overlap(keys, other):
-    # Unknown artist (a Telegram file without " - "): the title alone decides.
-    return not keys or not other or bool(keys & other)
+def _overlap(keys, named, other_keys, other_named):
+    # Only a side with no artist text at all (a Telegram file without " - ") falls back
+    # to the title alone. A *known* artist that happens to carry no usable key -- "Various
+    # Artists" on a compilation is the common case -- must never become a wildcard that
+    # matches a generic title ("Intro", "Interlude") from an unrelated artist.
+    if not named or not other_named:
+        return True
+    return bool(keys & other_keys)
 
 
 def check_item(item, library_index, history_index):
     """{"status": have / partly / downloaded / new, "you_have": [...]} for one item."""
     keys = artist_keys(item["artist"]) if item["artist"] else set()
+    named = _named(item["artist"])
     found = []
     if item["kind"] == "song":
         for hit in library_index.songs.get(song_key(item["title"]), []) if library_index else []:
-            if _overlap(keys, hit["keys"]):
+            if _overlap(keys, named, hit["keys"], hit["named"]):
                 found.append({"where": "ibroadcast", "title": hit["title"], "artist": hit["artist"],
                               "album": hit["album"], "album_id": hit["album_id"]})
         if found:
             return {"status": "have", "you_have": found[:EXAMPLES]}
-        for other, entry in history_index.songs.get(song_key(item["title"]), []):
-            if _overlap(keys, other):
+        for other, other_named, entry in history_index.songs.get(song_key(item["title"]), []):
+            if _overlap(keys, named, other, other_named):
                 found.append(_history_hit(entry))
         return {"status": "downloaded" if found else "new", "you_have": found[-EXAMPLES:]}
     partly = []
     for hit in library_index.albums.get(album_key(item["title"]), []) if library_index else []:
-        if _overlap(keys, hit["keys"]):
+        if _overlap(keys, named, hit["keys"], hit["named"]):
             row = {"where": "ibroadcast", "title": hit["title"], "artist": hit["artist"],
                    "tracks": hit["tracks"], "album_id": hit["album_id"]}
             (partly if item.get("tracks") and hit["tracks"] != item["tracks"] else found).append(row)
@@ -161,7 +176,8 @@ def check_item(item, library_index, history_index):
         return {"status": "have", "you_have": found[:EXAMPLES]}
     if partly:
         return {"status": "partly", "you_have": partly[:EXAMPLES]}
-    songs = [entry for other, entry in history_index.albums.get(album_key(item["title"]), []) if _overlap(keys, other)]
+    songs = [entry for other, other_named, entry in history_index.albums.get(album_key(item["title"]), [])
+             if _overlap(keys, named, other, other_named)]
     if songs:
         hit = _history_hit(songs[-1])
         hit["songs"] = len({song_key(e.get("title")) for e in songs})

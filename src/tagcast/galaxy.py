@@ -388,8 +388,18 @@ def fetch_album_exact(api, source, album, artist_hint=None):
         for t in api.search(f"{base}_album", q, ALBUM_COUNT, 1):
             groups.setdefault(t["album"] or album, []).append(t)
         exact = [items for name, items in groups.items() if norm(name) == want]
+        if artist_hint:
+            # Another artist's album can share the exact same title ("Intro", a compilation
+            # name, ...). Never fall back to "biggest same-named group" in that case -- that
+            # silently queues the wrong artist's songs. Only a group actually credited to
+            # artist_hint counts; nothing found this way means try the next query, or fail.
+            matching = [items for items in exact if by_artist(items)]
+            if matching:
+                items = max(matching, key=len)
+                return items, items[0]["album"] or album
+            continue
         if exact:
-            items = max(exact, key=lambda it: (by_artist(it), len(it)))
+            items = max(exact, key=len)
             return items, items[0]["album"] or album
     return [], ""
 

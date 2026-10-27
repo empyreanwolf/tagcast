@@ -42,7 +42,13 @@ The application consists of a Python server and a plain JavaScript frontend.
   drafts, reviewed track exclusions and bounded trash batches with persisted intent and read-back.
 - `src/tagcast/downloads.py` (fork): Downloads duplicate check against the loaded library and
   the download history, Needs your decision, queue, history import and download folder, kept in
-  `downloads.json`; `static/downloads.js` is its page. See `docs/downloads-plan.md`. `_persist()`
+  `downloads.json`; `static/downloads.js` is its page. See `docs/downloads-plan.md`. `_overlap()`
+  (fork, v30) only falls back to matching by title alone when a side has no artist text at all
+  (`named=False`); a *known* artist that reduces to no usable key, like "Various Artists" on a
+  compilation (`artist_keys()` discards that key on purpose), no longer acts as a title-only
+  wildcard that falsely flags an unrelated artist's same-titled song as a duplicate -- `named` is
+  threaded alongside `keys` through `LibraryIndex`, `HistoryIndex` and `check_item()` for this.
+  `_persist()`
   (fork, v29) never lets a disk-write error escape -- it's caught, logged to `tagcast.log`, and
   remembered as `self.persist_error` (surfaced by `queue_view()`). `_watchdog()` (fork, v29),
   called from `queue_view()` on every poll, requeues any item orphaned mid-download by a dead
@@ -55,6 +61,12 @@ The application consists of a Python server and a plain JavaScript frontend.
   `Galaxy._loop()` (fork, v29) wraps its whole iteration, not just `process(job)`, in a broad
   `try/except` -- previously an error from `is_paused()`/`next_queued()` (e.g. a failed
   `_persist()`) could escape outside any handler and silently end the thread for good.
+  `fetch_album_exact()` (fork, v30): when `artist_hint` is given, a same-titled album group
+  that isn't actually credited to that artist is never used as a fallback match anymore --
+  previously, with no exact-artist match at all, it picked whichever same-named group had the
+  most tracks regardless of whose it was (reported: fetching Moka Only's whole discography
+  pulled in an unrelated Travis Roig album sharing an exact title). It now skips that album,
+  same as any other edition with no exact match, rather than guessing the wrong artist.
 - `src/tagcast/bandcamp.py` (fork): Bandcamp releases and 128 kbps stream downloads (`static/bandcamp.js`);
   `source_worker.py` is the shared file-download thread. Pause and the queue buttons live in `downloads.py`.
   `FileWorker._loop()` (fork, v29) got the same whole-iteration `try/except` as `Galaxy._loop()`.
@@ -624,6 +636,12 @@ their shared browsing/player state; a fast local response can otherwise race the
   an album matches when `todayLocalDate()` (this computer's local `YYYY-MM-DD`) is in its
   `upload_dates` (already computed per album for the existing "Date uploaded" sort), so it
   needs no extra request -- a same-day companion to iBroadcast's own "date uploaded" view.
+  `#browse-shuffle` / `playShuffleGroup()` in `player.js` (fork, v30): shown next to "Play
+  random album" on any detail page (`browseView.key !== null`); unlike `playRandomAlbum()`,
+  which plays one random whole album, it fetches every matching album's tracks (via the same
+  cached `albumDetails()`), builds one flat queue across all of them with `queueTracks()` per
+  album (so each track keeps its own album as its `source`), Fisher-Yates shuffles that whole
+  queue, and plays it from the start -- a genre/tag/etc.-wide shuffled playlist in one press.
 - Settings also offers full loaded-library metadata export as JSON or a ZIP of linked CSV
   tables, separate from browser-local Export changes. Prepare only on explicit choice,
   then download a private temporary file without buffering all tracks in browser JS.

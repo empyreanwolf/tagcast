@@ -76,7 +76,8 @@ Design mockups (6 screens): https://claude.ai/artifact/48RUd5CmZUQqde3ihyFqNW
 | v27 ✔ | Artist pictures: one-time "Run now" job filling in every album artist with no image -- a face in one of their own covers, else a TheAudioDB photo, else just a cover |
 | v28 ✔ | Sidebar cleanup (Track artists/Composers/Tags hidden by default, Album artists renamed Artist), cached Genres/Tags/Composers/Favourites (no server re-fetch on re-entering an unchanged page) and an "Uploaded today" albums filter |
 | v29 ✔ | Download manager resilience: a disk-write error can no longer kill a worker thread silently; each worker's whole loop is guarded, not just the download step; a watchdog requeues orphaned items and restarts a stalled source automatically; a manual Restart button and an on-page "Stopped unexpectedly" warning for anything the watchdog can't fix alone |
-| v30 | Telegram check (listener inside Tagcast) |
+| v30 ✔ | Duplicate check: a "Various Artists"/unrecognised-artist library track no longer acts as a title-only wildcard against an unrelated artist. Galaxy: a same-titled album by a different artist is skipped, never substituted, when fetching a whole discography. Shuffle play: one shuffled playlist across every album in a Browse group (Genres, Tags, …), not just one random album |
+| v31 | Telegram check (listener inside Tagcast) |
 
 Testing: unit tests with `tests/mock_ibroadcast.py` / LocalStudio and one quick real
 check per version. Avoid full-library stress runs unless something needs it.

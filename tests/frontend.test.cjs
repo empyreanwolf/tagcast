@@ -4287,6 +4287,27 @@ test("random album uses exact genre, year and decade membership and search, beyo
   assert.equal(p.nodes.get("#albums-random").disabled, true);
 });
 
+test("shuffle play builds one playlist from every matching album in a group, not just one", async () => {
+  const p = page(); await settle();
+  p.run(`useLocal([
+    {id:"1",name:"A1",artist:"X",year:1985,disc:1,tracks:[{id:"10",title:"One",artist:"X",track:1,genres:["Rock"]},{id:"11",title:"Two",artist:"X",track:2,genres:["Rock"]}]},
+    {id:"2",name:"A2",artist:"Y",year:1990,disc:1,tracks:[{id:"20",title:"Three",artist:"Y",track:1,genres:["Rock"]}]},
+    {id:"3",name:"A3",artist:"Z",year:1990,disc:1,tracks:[{id:"30",title:"Jazz Song",artist:"Z",track:1,genres:["Jazz"]}]},
+    {id:"4",name:"Empty",artist:"W",year:1990,disc:1,tracks:[]}
+  ], "demo"); state.mode="demo"; showBrowse("genres","rock"); state.mode="live"; updateRandomControls()`);
+  assert.equal(p.nodes.get("#browse-shuffle").hidden, false);
+  assert.equal(p.nodes.get("#browse-shuffle").disabled, false);
+  await p.nodes.get("#browse-shuffle").emit("click");
+  assert.deepEqual(p.json('player.queue.map(t=>t.id).slice().sort()'), ["10","11","20"], "every rock track, nothing from Jazz");
+  assert.equal(p.run('player.shuffle'), true);
+  assert.equal(p.run('player.index'), 0);
+  assert.match(p.nodes.get("#toast").textContent, /Shuffling 3 songs/);
+  p.run('browseView.query="missing"; renderBrowse()');
+  assert.equal(p.nodes.get("#browse-shuffle").disabled, true);
+  p.run('browseView.key=null; updateRandomControls()');
+  assert.equal(p.nodes.get("#browse-shuffle").hidden, true);
+});
+
 test("random playback lazily loads only its selected album, cancels late loads and preserves playback on failure", async () => {
   const p = livePage(); await settle();
   const album = p.json('state.details.get("2")');
