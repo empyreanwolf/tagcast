@@ -1,4 +1,4 @@
-"""Hip-hop charts (fork v20).
+"""Hip-hop charts (fork v20), plus Browse: any country/genre (fork v22, see below).
 
 A "Charts" page of outside hip-hop/rap charts, each with a "Get it" button next to every
 song. A song is checked against your iBroadcast library and download history first, exactly
@@ -68,6 +68,55 @@ CHARTS = {
                        "url": "https://www.billboard.com/charts/rap-song/"},
 }
 
+# -- Browse (fork v22): any country, any genre -------------------------------------------
+#
+# The three fixed tabs above stay exactly as they are. "Browse" sits alongside them and
+# lets you pick a country and/or genre, but each source can only offer what it actually
+# supports -- none of this is guessed, it follows what was confirmed by hand:
+#
+# - **Apple Music**: country only. Its RSS feed takes any 2-letter country code in the URL
+#   path (confirmed -- this is the same feed the "Apple Music" tab above already uses, just
+#   with "us" swapped out), but Apple publishes no list anywhere of which numeric genre ids
+#   mean what, and testing shows genre filtering on this exact feed may not even work beyond
+#   the Hip-Hop/Rap id (18) already in use -- so genre stays fixed to that rather than risk
+#   silently showing the wrong genre under a confident-looking label.
+# - **Shazam**: both. Its charts page lists ~70 real country names (used below), and separate
+#   genre slugs are known for some but not all; since no official table exists for either,
+#   a chosen combination is only trusted once the request actually succeeds -- an
+#   unsupported pairing comes back as a plain "not available" error, never wrong data.
+# - **Deezer**: genre only (reusing the same by-name genre lookup the "Deezer" tab above
+#   uses, so any genre Deezer lists -- pop, k-pop, rock, electro, and so on -- works, not
+#   just hip-hop). Deezer's public API has no per-country chart at all -- the only way
+#   anyone gets one is an undocumented, per-country Deezer-curated playlist id that could
+#   change without notice, which isn't a foundation worth building on.
+SHAZAM_GENRES = ["hip-hop-rap", "pop", "dance", "alternative", "rock", "randb-soul", "latin",
+                  "reggae-dancehall", "k-pop", "country", "film-tv-and-stage"]
+SHAZAM_COUNTRIES = [
+    "Global", "Algeria", "Argentina", "Australia", "Austria", "Azerbaijan", "Belarus", "Belgium",
+    "Brazil", "Bulgaria", "Cameroon", "Canada", "Chile", "China", "Colombia", "Costa Rica",
+    "Croatia", "Czech Republic", "Côte d'Ivoire", "Denmark", "Egypt", "Finland", "France",
+    "Germany", "Ghana", "Greece", "Hungary", "India", "Indonesia", "Ireland", "Israel", "Italy",
+    "Japan", "Kazakhstan", "Kenya", "Malaysia", "Mexico", "Morocco", "Mozambique", "Netherlands",
+    "New Zealand", "Nigeria", "Norway", "Peru", "Philippines", "Poland", "Portugal", "Romania",
+    "Russia", "Saudi Arabia", "Senegal", "Singapore", "South Africa", "South Korea", "Spain",
+    "Sweden", "Switzerland", "Tanzania", "Thailand", "Tunisia", "Türkiye", "Uganda", "Ukraine",
+    "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan",
+    "Venezuela", "Vietnam", "Zambia",
+]
+_SHAZAM_SLUG_OVERRIDES = {
+    "côte d'ivoire": "cote-divoire", "türkiye": "turkiye", "united arab emirates": "united-arab-emirates",
+    "united states": "united-states", "united kingdom": "united-kingdom", "new zealand": "new-zealand",
+    "south africa": "south-africa", "south korea": "south-korea", "czech republic": "czech-republic",
+    "costa rica": "costa-rica", "saudi arabia": "saudi-arabia",
+}
+
+
+def _shazam_country_slug(name):
+    key = text(name).strip().casefold()
+    if key in _SHAZAM_SLUG_OVERRIDES:
+        return _SHAZAM_SLUG_OVERRIDES[key]
+    return re.sub(r"[^a-z0-9]+", "-", key).strip("-")
+
 
 def _extract_next_data(html, chart_label):
     m = NEXT_DATA_RE.search(html or "")
@@ -132,6 +181,20 @@ class Charts:
     def list(self):
         return {key: {"label": c["label"], "group": c["group"], "url": c["url"]} for key, c in CHARTS.items()}
 
+    def browse_options(self):
+        return {
+            "apple": {"label": "Apple Music", "needs_country": True, "needs_genre": False,
+                      "note": 'Country only -- type any 2-letter code, like "th" or "jp". Genre stays '
+                              "Hip-Hop/Rap: Apple publishes no reliable list of other genre ids to pick from."},
+            "shazam": {"label": "Shazam", "needs_country": True, "needs_genre": True,
+                       "countries": SHAZAM_COUNTRIES, "genres": SHAZAM_GENRES,
+                       "note": "Not every genre is published for every country -- an unsupported combination "
+                               "comes back as a plain error, not wrong data."},
+            "deezer": {"label": "Deezer", "needs_country": False, "needs_genre": True,
+                       "note": 'Genre only -- type any genre Deezer lists, like "pop", "k-pop" or "rock". '
+                               "Deezer's API has no per-country charts."},
+        }
+
     def view(self, chart_id, refresh=False):
         if chart_id not in CHARTS:
             raise LibraryError("Unknown chart.")
@@ -158,6 +221,61 @@ class Charts:
             log.info("Chart %s failed: %s", chart_id, err)
         with self.lock:
             self.cache[chart_id] = {"rows": rows, "when": time.time(), "error": error}
+
+    # -- Browse: any country/genre, where each source actually supports it ---------------
+
+    def browse_view(self, source, country="", genre="", refresh=False):
+        chart_id, label, url, fetch = self._browse_spec(source, country, genre)
+        with self.lock:
+            hit = self.cache.get(chart_id)
+            fresh = hit and not refresh and hit["when"] > time.time() - CACHE_SECONDS
+        if not fresh:
+            self._load_browse(chart_id, fetch)
+        with self.lock:
+            hit = self.cache.get(chart_id, {"rows": [], "when": 0, "error": ""})
+            return {"chart": chart_id, "label": label, "url": url,
+                    "rows": hit["rows"], "when": hit["when"], "error": hit["error"], "progress": self.progress.get(chart_id)}
+
+    def browse_get(self, source, country, genre, ranks):
+        chart_id, *_ = self._browse_spec(source, country, genre)
+        return self.get(chart_id, ranks)
+
+    def _load_browse(self, chart_id, fetch):
+        try:
+            rows = fetch()
+            rows = self._with_status(rows)
+            error = ""
+        except (LibraryError, SourceError, requests.RequestException, ValueError) as err:
+            rows, error = [], str(err)
+            log.info("Browse chart %s failed: %s", chart_id, err)
+        with self.lock:
+            self.cache[chart_id] = {"rows": rows, "when": time.time(), "error": error}
+
+    def _browse_spec(self, source, country, genre):
+        source = text(source).strip().casefold()
+        country = text(country).strip()
+        genre = text(genre).strip()
+        if source == "apple":
+            code = (country or "us").casefold()
+            if not re.fullmatch(r"[a-z]{2}", code):
+                raise ChartsError('Use a 2-letter country code, like "us", "gb" or "th".')
+            url = f"https://itunes.apple.com/{code}/rss/topsongs/limit=100/genre=18/json"
+            return (f"browse:apple:{code}", f"Apple Music · Top Hip-Hop/Rap songs ({code.upper()})", url,
+                    lambda: self._apple_browse(code))
+        if source == "shazam":
+            if not country:
+                raise ChartsError("Pick a country.")
+            genre_slug = (genre or "hip-hop-rap").strip().casefold()
+            country_slug = _shazam_country_slug(country)
+            url = f"https://www.shazam.com/charts/genre/{country_slug}/{genre_slug}"
+            return (f"browse:shazam:{country_slug}:{genre_slug}", f"Shazam · {genre_slug} ({country})", url,
+                    lambda: self._shazam_browse(url, country, genre_slug))
+        if source == "deezer":
+            if not genre:
+                raise ChartsError('Type a genre, like "pop", "k-pop" or "rock".')
+            return (f"browse:deezer:{genre.casefold()}", f"Deezer · {genre} chart", "https://www.deezer.com/charts",
+                    lambda: self._deezer_browse(genre))
+        raise ChartsError("Unknown source.")
 
     def _with_status(self, rows):
         if not rows:
@@ -263,6 +381,60 @@ class Charts:
         if not found:
             raise ChartsError("Couldn't find any songs in Shazam's chart data -- its page structure may have changed.")
         return [{"rank": i + 1, **row, "album": "", "source": "", "source_id": ""} for i, row in enumerate(_dedup(found))]
+
+    def _apple_browse(self, code):
+        try:
+            feed = (self.http.json(f"https://itunes.apple.com/{code}/rss/topsongs/limit=100/genre=18/json") or {}).get("feed") or {}
+        except SourceError as error:
+            raise ChartsError(f"Apple Music's feed didn't answer: {error}") from None
+        entries = feed.get("entry") or []
+        rows = []
+        for i, e in enumerate(entries[:MAX_ROWS]):
+            title = text((e.get("im:name") or {}).get("label"))
+            artist = text((e.get("im:artist") or {}).get("label"))
+            if title and artist:
+                rows.append({"rank": i + 1, "title": title, "artist": artist, "album": "", "source": "", "source_id": ""})
+        if not rows:
+            raise ChartsError(f'Apple Music has no Hip-Hop/Rap "Top Songs" feed for "{code}", or it came back empty.')
+        return rows
+
+    def _shazam_browse(self, url, country, genre_slug):
+        try:
+            r = self.session.get(url, timeout=15)
+            if r.status_code == 404:
+                raise ChartsError(f'Shazam doesn\'t publish a "{genre_slug}" chart for {country}.')
+            r.raise_for_status()
+            html = r.text
+        except requests.RequestException as error:
+            raise ChartsError(f"Couldn't reach Shazam: {error}") from None
+        data = _extract_next_data(html, f"Shazam's {genre_slug} chart for {country}")
+        found = []
+        _walk_entries(data, found, set())
+        if not found:
+            raise ChartsError(f'Shazam doesn\'t publish a "{genre_slug}" chart for {country} (or its page structure changed).')
+        return [{"rank": i + 1, **row, "album": "", "source": "", "source_id": ""} for i, row in enumerate(_dedup(found))]
+
+    def _deezer_browse(self, genre_name):
+        try:
+            genres = (self.http.json("https://api.deezer.com/genre") or {}).get("data") or []
+        except SourceError as error:
+            raise ChartsError(f"Deezer's genre list didn't answer: {error}") from None
+        needle = genre_name.casefold()
+        genre = next((g for g in genres if needle in text(g.get("name")).casefold()), None)
+        if not genre:
+            names = ", ".join(sorted({text(g.get("name")) for g in genres if text(g.get("name")) and text(g.get("name")) != "All"}))
+            raise ChartsError(f'Deezer doesn\'t list a "{genre_name}" genre. It has: {names}.')
+        try:
+            chart = self.http.json(f"https://api.deezer.com/chart/{genre['id']}") or {}
+        except SourceError as error:
+            raise ChartsError(f"Deezer's chart didn't answer: {error}") from None
+        tracks = (chart.get("tracks") or {}).get("data") or []
+        rows = [{"rank": i + 1, "title": text(t.get("title")), "artist": text((t.get("artist") or {}).get("name")),
+                "album": text((t.get("album") or {}).get("title")), "source": "", "source_id": ""}
+                for i, t in enumerate(tracks[:MAX_ROWS]) if t.get("title")]
+        if not rows:
+            raise ChartsError(f"Deezer's {text(genre.get('name'))} chart came back empty.")
+        return rows
 
     def _billboard(self):
         try:

@@ -263,5 +263,121 @@ class StatusAndGetTests(unittest.TestCase):
         self.assertEqual(jobs[0]["title"], "Another Song")  # rank 2 finishes after rank 1, so it's most recent
 
 
+class BrowseOptionsTests(unittest.TestCase):
+    def test_options_describe_each_sources_real_capability(self):
+        opts = LocalStudio().charts.browse_options()
+        self.assertEqual(set(opts), {"apple", "shazam", "deezer"})
+        self.assertTrue(opts["apple"]["needs_country"])
+        self.assertFalse(opts["apple"]["needs_genre"])
+        self.assertTrue(opts["shazam"]["needs_country"])
+        self.assertTrue(opts["shazam"]["needs_genre"])
+        self.assertIn("Thailand", opts["shazam"]["countries"])
+        self.assertFalse(opts["deezer"]["needs_country"])
+        self.assertTrue(opts["deezer"]["needs_genre"])
+
+
+class BrowseAppleTests(unittest.TestCase):
+    def test_any_country_code_reuses_the_hiphop_feed_shape(self):
+        studio = LocalStudio(http_answers={"/topsongs/limit=100/genre=18/json": APPLE_FEED})
+        data = studio.charts.browse_view("apple", country="th")
+        self.assertEqual([(r["title"], r["artist"]) for r in data["rows"]], [("Apple Song", "Apple Rapper")])
+        self.assertIn("TH", data["label"])
+        self.assertIn("/th/", data["url"])
+
+    def test_bad_country_code_is_a_clean_error(self):
+        studio = LocalStudio()
+        with self.assertRaises(Exception):
+            studio.charts.browse_view("apple", country="thailand")
+
+    def test_defaults_to_us_when_no_country_given(self):
+        studio = LocalStudio(http_answers={"/topsongs/limit=100/genre=18/json": APPLE_FEED})
+        data = studio.charts.browse_view("apple")
+        self.assertIn("/us/", data["url"])
+
+    def test_empty_feed_for_a_country_is_a_clean_error(self):
+        studio = LocalStudio(http_answers={"/topsongs/limit=100/genre=18/json": {"feed": {"entry": []}}})
+        data = studio.charts.browse_view("apple", country="zz")
+        self.assertEqual(data["rows"], [])
+        self.assertIn("zz", data["error"])
+
+
+class BrowseShazamTests(unittest.TestCase):
+    def test_country_and_genre_build_the_right_url_and_parse_next_data(self):
+        html = next_data_html([{"title": "Thai Pop Song", "artist": "Thai Star"}])
+        studio = LocalStudio(session_answers={"shazam.com/charts/genre/thailand/pop": FakeResponse(html)})
+        data = studio.charts.browse_view("shazam", country="Thailand", genre="pop")
+        self.assertEqual([(r["title"], r["artist"]) for r in data["rows"]], [("Thai Pop Song", "Thai Star")])
+        self.assertEqual(data["url"], "https://www.shazam.com/charts/genre/thailand/pop")
+
+    def test_genre_defaults_to_hip_hop_rap(self):
+        html = next_data_html([{"title": "Song", "artist": "Artist"}])
+        studio = LocalStudio(session_answers={"shazam.com/charts/genre/thailand/hip-hop-rap": FakeResponse(html)})
+        data = studio.charts.browse_view("shazam", country="Thailand")
+        self.assertEqual(data["url"], "https://www.shazam.com/charts/genre/thailand/hip-hop-rap")
+
+    def test_multiword_country_uses_the_known_slug_override(self):
+        html = next_data_html([{"title": "K-Song", "artist": "K-Artist"}])
+        studio = LocalStudio(session_answers={"shazam.com/charts/genre/south-korea/k-pop": FakeResponse(html)})
+        data = studio.charts.browse_view("shazam", country="South Korea", genre="k-pop")
+        self.assertEqual([(r["title"], r["artist"]) for r in data["rows"]], [("K-Song", "K-Artist")])
+
+    def test_no_country_is_a_clean_error(self):
+        studio = LocalStudio()
+        with self.assertRaises(Exception):
+            studio.charts.browse_view("shazam", country="", genre="pop")
+
+    def test_404_combination_is_a_plain_not_available_error_not_a_crash(self):
+        studio = LocalStudio(session_answers={
+            "shazam.com/charts/genre/thailand/reggae-dancehall": FakeResponse(status=404)})
+        data = studio.charts.browse_view("shazam", country="Thailand", genre="reggae-dancehall")
+        self.assertEqual(data["rows"], [])
+        self.assertIn("doesn't publish", data["error"])
+
+
+class BrowseDeezerTests(unittest.TestCase):
+    def test_any_listed_genre_name_resolves_by_substring(self):
+        genres = {"data": [{"id": 0, "name": "All"}, {"id": 132, "name": "Pop"}]}
+        chart = {"tracks": {"data": [{"title": "Pop Song", "artist": {"name": "Pop Star"}, "album": {"title": "Pop Album"}}]}}
+        studio = LocalStudio(http_answers={"/genre": genres, "/chart/132": chart})
+        data = studio.charts.browse_view("deezer", genre="pop")
+        self.assertEqual([(r["title"], r["artist"]) for r in data["rows"]], [("Pop Song", "Pop Star")])
+
+    def test_no_genre_is_a_clean_error(self):
+        studio = LocalStudio()
+        with self.assertRaises(Exception):
+            studio.charts.browse_view("deezer", genre="")
+
+    def test_unknown_genre_name_lists_what_deezer_actually_has(self):
+        genres = {"data": [{"id": 0, "name": "All"}, {"id": 132, "name": "Pop"}]}
+        studio = LocalStudio(http_answers={"/genre": genres})
+        data = studio.charts.browse_view("deezer", genre="not-a-real-genre")
+        self.assertEqual(data["rows"], [])
+        self.assertIn("Pop", data["error"])
+
+    def test_country_is_never_accepted_for_deezer(self):
+        # Deezer's public API has no per-country chart -- browse_options says so and the
+        # spec simply ignores any country value passed for this source.
+        genres = {"data": [{"id": 0, "name": "All"}, {"id": 132, "name": "Pop"}]}
+        chart = {"tracks": {"data": [{"title": "Pop Song", "artist": {"name": "Pop Star"}, "album": {"title": ""}}]}}
+        studio = LocalStudio(http_answers={"/genre": genres, "/chart/132": chart})
+        data = studio.charts.browse_view("deezer", country="th", genre="pop")
+        self.assertEqual([r["title"] for r in data["rows"]], ["Pop Song"])
+
+
+class BrowseGetTests(unittest.TestCase):
+    def test_get_reuses_the_same_bandcamp_soulseek_galaxy_flow_as_charts(self):
+        studio = LocalStudio(http_answers={"/topsongs/limit=100/genre=18/json": APPLE_FEED})
+        studio.charts.browse_view("apple", country="th")
+        result = studio.charts.browse_get("apple", "th", "", [1])
+        self.assertEqual(result, {"queued": 0, "jobs": 1})
+        jobs = wait_progress(studio.charts, "browse:apple:th")
+        self.assertEqual(len(jobs["jobs"]), 1)
+
+    def test_get_with_nothing_browsed_yet_raises(self):
+        studio = LocalStudio()
+        with self.assertRaises(Exception):
+            studio.charts.browse_get("apple", "th", "", [1])
+
+
 if __name__ == "__main__":
     unittest.main()

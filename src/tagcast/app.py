@@ -238,6 +238,11 @@ class Handler(SimpleHTTPRequestHandler):
             self._run(lambda: self.studio.charts.view(query.get("chart"), query.get("refresh") == "1"))
         elif url.path == "/api/charts/jobs":
             self._run(self.studio.charts.jobs_view)
+        elif url.path == "/api/charts/browse/options":
+            self._run(self.studio.charts.browse_options)
+        elif url.path == "/api/charts/browse/view":
+            self._run(lambda: self.studio.charts.browse_view(
+                query.get("source"), query.get("country", ""), query.get("genre", ""), query.get("refresh") == "1"))
         elif url.path == "/api/gemini":
             self._run(self.studio.gemini.view)
         elif url.path == "/api/gemini/jobs":
@@ -318,6 +323,8 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/tagclean/apply-genre": lambda b: self.studio.tagclean.apply_genre(b.get("ids")),
             "/api/tagclean/assign-genre": lambda b: self.studio.tagclean.assign_genre(b.get("ids"), b.get("genre")),
             "/api/charts/get": lambda b: self.studio.charts.get(b.get("chart"), b.get("ranks")),
+            "/api/charts/browse/get": lambda b: self.studio.charts.browse_get(
+                b.get("source"), b.get("country") or "", b.get("genre") or "", b.get("ranks")),
             "/api/gemini/ask": lambda b: self.studio.gemini.ask(b.get("message"), bool(b.get("search"))),
             "/api/gemini/get": lambda b: self.studio.gemini.get(b.get("ids")),
             "/api/gemini/reset": lambda b: self.studio.gemini.reset(),

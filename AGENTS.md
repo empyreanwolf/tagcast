@@ -70,6 +70,23 @@ The application consists of a Python server and a plain JavaScript frontend.
   inferred. There is deliberately no "underground hip-hop" chart: nothing online publishes one
   as an actual fetchable list. State: in-memory cache only (`CACHE_SECONDS`), nothing persisted.
   `static/charts.js` (its own sidebar page, not a Downloads tab).
+  **Browse (fork, v22)**, a 7th tab alongside the six fixed ones (unchanged): any
+  country/genre, scoped to what each source actually supports after live research found no
+  reliable genre-id table for Apple and no country support at all in Deezer's public API --
+  `browse_options()` reports each source's real `needs_country`/`needs_genre`, so the frontend
+  never offers a field a source can't honor. Apple (`_apple_browse`): any 2-letter country
+  code reuses the same feed shape as `_apple()`, genre fixed to Hip-Hop/Rap (id 18, the only
+  value anyone's confirmed actually works on this feed). Shazam (`_shazam_browse`): both
+  country and genre, built from `SHAZAM_COUNTRIES`/`SHAZAM_GENRES` and `_shazam_country_slug()`
+  (a handful of confirmed multi-word overrides, otherwise a plain lowercase-hyphenate); since
+  no official table of which combinations exist was found, a 404 or an empty page comes back
+  as a plain "doesn't publish that chart" error rather than guessed data. Deezer
+  (`_deezer_browse`): genre only, reusing the existing by-name `/genre` lookup (so any genre
+  Deezer lists works, not just hip-hop) -- no country, because Deezer's API has none; the only
+  way anyone gets a country chart from Deezer is an undocumented per-country playlist id that
+  could change without notice, which wasn't worth building on. Browse results share the same
+  cache/jobs/progress dicts as the fixed tabs, keyed by a synthetic `browse:<source>:...` id
+  instead of one of the six `CHARTS` keys, so `get()`/`jobs_view()` need no changes at all.
 - `src/tagcast/gemini.py` (fork, v21): "Ask Gemini", a chat page on its own top-level
   sidebar page, backed by the user's own free Gemini API key (Google AI Studio, not the
   gemini.google.com consumer chat -- that page has no API). Calls the Gemini Developer API

@@ -68,7 +68,10 @@ Design mockups (6 screens): https://claude.ai/artifact/48RUd5CmZUQqde3ihyFqNW
 | v19 ✔ | Clean up: Mp3tag-style artist-field split + album artist, hip-hop/rap genre collapse into an existing genre (MusicBrainz for Chinese vs not), needs-decision mass-tag by artist |
 | v20 ✔ | Charts: a new top-level page (NetEase Chinese Rap, HotNewHipHop, Deezer, Apple Music, Shazam, Billboard hip-hop/rap charts), checked against library/history, "Get it" per song |
 | v21 ✔ | Ask Gemini: a chat page backed by the user's own free Gemini API key; songs/artists it names are checked against the library/history and queued the same way as Charts |
-| v22 | Telegram check (listener inside Tagcast) |
+| v22 ✔ | Charts → Browse: any country/genre, per source's real capability (Apple: country; Shazam: both; Deezer: genre) |
+| v23 | Recommendations: Deezer related-artist list + a Gemini-based list, shown separately |
+| v24 | Daily Digest: new page aggregating new releases, wishlist finds, chart movement, recommendations |
+| v25 | Telegram check (listener inside Tagcast) |
 
 Testing: unit tests with `tests/mock_ibroadcast.py` / LocalStudio and one quick real
 check per version. Avoid full-library stress runs unless something needs it.

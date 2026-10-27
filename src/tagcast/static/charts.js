@@ -8,8 +8,9 @@
 // see the note on the page.
 const chartsTabs = [["netease_cn_rap", "Chinese Rap (NetEase)"], ["hotnewhiphop_top100", "HotNewHipHop Top 100"],
   ["deezer_hiphop", "Deezer Hip-Hop"], ["apple_hiphop", "Apple Music"], ["shazam_hiphop_us", "Shazam (US)"],
-  ["billboard_rap", "Billboard Hot Rap"]];
-const chartsView = {tab: "netease_cn_rap", data: {}, picked: new Set(), jobs: null, timer: null, jobTimer: null, busy: false};
+  ["billboard_rap", "Billboard Hot Rap"], ["browse", "Browse"]];
+const chartsView = {tab: "netease_cn_rap", data: {}, picked: new Set(), jobs: null, timer: null, jobTimer: null, busy: false,
+  browse: {source: "shazam", country: "", genre: "", options: null, key: null}};
 
 function showCharts(tab) {
   if (tab) chartsView.tab = tab;
@@ -31,26 +32,71 @@ function renderCharts() {
 }
 
 function chartsBodyHtml() {
+  if (chartsView.tab === "browse") return browseBodyHtml();
   const d = chartsView.data[chartsView.tab];
   const note = `<p class="muted">There's no "underground hip-hop" tab here: no platform actually publishes one as a fetchable
       chart -- everything calling itself that is either locked behind a login (Spotify/Apple Music editorial playlists)
       or just a blog post naming other platforms, with no song list to read. This page lists what genuinely exists.</p>`;
   if (!d) { chartsLoad(); return `${note}<p class="muted">Loading…</p>`; }
-  if (d.error) return `${note}<div class="dl-card"><p class="error-text">${escapeHtml(d.error)}</p>
-      <div class="dl-actions"><button type="button" class="button" data-charts="refresh">Try again</button></div></div>`;
+  return `${note}${chartsResultBody(d, "data-charts", "data-charts-all")}`;
+}
+
+function chartsResultBody(d, actionAttr, allAttr) {
+  if (!d) return `<p class="muted">Pick a source, then Browse.</p>`;
+  if (d.error) return `<div class="dl-card"><p class="error-text">${escapeHtml(d.error)}</p>
+      <div class="dl-actions"><button type="button" class="button" ${actionAttr}="refresh">Try again</button></div></div>`;
   const rows = d.rows || [];
   const picked = rows.filter(r => chartsView.picked.has(r.rank)).length;
   const p = d.progress;
-  return `${note}
-    <div class="dl-actions"><a href="${escapeHtml(d.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(d.url)}</a>
-      <button type="button" class="button" data-charts="refresh" ${p ? "disabled" : ""}>Refresh</button>
+  return `<div class="dl-actions"><a href="${escapeHtml(d.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(d.url)}</a>
+      <button type="button" class="button" ${actionAttr}="refresh" ${p ? "disabled" : ""}>Refresh</button>
       <span class="muted">${d.when ? `Fetched ${missingDate(d.when)}` : ""}</span></div>
     ${p ? `<p class="muted" role="status">Getting songs: ${p.done} of ${p.total}${p.title ? ` — ${escapeHtml(p.title)}` : ""}…</p>` : ""}
     ${rows.length ? `<div class="dl-actions">
-        <label><input type="checkbox" data-charts-all ${rows.every(r => chartsView.picked.has(r.rank)) ? "checked" : ""}> Select all (${rows.length})</label>
-        <button type="button" class="button primary" data-charts="get" ${picked ? "" : "disabled"}>⬇ Get it (${picked})</button></div>
+        <label><input type="checkbox" ${allAttr} ${rows.every(r => chartsView.picked.has(r.rank)) ? "checked" : ""}> Select all (${rows.length})</label>
+        <button type="button" class="button primary" ${actionAttr}="get" ${picked ? "" : "disabled"}>⬇ Get it (${picked})</button></div>
       <ul class="dl-list">${rows.map(chartsRowHtml).join("")}</ul>` : `<p class="muted">No songs read from this chart.</p>`}
     ${chartsJobsHtml()}`;
+}
+
+function browseDataKey(b) { return `browse:${b.source}:${b.country}:${b.genre}`; }
+
+function browseBodyHtml() {
+  const b = chartsView.browse;
+  const opts = b.options;
+  if (!opts) { browseOptionsLoad(); return `<p class="muted">Loading…</p>`; }
+  const src = opts[b.source] || {};
+  const d = b.key === browseDataKey(b) ? chartsView.data[b.key] : null;
+  return `<form id="browse-form" class="dl-actions">
+      <label>Source <select data-browse-field="source">${Object.entries(opts).map(([k, o]) =>
+        `<option value="${escapeHtml(k)}" ${b.source === k ? "selected" : ""}>${escapeHtml(o.label)}</option>`).join("")}</select></label>
+      ${src.needs_country ? (src.countries
+          ? `<label>Country <select data-browse-field="country"><option value="">Pick one…</option>${src.countries.map(c =>
+              `<option value="${escapeHtml(c)}" ${b.country === c ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}</select></label>`
+          : `<label>Country <input type="text" data-browse-field="country" maxlength="2" placeholder="us" value="${escapeHtml(b.country)}"></label>`) : ""}
+      ${src.needs_genre ? (src.genres
+          ? `<label>Genre <select data-browse-field="genre">${src.genres.map(g =>
+              `<option value="${escapeHtml(g)}" ${b.genre === g ? "selected" : ""}>${escapeHtml(g)}</option>`).join("")}</select></label>`
+          : `<label>Genre <input type="text" data-browse-field="genre" placeholder="pop" value="${escapeHtml(b.genre)}"></label>`) : ""}
+      <button type="submit" class="button primary">Browse</button></form>
+    ${src.note ? `<p class="muted">${escapeHtml(src.note)}</p>` : ""}
+    ${chartsResultBody(d, "data-browse-action", "data-browse-all")}`;
+}
+
+async function browseOptionsLoad() {
+  try { chartsView.browse.options = await api("/api/charts/browse/options"); } catch (error) { /* quietly skip */ }
+  if (chartsView.tab === "browse") renderCharts();
+}
+
+async function browseLoad(refresh) {
+  const b = chartsView.browse;
+  const key = browseDataKey(b);
+  const params = new URLSearchParams({source: b.source, country: b.country, genre: b.genre});
+  if (refresh) params.set("refresh", "1");
+  try { chartsView.data[key] = await api(`/api/charts/browse/view?${params}`); }
+  catch (error) { chartsView.data[key] = {error: error.message, rows: []}; }
+  chartsView.browse.key = key;
+  renderCharts();
 }
 
 function chartsRowHtml(r) {
@@ -96,7 +142,13 @@ document.addEventListener("click", event => {
   if (target.closest("#show-charts")) { showCharts(); return; }
   if (!target.closest("#charts-page")) return;
   const tab = target.closest("[data-charts-tab]");
-  if (tab) { chartsView.tab = tab.dataset.chartsTab; chartsView.picked.clear(); renderCharts(); chartsLoad(); return; }
+  if (tab) {
+    chartsView.tab = tab.dataset.chartsTab;
+    chartsView.picked.clear();
+    renderCharts();
+    if (chartsView.tab !== "browse") chartsLoad();
+    return;
+  }
   const action = target.closest("[data-charts]")?.dataset.charts;
   if (action === "refresh") {
     chartsRun(async () => {
@@ -120,10 +172,44 @@ document.addEventListener("click", event => {
     if (rows.every(r => chartsView.picked.has(r.rank))) rows.forEach(r => chartsView.picked.delete(r.rank));
     else rows.forEach(r => chartsView.picked.add(r.rank));
     renderCharts();
+    return;
+  }
+  const browseAction = target.closest("[data-browse-action]")?.dataset.browseAction;
+  if (browseAction === "refresh") { chartsRun(() => browseLoad(true)); return; }
+  if (browseAction === "get") {
+    chartsRun(async () => {
+      const b = chartsView.browse;
+      await api("/api/charts/browse/get", {source: b.source, country: b.country, genre: b.genre, ranks: [...chartsView.picked]});
+      chartsView.picked.clear();
+      await browseLoad(false);
+      chartsJobsLoad();
+    });
+    return;
+  }
+  const browseAll = target.closest("[data-browse-all]");
+  if (browseAll) {
+    const rows = chartsView.data[chartsView.browse.key]?.rows || [];
+    if (rows.every(r => chartsView.picked.has(r.rank))) rows.forEach(r => chartsView.picked.delete(r.rank));
+    else rows.forEach(r => chartsView.picked.add(r.rank));
+    renderCharts();
   }
 });
 
+document.addEventListener("submit", event => {
+  if (event.target?.id !== "browse-form") return;
+  event.preventDefault();
+  chartsView.picked.clear();
+  chartsRun(() => browseLoad(false));
+});
+
 document.addEventListener("change", event => {
+  const field = event.target.closest?.("[data-browse-field]");
+  if (field) {
+    chartsView.browse[field.dataset.browseField] = field.value;
+    if (field.dataset.browseField === "source") { chartsView.browse.country = ""; chartsView.browse.genre = ""; }
+    renderCharts();
+    return;
+  }
   const pick = event.target.closest?.("[data-charts-pick]");
   if (!pick) return;
   const rank = Number(pick.dataset.chartsPick);

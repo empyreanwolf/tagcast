@@ -41,6 +41,15 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v22** Charts → **Browse**, alongside the existing fixed hip-hop tabs (which are unchanged):
+  pick any country and/or genre, as far as each source actually supports it -- nothing here
+  is guessed. Apple Music takes any 2-letter country code (its feed has no reliable genre-id
+  list beyond Hip-Hop/Rap, so genre stays fixed). Shazam takes both a country and a genre;
+  since no official list of valid combinations exists, an unsupported pairing comes back as a
+  plain "not available" error rather than wrong data. Deezer takes any genre it lists (pop,
+  k-pop, rock, and so on, same by-name lookup as the existing Deezer tab) but no country --
+  Deezer's API has no per-country charts, only an undocumented, per-country playlist id that
+  could change without notice, so that wasn't built on.
 - **v21** Ask Gemini, a new page on the left: a chat backed by your own free Gemini API
   key (aistudio.google.com/apikey -- not the gemini.google.com consumer chat, which has
   no API). Type an artist, a mood or a question; any songs or other artists Gemini names
