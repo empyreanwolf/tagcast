@@ -64,6 +64,23 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v28** Three small usability fixes, none of them a new page:
+  - **Sidebar cleanup**: Track artists, Composers and Tags now start hidden (the first
+    time Tagcast ever runs in a browser only -- if you've already opened Settings and
+    changed the sidebar, your choice stays exactly as it was). Turn any of them back on
+    in **Settings → Sidebar**. The remaining single artist shortcut is now just called
+    **Artist** rather than "Album artists" (it works exactly as before -- it browses by
+    album artist; nothing about what it shows changed, only the name).
+  - **Genres, Tags, Composers and Favourites load instantly on a repeat visit**: these
+    pages were re-asking iBroadcast every single time you opened them, even seconds
+    apart with nothing changed. They now only ask again when something about the
+    request changed (a different search, sort, or page) or the library itself was
+    reloaded -- otherwise the page you already had is shown straight away.
+  - **"Uploaded today"**, a new entry in the Albums filter menu: shows just the albums
+    with at least one track iBroadcast recorded as uploaded today (your computer's
+    local date), the same place you'd check and tag anything you added today. iBroadcast's
+    own web player has a similar daily view; this reuses the per-track upload date
+    Tagcast already tracked for the "Date uploaded" sort, so no extra request is needed.
 - **v27** **Artist pictures**, a new page on the left: a one-time "Run now" job that
   gives every album artist with no image one, in order -- a face found in one of their
   own album covers wins and reuses that cover directly (no re-upload); failing that, a

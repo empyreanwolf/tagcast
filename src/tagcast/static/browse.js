@@ -230,10 +230,23 @@ function renderBrowse() {
 function showBrowse(kind, key = null, saved = {}) {
   if (!browseKinds[kind]) return;
   clearTimeout(browseTimer);
-  Object.assign(browseView, {kind, key, label: saved.label || "", query: kind === "decades" && key === null ? "" : saved.query || "", page: saved.page || 0,
-    sort: kind === "decades" && key === null ? "za" : saved.sort || (key !== null ? "artist" : kind === "years" ? "za" : "az"), rows: [], albumIds: new Set(), details: null, loaded: false, randomIds: Array.isArray(saved.randomIds) ? saved.randomIds.filter(id => typeof id === "string") : []});
+  const query = kind === "decades" && key === null ? "" : saved.query || "";
+  const sort = kind === "decades" && key === null ? "za" : saved.sort || (key !== null ? "artist" : kind === "years" ? "za" : "az");
+  const page = saved.page || 0;
+  // Re-entering the exact same list (same kind/key/search/sort/page, library unchanged since
+  // it was last fetched) renders the cached rows instead of hitting the server again -- the
+  // page only actually re-fetches when something about the request or the library changed.
+  const cached = browseView.kind === kind && browseView.key === key && browseView.query === query
+    && browseView.sort === sort && browseView.page === page && browseView.loaded && !browseView.error
+    && browseView.details === state.details;
+  const randomIds = Array.isArray(saved.randomIds) ? saved.randomIds.filter(id => typeof id === "string")
+    : cached ? browseView.randomIds : [];
+  Object.assign(browseView, {kind, key, label: saved.label || (cached ? browseView.label : ""), query, page, sort, randomIds});
+  if (!cached) Object.assign(browseView, {rows: [], albumIds: new Set(), details: null, loaded: false});
   $("#browse-search").value = browseView.query;
-  showScreen("browse"); loadBrowse(); window.scrollTo?.({top: 0});
+  showScreen("browse");
+  if (cached) renderBrowse(); else loadBrowse();
+  window.scrollTo?.({top: 0});
 }
 
 function refreshBrowseList() {

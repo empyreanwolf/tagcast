@@ -9,26 +9,32 @@ const nav = {ready: false, restoring: false, pending: null, views: new Map(), de
 const DIALOGS_WITH_DRAFTS = ["#editor", "#review", "#artwork", "#trash-review", "#cleanup", "#duplicate-cleanup", "#playlist-dialog", "#playlist-import", "#tag-dialog", "#lyrics-import"];
 
 const SIDEBAR_ITEMS = [
-  ["show-artists", "Album artists", true], ["all-albums", "Albums", true],
+  ["show-artists", "Artist", true], ["all-albums", "Albums", true],
   ["show-track-artists", "Track artists"], ["show-composers", "Composers"],
   ["show-genres", "Genres"], ["show-tags", "Tags"], ["show-years", "Release year"], ["show-decades", "Decades"],
   ["show-tracks", "Tracks"], ["show-favourites", "Favourites"], ["show-playlists", "Playlists"],
   ["show-recently-played", "Recently played"],
   ["show-album-guide", "1001 Albums"], ["show-downloads", "Downloads"], ["show-overview", "Overview"], ["show-history", "Change history", true],
 ];
+// Hidden the first time Tagcast ever runs in a browser (nothing saved yet). Once someone
+// opens Settings and changes anything, their own choice is kept from then on, even if they
+// turn one of these back on or off again -- this default only ever applies once.
+const SIDEBAR_DEFAULT_HIDDEN = ["show-track-artists", "show-composers", "show-tags"];
 const sidebarLayout = readSidebarLayout();
 
 function readSidebarLayout() {
   const defaults = SIDEBAR_ITEMS.map(([id]) => id), optional = new Set(SIDEBAR_ITEMS.filter(i => !i[2]).map(i => i[0]));
+  const raw = localStorage.getItem("tagcast-sidebar");
   try {
-    const saved = JSON.parse(localStorage.getItem("tagcast-sidebar") || "{}");
+    const saved = JSON.parse(raw || "{}");
     const legacy = Array.isArray(saved?.order) && saved.order.includes("show-album-favourites");
     const order = Array.isArray(saved?.order) ? saved.order.map(id => id === "show-album-favourites" ? "show-favourites" : id).filter(id => defaults.includes(id)) : [];
-    let hidden = Array.isArray(saved?.hidden) ? saved.hidden.filter(id => optional.has(id)) : [];
+    let hidden = raw === null ? SIDEBAR_DEFAULT_HIDDEN.filter(id => optional.has(id))
+      : Array.isArray(saved?.hidden) ? saved.hidden.filter(id => optional.has(id)) : [];
     // Keep the combined shortcut available if either of the old shortcuts was visible.
     if (legacy && !saved.hidden?.includes?.("show-album-favourites")) hidden = hidden.filter(id => id !== "show-favourites");
     return {order: [...new Set([...order, ...defaults])], hidden: [...new Set(hidden)]};
-  } catch { return {order: defaults, hidden: []}; }
+  } catch { return {order: defaults, hidden: [...SIDEBAR_DEFAULT_HIDDEN]}; }
 }
 
 function applySidebarLayout() {
@@ -150,7 +156,7 @@ function routeLabel(hash, saved = history.state) {
   if (route.screen === "browse") return route.key === null ? browseKinds[route.kind].label : saved?.browse?.label || browseKinds[route.kind].label;
   if (route.playlist) return saved?.label || (String(collectionsView.data?.id) === route.playlist ? collectionsView.data.name : "Playlist");
   if (route.album) return state.albums.find(a => String(a.id) === route.album)?.name || "the album";
-  return route.artist || {artists: "Album artists", albums: "Albums", tracks: "Tracks", favourites: "Favourite tracks", playlists: "Playlists", "album-favourites": "Album favourites", "artist-favourites": "Favourite album artists", "recently-played": "Recently played", overview: "Overview", downloads: "Downloads"}[route.screen];
+  return route.artist || {artists: "Artist", albums: "Albums", tracks: "Tracks", favourites: "Favourite tracks", playlists: "Playlists", "album-favourites": "Album favourites", "artist-favourites": "Favourite album artists", "recently-played": "Recently played", overview: "Overview", downloads: "Downloads"}[route.screen];
 }
 
 function viewState(index, from) {
@@ -275,11 +281,11 @@ document.addEventListener("click", event => {
   }
 });
 
-// On an artist's albums, a button back to where you came from (normally Album artists).
+// On an artist's albums, a button back to where you came from (normally Artist).
 function showArtistBack() {
   const button = $("#artist-back");
   button.hidden = !(state.screen === "albums" && state.artist);
-  button.textContent = `← Back to ${backLabel("Album artists")}`;
+  button.textContent = `← Back to ${backLabel("Artist")}`;
 }
 $("#artist-back").addEventListener("click", () => goBack("artists"));
 

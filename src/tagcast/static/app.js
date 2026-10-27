@@ -238,8 +238,14 @@ function cover(album, small = false, enlarge = false) {
 }
 
 const EDITION = /remaster|deluxe|anniversary|re-record|live|edition|expanded/i;
+// This computer's local date, "YYYY-MM-DD" -- matches how upload_dates below is built.
+function todayLocalDate() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
 const FILTERS = {
   all: ["All albums", () => true],
+  uploaded_today: ["Uploaded today", a => (a.upload_dates || []).includes(todayLocalDate())],
   year: ["Missing year", a => !a.year],
   genre: ["Missing genre", a => a.no_genre > 0],
   artist_image: ["Artist without image", a => !a.artist_image && a.artist !== "Various Artists"],

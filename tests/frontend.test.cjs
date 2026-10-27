@@ -2236,7 +2236,7 @@ test("album artist overview includes all album artists, independently of album f
   p.run('state.artist = "Pink Floyd"; state.artistNames = ["Track-only artist"]; $("#filter").value = "genre"');
   await p.nodes.get("#show-artists").emit("click");
   assert.equal(p.run("state.screen"), "artists");
-  assert.equal(p.nodes.get("#breadcrumb").textContent, "Album artists");
+  assert.equal(p.nodes.get("#breadcrumb").textContent, "Artist");
   assert.equal(p.nodes.get("#show-artists").classList.contains("active"), true);
   assert.equal(p.nodes.get("#albums-page").hidden, true);
   assert.equal(p.nodes.get("#artists-results").textContent, "3 album artists");
@@ -2674,10 +2674,10 @@ test("Back returns from an album to the artist and then to the artist grid as it
   await p.click({"[data-browse-artist]": {dataset: {browseArtist: "Kate Bush"}}});
   assert.equal(p.location.hash, "#/artist/Kate%20Bush");
   assert.equal(p.nodes.get("#artist-back").hidden, false);
-  assert.equal(p.nodes.get("#artist-back").textContent, "← Back to Album artists");
+  assert.equal(p.nodes.get("#artist-back").textContent, "← Back to Artist");
   await p.click({"[data-album]": {dataset: {album: "3"}}});
   assert.equal(p.location.hash, "#/album/3");
-  assert.match(p.nodes.get("#breadcrumb").innerHTML, /Album artists.*Kate Bush/);
+  assert.match(p.nodes.get("#breadcrumb").innerHTML, /Artist.*Kate Bush/);
   await p.click({"[data-album-crumb]": {dataset: {albumCrumb: "1"}}});
   assert.equal(p.run("state.screen"), "albums");
   assert.equal(p.run("state.artist"), "Kate Bush");

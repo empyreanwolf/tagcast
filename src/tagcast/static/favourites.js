@@ -223,7 +223,15 @@ function renderFavourites() {
 
 function showFavourites(page = favourites.page) {
   clearTimeout(favouritesTimer);
-  favourites.page = page; showScreen("favourites"); loadFavourites(); window.scrollTo?.({top: 0});
+  // Re-entering with the same search/page, with the library unchanged since the last
+  // successful load, renders what's already here instead of asking iBroadcast again.
+  const query = $("#favourites-search").value.trim();
+  const cached = !favourites.loading && !favourites.error && favourites.details === state.details
+    && favourites.page === page && favourites.query === query;
+  favourites.page = page;
+  showScreen("favourites");
+  if (cached) renderFavourites(); else loadFavourites();
+  window.scrollTo?.({top: 0});
 }
 
 $("#show-favourites").addEventListener("click", () => showFavouriteView());

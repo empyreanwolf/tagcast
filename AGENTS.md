@@ -208,7 +208,14 @@ The application consists of a Python server and a plain JavaScript frontend.
   summaries; `tracks.js` searches every track through `/api/tracks` (the demo
   searches its own albums) and plays or opens a result. Editing remains in `app.js`, and `player.js` owns browser-local playback and the queue independently of the editor. `navigation.js` gives every page a hash address
   (`#/track-artists`, `#/composers`, `#/genres`, `#/years`, `#/decades` and their group keys, `#/artists`, `#/artist/<name>`, `#/albums`, `#/album/<id>`, `#/tracks`, `#/favourites`, `#/overview`) and
-  browser history; it loads last.
+  browser history; it loads last. It also owns the sidebar layout (`SIDEBAR_ITEMS`,
+  `localStorage["tagcast-sidebar"]`, the Settings → Sidebar panel): `SIDEBAR_DEFAULT_HIDDEN`
+  (fork, v28) is applied only when that key has never been saved at all (`localStorage.getItem`
+  returns `null`, not an empty/parsed object) -- once someone opens Settings and changes
+  anything, `readSidebarLayout()` always respects what's saved instead, even to re-hide
+  something this default would otherwise show. Track artists, Composers and Tags are hidden
+  this way out of the box; Artist (`show-artists`, renamed from "Album artists" in v28 --
+  functionally unchanged, still browses by album artist) and Albums stay required/always on.
 - `tests/`: unittest tests that also run through pytest, fixtures and
   `mock_ibroadcast.py`.
 - `tools/build_dark_css.py`: generates `static/dark.css` from `static/style.css`.
@@ -595,6 +602,18 @@ their shared browsing/player state; a fast local response can otherwise race the
   summaries, merging discs and paginating locally. Preserve exact group membership,
   browser history, genre links and stale-response guards across library changes.
   Card album counts match the merged shelf; duplicate disc numbers remain separate.
+  `showBrowse()`/`showFavourites()` (fork, v28) skip the network entirely and render the
+  existing `browseView`/`favourites` state directly when re-entering with the exact same
+  kind/key/search/sort/page and `state.details` is still the same object -- a visit that
+  changed nothing no longer re-fetches. `state.details` is replaced with a fresh object
+  only when the library itself reloads (`loadLive()` and friends), which is what actually
+  invalidates the cache; `Recently played` deliberately keeps re-fetching every visit
+  instead, since iBroadcast's own recently-played list can change from playback alone,
+  independently of `state.details`.
+  The Albums filter menu (`FILTERS` in `app.js`) includes `uploaded_today` (fork, v28):
+  an album matches when `todayLocalDate()` (this computer's local `YYYY-MM-DD`) is in its
+  `upload_dates` (already computed per album for the existing "Date uploaded" sort), so it
+  needs no extra request -- a same-day companion to iBroadcast's own "date uploaded" view.
 - Settings also offers full loaded-library metadata export as JSON or a ZIP of linked CSV
   tables, separate from browser-local Export changes. Prepare only on explicit choice,
   then download a private temporary file without buffering all tracks in browser JS.
