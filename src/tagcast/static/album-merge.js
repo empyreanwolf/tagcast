@@ -6,6 +6,7 @@
 // title (and year, when they differ) become the target's. Track numbers, track tags and
 // covers are not touched; the joined album shows the cover of its first track. The edit
 // goes through the usual Review dialog, so nothing is written until Save is pressed.
+// Upstream's reviewed fragment merge ("Merge albums…") lives in album-merge-review.js (fork v47).
 
 const albumMerge = {dragging: null, busy: false};
 
@@ -47,7 +48,7 @@ async function startAlbumMerge(sourceId, targetId) {
   }
 }
 
-// Exactly two albums selected on an artist page: merge the smaller into the larger, so
+// "Quick merge": exactly two albums selected on an artist page: merge the smaller into the larger, so
 // the album with more tracks keeps its title. Works without dragging (phones, keyboard).
 function selectedMergePair() {
   if (!live() || !state.artist) return null;
@@ -57,8 +58,8 @@ function selectedMergePair() {
   return (a.track_count || 0) >= (b.track_count || 0) ? {source: b, target: a} : {source: a, target: b};
 }
 
-function updateAlbumMergeControls() {
-  const button = $("#merge-selection");
+function updateQuickMergeControls() {
+  const button = $("#quick-merge-selection");
   const pair = selectedMergePair();
   button.hidden = !pair;
   if (pair) button.title = `Merge “${pair.source.name}” into “${pair.target.name}”`;
@@ -101,7 +102,7 @@ document.addEventListener("drop", event => {
 document.addEventListener("dragend", () => { albumMerge.dragging = null; clearMergeTargets(); });
 
 document.addEventListener("click", event => {
-  if (!event.target.closest("#merge-selection")) return;
+  if (!event.target.closest("#quick-merge-selection")) return;
   const pair = selectedMergePair();
   if (pair) startAlbumMerge(pair.source.id, pair.target.id);
 });
