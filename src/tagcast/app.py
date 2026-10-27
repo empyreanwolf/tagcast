@@ -238,6 +238,10 @@ class Handler(SimpleHTTPRequestHandler):
             self._run(lambda: self.studio.charts.view(query.get("chart"), query.get("refresh") == "1"))
         elif url.path == "/api/charts/jobs":
             self._run(self.studio.charts.jobs_view)
+        elif url.path == "/api/gemini":
+            self._run(self.studio.gemini.view)
+        elif url.path == "/api/gemini/jobs":
+            self._run(self.studio.gemini.jobs_view)
         elif url.path == "/api/wishlist":
             self._run(self.studio.wishlist.view)
         elif url.path == "/api/releases":
@@ -314,6 +318,10 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/tagclean/apply-genre": lambda b: self.studio.tagclean.apply_genre(b.get("ids")),
             "/api/tagclean/assign-genre": lambda b: self.studio.tagclean.assign_genre(b.get("ids"), b.get("genre")),
             "/api/charts/get": lambda b: self.studio.charts.get(b.get("chart"), b.get("ranks")),
+            "/api/gemini/ask": lambda b: self.studio.gemini.ask(b.get("message")),
+            "/api/gemini/get": lambda b: self.studio.gemini.get(b.get("ids")),
+            "/api/gemini/reset": lambda b: self.studio.gemini.reset(),
+            "/api/gemini/settings": lambda b: self.studio.gemini.save_settings(b),
             "/api/wishlist/retry": lambda b: self.studio.wishlist.retry(b.get("ids")),
             "/api/wishlist/remove": lambda b: self.studio.wishlist.remove(b.get("ids")),
             "/api/wishlist/settings": lambda b: self.studio.wishlist.save_settings(b),

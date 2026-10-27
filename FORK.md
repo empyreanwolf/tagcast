@@ -41,6 +41,13 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v21** Ask Gemini, a new page on the left: a chat backed by your own free Gemini API
+  key (aistudio.google.com/apikey -- not the gemini.google.com consumer chat, which has
+  no API). Type an artist, a mood or a question; any songs or other artists Gemini names
+  are checked against your library/history and shown as a "Get it" list and clickable
+  artist chips, same as Charts. Picks go through Bandcamp → Soulseek → Galaxy and land on
+  the wishlist if nothing has them. The conversation is saved and persists across restarts
+  until you start a new one.
 - **v20** Charts, a new page on the left: Chinese Rap (NetEase's own "中文说唱榜") and five
   mainstream hip-hop/rap charts (HotNewHipHop Top 100, Deezer, Apple Music, Shazam US,
   Billboard Hot Rap Songs), each song checked against your library and download history

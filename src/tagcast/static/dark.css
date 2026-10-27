@@ -206,6 +206,13 @@
 :root[data-theme="dark"] .dl-settings input{background:var(--palette-surface,#1b2520)}
 :root[data-theme="dark"] .missing-subs button[aria-selected="true"]{background:var(--palette-soft,#2b2c2a)}
 :root[data-theme="dark"] .releases-days{background:var(--palette-surface,#1b2520)}
+:root[data-theme="dark"] .gemini-turn b{color:var(--palette-link,#97a18e)}
+:root[data-theme="dark"] .gemini-user{background:var(--palette-tint,#2d2f2a)}
+:root[data-theme="dark"] .gemini-model{background:var(--palette-surface,#1b2520)}
+:root[data-theme="dark"] .gemini-similar .pill{background:var(--palette-surface,#1b2520)}
+:root[data-theme="dark"] .gemini-similar .pill:hover{background:var(--palette-tint,#2d2f2a)}
+:root[data-theme="dark"] #gemini-input{background:var(--palette-surface,#1b2520)}
+:root[data-theme="dark"] #gemini-key-input{background:var(--palette-surface,#1b2520)}
 
 /* set by hand */
 :root[data-theme="dark"]{color-scheme:dark}
@@ -427,6 +434,13 @@
 :root:not([data-theme="light"]) .dl-settings input{background:var(--palette-surface,#1b2520)}
 :root:not([data-theme="light"]) .missing-subs button[aria-selected="true"]{background:var(--palette-soft,#2b2c2a)}
 :root:not([data-theme="light"]) .releases-days{background:var(--palette-surface,#1b2520)}
+:root:not([data-theme="light"]) .gemini-turn b{color:var(--palette-link,#97a18e)}
+:root:not([data-theme="light"]) .gemini-user{background:var(--palette-tint,#2d2f2a)}
+:root:not([data-theme="light"]) .gemini-model{background:var(--palette-surface,#1b2520)}
+:root:not([data-theme="light"]) .gemini-similar .pill{background:var(--palette-surface,#1b2520)}
+:root:not([data-theme="light"]) .gemini-similar .pill:hover{background:var(--palette-tint,#2d2f2a)}
+:root:not([data-theme="light"]) #gemini-input{background:var(--palette-surface,#1b2520)}
+:root:not([data-theme="light"]) #gemini-key-input{background:var(--palette-surface,#1b2520)}
 
 /* set by hand */
 :root:not([data-theme="light"]){color-scheme:dark}

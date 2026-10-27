@@ -37,6 +37,7 @@ from .discography import Discography
 from .downloads import Downloads
 from .duplicate_cleanup import DuplicateCleanup
 from .galaxy import Galaxy
+from .gemini import Gemini
 from .library import (
     ConflictError,
     Library,
@@ -397,6 +398,7 @@ class Studio:
         self.completion = Completion(self)
         self.tagclean = TagClean(self)
         self.charts = Charts(self)
+        self.gemini = Gemini(self)
         self.artist_cards = ArtistCards(self)
         self.duplicate_cleanup = DuplicateCleanup(self)
         tokens = self._read("tokens.json")

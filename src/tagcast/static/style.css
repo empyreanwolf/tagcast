@@ -1148,3 +1148,18 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 /* Complete my albums (fork v18) */
 .complete-tracks{margin:6px 0 0 18px;padding:0;font-size:13px}
 .complete-tracks li.have{color:var(--muted)}
+
+/* Ask Gemini (fork v21) */
+#gemini-chat{margin-bottom:16px}
+.gemini-log{border-top:0}
+.gemini-turn{padding:14px 16px;margin-bottom:12px;border:1px solid var(--line);border-radius:10px}
+.gemini-turn b{display:block;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--palette-link,#88917f);margin-bottom:6px}
+.gemini-turn p{margin:0;font-size:13px;line-height:1.6;white-space:pre-wrap}
+.gemini-user{background:var(--palette-tint,#edf2e7)}
+.gemini-model{background:var(--palette-surface,#fff)}
+.gemini-similar{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.gemini-similar .pill{cursor:pointer;background:var(--palette-surface,#fff)}
+.gemini-similar .pill:hover{background:var(--palette-tint,#edf2e7)}
+#gemini-form{align-items:center;margin-top:8px}
+#gemini-input{flex:1;min-width:160px;padding:11px 14px;border:1px solid var(--line);border-radius:6px;font:inherit;background:var(--palette-surface,#fff);color:var(--ink)}
+#gemini-key-input{min-width:260px;padding:11px 14px;border:1px solid var(--line);border-radius:6px;font:inherit;background:var(--palette-surface,#fff);color:var(--ink)}

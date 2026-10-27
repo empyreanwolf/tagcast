@@ -70,6 +70,23 @@ The application consists of a Python server and a plain JavaScript frontend.
   inferred. There is deliberately no "underground hip-hop" chart: nothing online publishes one
   as an actual fetchable list. State: in-memory cache only (`CACHE_SECONDS`), nothing persisted.
   `static/charts.js` (its own sidebar page, not a Downloads tab).
+- `src/tagcast/gemini.py` (fork, v21): "Ask Gemini", a chat page on its own top-level
+  sidebar page, backed by the user's own free Gemini API key (Google AI Studio, not the
+  gemini.google.com consumer chat -- that page has no API). Calls the Gemini Developer API
+  (`generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`) with a system
+  instruction asking the model to end any reply naming concrete songs/artists with a single
+  fenced ```json block (`{"songs":[...], "similar_artists":[...]}`); that block is parsed out
+  with `JSON_BLOCK_RE` and shown as a "Get it" list (checked against the library/history, same
+  as Charts) and clickable artist chips, while the rest of the reply is the plain chat text.
+  Picked songs run one at a time through the same Bandcamp → Soulseek → Galaxy chain as
+  Charts/Discography/Wishlist (`discography._song()`/`discography._wish()`), polled via
+  `/api/gemini/jobs`. The model name is a Settings field, not hardcoded, so a
+  renamed/retired model needs no code change. The exact API shape could not be exercised
+  against the real service from this sandbox (no network path to
+  generativelanguage.googleapis.com here); it follows Google's long-documented REST method
+  and fails with an actionable error rather than a crash if that's wrong. State:
+  `gemini.json` (API key, model, the conversation -- persists across restarts; "New
+  conversation" clears it). `static/gemini.js` (its own sidebar page, not a Downloads tab).
 - `src/tagcast/updates.py`: public stable-release checks, version comparison and a
   daily persistent cache, independent of iBroadcast credentials.
 - `src/tagcast/album_guide.py`: opt-in, explicitly started comparison with the bundled
