@@ -225,5 +225,69 @@ class FolderTests(unittest.TestCase):
         self.assertFalse(manager.set_folder("")["folder_set"])
 
 
+class FakeWorker:
+    """Just enough of a worker (Galaxy/Bandcamp/Soulseek) for the watchdog to check: a
+    ``thread`` that may or may not be alive, and an ``ensure_worker`` the watchdog can call."""
+    def __init__(self, alive):
+        self.thread = type("T", (), {"is_alive": lambda self: alive})() if alive is not None else None
+        self.active = None
+        self.started = 0
+
+    def active_ids(self):
+        return []
+
+    def ensure_worker(self):
+        self.started += 1
+
+
+class WatchdogTests(unittest.TestCase):
+    """A queued item's worker thread must never die for good on a disk hiccup (fork v29):
+    _persist used to raise straight out of next_queued/update_item, which every worker's
+    loop called ahead of its own per-song error handling, killing that thread silently."""
+
+    def test_a_persist_failure_is_logged_and_remembered_but_never_raised(self):
+        studio = LocalStudio()
+        manager = studio.download_manager
+        manager.submit([song("Coldplay", "Fix You", payload={"id": "1", "source": "netease"})], "galaxy")
+        good_write = studio._write
+        studio._write = lambda name, value: (_ for _ in ()).throw(OSError("disk full"))
+        manager.next_queued("galaxy")  # must not raise, despite _persist failing inside it
+        self.assertIn("disk full", manager.persist_error)
+        studio._write = good_write
+        manager._persist()
+        self.assertEqual(manager.persist_error, "")
+
+    def test_watchdog_requeues_an_orphaned_active_item_and_restarts_its_worker(self):
+        studio = LocalStudio()
+        manager = studio.download_manager
+        manager.submit([song("Coldplay", "Fix You", payload={"id": "1", "source": "netease"})], "galaxy")
+        manager.next_queued("galaxy")  # flips it to "active", as a worker would on pickup
+        dead = FakeWorker(alive=False)
+        manager.register("galaxy", dead)
+        self.assertEqual(manager.queue_view()["stalled"], ["galaxy"])
+        self.assertEqual(dead.started, 1)
+        self.assertEqual(manager.state["queue"][0]["state"], "queued")  # back in line, not stuck
+
+    def test_watchdog_leaves_a_healthy_worker_alone(self):
+        studio = LocalStudio()
+        manager = studio.download_manager
+        manager.submit([song("Coldplay", "Fix You", payload={"id": "1", "source": "netease"})], "galaxy")
+        alive = FakeWorker(alive=True)
+        manager.register("galaxy", alive)
+        self.assertEqual(manager.queue_view()["stalled"], [])
+        self.assertEqual(alive.started, 0)
+
+    def test_restart_action_also_requeues_orphans(self):
+        studio = LocalStudio()
+        manager = studio.download_manager
+        manager.submit([song("Coldplay", "Fix You", payload={"id": "1", "source": "netease"})], "galaxy")
+        manager.next_queued("galaxy")
+        dead = FakeWorker(alive=False)
+        manager.register("galaxy", dead)
+        manager.control("restart")
+        self.assertEqual(manager.state["queue"][0]["state"], "queued")
+        self.assertEqual(dead.started, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

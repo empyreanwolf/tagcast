@@ -42,12 +42,22 @@ The application consists of a Python server and a plain JavaScript frontend.
   drafts, reviewed track exclusions and bounded trash batches with persisted intent and read-back.
 - `src/tagcast/downloads.py` (fork): Downloads duplicate check against the loaded library and
   the download history, Needs your decision, queue, history import and download folder, kept in
-  `downloads.json`; `static/downloads.js` is its page. See `docs/downloads-plan.md`.
+  `downloads.json`; `static/downloads.js` is its page. See `docs/downloads-plan.md`. `_persist()`
+  (fork, v29) never lets a disk-write error escape -- it's caught, logged to `tagcast.log`, and
+  remembered as `self.persist_error` (surfaced by `queue_view()`). `_watchdog()` (fork, v29),
+  called from `queue_view()` on every poll, requeues any item orphaned mid-download by a dead
+  worker thread and calls `wake_workers()` for any source with waiting work but no running
+  thread -- self-healing within about one poll interval. `control()` also accepts a `"restart"`
+  action for the same recovery, wired to a manual button when the watchdog alone isn't enough.
 - `src/tagcast/galaxy.py` (fork): GD Studio search and the Galaxy download thread over the Downloads
   queue (ported from empyreanwolf/gd-music-downloader); `artist_cards.py` tells same-name artists
   apart (MusicBrainz, Deezer, library). `static/galaxy.js` is the Galaxy tab. Tags need `mutagen`.
+  `Galaxy._loop()` (fork, v29) wraps its whole iteration, not just `process(job)`, in a broad
+  `try/except` -- previously an error from `is_paused()`/`next_queued()` (e.g. a failed
+  `_persist()`) could escape outside any handler and silently end the thread for good.
 - `src/tagcast/bandcamp.py` (fork): Bandcamp releases and 128 kbps stream downloads (`static/bandcamp.js`);
   `source_worker.py` is the shared file-download thread. Pause and the queue buttons live in `downloads.py`.
+  `FileWorker._loop()` (fork, v29) got the same whole-iteration `try/except` as `Galaxy._loop()`.
 - `src/tagcast/soulseek.py` (fork): starts `sockseek daemon` and drives its HTTP API (port 5030);
   the Soulseek password stays in `soulseek.json` / `sockseek.conf`, never in API responses. `static/soulseek.js`.
 - `src/tagcast/discography.py` (fork): Deezer + Apple discography and Deezer top 30 (7-day cache), and the

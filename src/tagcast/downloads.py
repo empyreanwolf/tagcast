@@ -21,6 +21,7 @@ be imported; importing twice adds nothing twice.
 import csv
 import io
 import json
+import logging
 import os
 import re
 import secrets
@@ -31,6 +32,8 @@ from pathlib import Path
 
 from . import artist_match as match
 from .library import LibraryError, fold, number, text, title_key
+
+log = logging.getLogger("tagcast")
 
 STATE_FILE = "downloads.json"
 KINDS = ("song", "album")
@@ -349,9 +352,20 @@ class Downloads:
         self.state["paused"] = bool(data.get("paused"))
         self.workers = {}  # source name -> its download worker (Galaxy, Bandcamp, Soulseek)
         self._last_persist = 0.0
+        self.persist_error = ""  # fork, v29: last failure saving the queue to disk, if any
 
     def _persist(self):
-        self.studio._write(STATE_FILE, self.state)
+        # A save failure here (a disk hiccup, an antivirus lock, a OneDrive sync conflict --
+        # all seen on Windows) must never propagate: every worker's loop calls into this on
+        # its way to picking the next job, outside its own per-song error handling, so an
+        # unguarded raise here used to kill that worker's thread silently -- "stuck" forever,
+        # with nothing in the queue explaining why. It's logged and remembered instead.
+        try:
+            self.studio._write(STATE_FILE, self.state)
+            self.persist_error = ""
+        except Exception as e:
+            self.persist_error = f"Could not save the download queue: {type(e).__name__}: {e}"
+            log.exception("Could not save the download queue to disk")
 
     def _index(self, need_library=True):
         library = None
@@ -379,8 +393,47 @@ class Downloads:
                     "telegram_folder": str(telegram_folder())}
 
     def queue_view(self):
+        self._watchdog()
         with self.lock:
-            return {"queue": [dict(i) for i in self.state["queue"][-1000:]], "held": list(self.state["held"])}
+            return {"queue": [dict(i) for i in self.state["queue"][-1000:]], "held": list(self.state["held"]),
+                    "persist_error": self.persist_error,
+                    "stalled": sorted(self._stalled_sources())}
+
+    def _requeue_orphaned(self):
+        """An item a dead worker had just picked up (flipped to "active") never gets looked
+        at again on its own -- nothing marks it queued, failed or done. Put it back in line
+        for whichever worker restarts next."""
+        with self.lock:
+            changed = False
+            for item in self.state["queue"]:
+                worker = self.workers.get(item.get("source"))
+                if item.get("state") == "active" and worker and not (worker.thread and worker.thread.is_alive()):
+                    item.update(state="queued", step=-1, step_detail="", progress=0)
+                    changed = True
+            if changed:
+                self._persist()
+
+    def _stalled_sources(self):
+        """Sources with work waiting on them -- queued, or "active" because a now-dead
+        worker had just picked it up -- whose worker thread isn't running, while not paused.
+        Normally only right after an unexpected crash; ``wake_workers()`` below recovers it."""
+        if self.state["paused"]:
+            return []
+        with self.lock:
+            busy = {i.get("source") for i in self.state["queue"]
+                    if i.get("state") in ("queued", "active") and i.get("payload")}
+        return [source for source in busy if source in self.workers
+                and not (self.workers[source].thread and self.workers[source].thread.is_alive())]
+
+    def _watchdog(self):
+        """Polled from the Downloads page every few seconds: if a worker's thread died (it
+        should not, but see _persist above for the kind of thing that used to cause it) and
+        there is still queued work waiting for it, start it again -- same as a manual Restart,
+        just automatic, so a crash recovers within one poll instead of needing a page reload."""
+        stalled = self._stalled_sources()
+        if stalled:
+            self._requeue_orphaned()
+            self.wake_workers()
 
     def history_view(self, query="", source="", offset=0, limit=HISTORY_PAGE):
         offset, limit = max(0, number(offset)), min(200, max(1, number(limit) or HISTORY_PAGE))
@@ -523,6 +576,11 @@ class Downloads:
             self.remove([i for i in ids if i not in active])
         elif action == "retry":
             self.requeue(ids or None)
+            self.wake_workers()
+        elif action == "restart":
+            # A worker's thread should never actually die mid-queue (see _persist), but this
+            # gives a way back without restarting Tagcast itself if one somehow does.
+            self._requeue_orphaned()
             self.wake_workers()
         elif action == "top":
             self.move_to_top(ids)

@@ -95,34 +95,42 @@ class FileWorker:
 
     def _loop(self):
         while not self.stopping:
-            job = None if self.manager.is_paused() else self.manager.next_queued(self.source)
-            if job is None:
-                self.wake.wait(0.5)
-                self.wake.clear()
-                if not self.manager.has_queued(self.source) and not self.manager.is_paused():
-                    return
-                continue
-            self.active, self.cancel_id = job["id"], None
+            # See galaxy.py's _loop for why this outer try/except exists: is_paused/next_queued
+            # run ahead of each song's own error handling below, and either can hit the shared
+            # queue's _persist -- an unguarded exception there used to kill this thread for good.
             try:
-                self.process(job)
-            except StopRequested:
-                self.manager.update_item(job["id"], persist=True, state="queued", step=-1, step_detail="", progress=0)
-                break
-            except JobCancelled:
-                self.manager.remove([job["id"]])
-            except (JobFailed, ValueError) as e:  # LibraryError is a ValueError
-                self.manager.update_item(job["id"], persist=True, state="failed", note=str(e), speed=0, eta=0)
-            except Exception as e:
-                log.exception("%s download failed", self.source)
-                self.manager.update_item(job["id"], persist=True, state="failed", note=f"{type(e).__name__}: {e}")
-            finally:
-                self._cleanup(job["id"])
-                self.active = self.cancel_id = None
-            if self.manager.has_queued(self.source) and not self.manager.is_paused() and not self.stopping:
+                job = None if self.manager.is_paused() else self.manager.next_queued(self.source)
+                if job is None:
+                    self.wake.wait(0.5)
+                    self.wake.clear()
+                    if not self.manager.has_queued(self.source) and not self.manager.is_paused():
+                        return
+                    continue
+                self.active, self.cancel_id = job["id"], None
                 try:
-                    self._sleep(self.track_delay)
-                except (StopRequested, JobCancelled):
-                    pass
+                    self.process(job)
+                except StopRequested:
+                    self.manager.update_item(job["id"], persist=True, state="queued", step=-1, step_detail="", progress=0)
+                    break
+                except JobCancelled:
+                    self.manager.remove([job["id"]])
+                except (JobFailed, ValueError) as e:  # LibraryError is a ValueError
+                    self.manager.update_item(job["id"], persist=True, state="failed", note=str(e), speed=0, eta=0)
+                except Exception as e:
+                    log.exception("%s download failed", self.source)
+                    self.manager.update_item(job["id"], persist=True, state="failed", note=f"{type(e).__name__}: {e}")
+                finally:
+                    self._cleanup(job["id"])
+                    self.active = self.cancel_id = None
+                if self.manager.has_queued(self.source) and not self.manager.is_paused() and not self.stopping:
+                    try:
+                        self._sleep(self.track_delay)
+                    except (StopRequested, JobCancelled):
+                        pass
+            except Exception:
+                log.exception("%s download thread hit an unexpected error; continuing", self.source)
+                self.active = self.cancel_id = None
+                time.sleep(1)
 
     def process(self, job):
         raise NotImplementedError

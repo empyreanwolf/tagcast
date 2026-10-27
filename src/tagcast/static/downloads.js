@@ -7,6 +7,7 @@
 const downloadsView = {
   tab: "galaxy", lines: "", galaxy: null, poll: null, info: null, queue: null, held: null, results: null, checkKind: "song",
   history: {query: "", source: "", offset: 0, data: null}, picked: new Set(), busy: false, timer: null,
+  persistError: "", stalled: [],
 };
 const downloadsTabs = [["galaxy", "Galaxy"], ["bandcamp", "Bandcamp"], ["soulseek", "Soulseek"], ["discography", "Discography"], ["missing", "Missing"], ["tagclean", "Clean up"], ["check", "Check"], ["decide", "Needs your decision"], ["queue", "Queue & history"], ["settings", "Settings"]];
 const downloadsStatusLabels = {have: "In iBroadcast", partly: "Partly (other edition)", downloaded: "Downloaded before", folder: "In your download folder", new: "New"};
@@ -40,6 +41,7 @@ async function loadDownloads() {
   try {
     const [info, queue, galaxy] = await Promise.all([api("/api/downloads"), api("/api/downloads/queue"), api("/api/galaxy/status")]);
     downloadsView.info = info; downloadsView.queue = queue.queue; downloadsView.held = queue.held; downloadsView.galaxy = galaxy;
+    downloadsView.persistError = queue.persist_error || ""; downloadsView.stalled = queue.stalled || [];
     for (const id of [...downloadsView.picked]) if (!queue.held.some(h => h.id === id)) downloadsView.picked.delete(id);
     if (downloadsView.tab === "queue") await loadDownloadsHistory();
     renderDownloads();
@@ -63,6 +65,7 @@ function downloadsPoll() {
       const [queue, galaxy] = await Promise.all([api("/api/downloads/queue"), api("/api/galaxy/status")]);
       const failed = (downloadsView.queue || []).filter(i => i.state === "failed").length;
       downloadsView.queue = queue.queue; downloadsView.held = queue.held; downloadsView.galaxy = galaxy;
+      downloadsView.persistError = queue.persist_error || ""; downloadsView.stalled = queue.stalled || [];
       if (queue.queue.filter(i => i.state === "failed").length > failed) artistCleanupAlarm();
       if ($("#dl-queue-box")) $("#dl-queue-box").innerHTML = downloadsQueueBoxHtml();
       if ($("#galaxy-status")) $("#galaxy-status").innerHTML = galaxyStatusHtml();

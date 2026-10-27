@@ -75,7 +75,8 @@ Design mockups (6 screens): https://claude.ai/artifact/48RUd5CmZUQqde3ihyFqNW
 | v26 ✔ | Live sync lyrics: LRCLIB's line timestamps drive an auto-scrolling, click-to-seek lyrics panel in the fullscreen Now playing view |
 | v27 ✔ | Artist pictures: one-time "Run now" job filling in every album artist with no image -- a face in one of their own covers, else a TheAudioDB photo, else just a cover |
 | v28 ✔ | Sidebar cleanup (Track artists/Composers/Tags hidden by default, Album artists renamed Artist), cached Genres/Tags/Composers/Favourites (no server re-fetch on re-entering an unchanged page) and an "Uploaded today" albums filter |
-| v29 | Telegram check (listener inside Tagcast) |
+| v29 ✔ | Download manager resilience: a disk-write error can no longer kill a worker thread silently; each worker's whole loop is guarded, not just the download step; a watchdog requeues orphaned items and restarts a stalled source automatically; a manual Restart button and an on-page "Stopped unexpectedly" warning for anything the watchdog can't fix alone |
+| v30 | Telegram check (listener inside Tagcast) |
 
 Testing: unit tests with `tests/mock_ibroadcast.py` / LocalStudio and one quick real
 check per version. Avoid full-library stress runs unless something needs it.

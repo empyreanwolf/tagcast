@@ -64,6 +64,28 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v29** Download manager resilience, after a report of the Galaxy queue getting stuck
+  ("984 waiting", 0 saved, no way to recover but a restart). The most likely cause: the
+  download queue is saved to disk after almost every change, and that save was not
+  wrapped in any error handling -- a single disk hiccup (antivirus briefly locking the
+  file, a cloud-sync conflict, a full disk, etc.) could silently kill a download worker's
+  background thread for good, with nothing ever written to the log, and nothing to
+  restart it. Fixed on three levels:
+  - Saving the queue to disk can no longer kill a worker thread -- any error there is now
+    caught, written to `tagcast.log`, and remembered so the Downloads page can show it.
+  - Each download worker's entire loop (not just the download itself) is now wrapped in
+    its own error handler, so no error, from any cause, can end that thread silently again
+    -- it logs the problem and keeps going.
+  - A watchdog, run every time the Downloads page refreshes (about every 1.5 seconds while
+    something is in progress), notices a source with waiting work and no running thread,
+    puts any item it had half-started back in the queue, and restarts that source's
+    worker automatically -- no click needed, in almost all cases.
+  - For anything the watchdog can't fix alone, the queue view now says plainly when a
+    source "Stopped unexpectedly", points at `tagcast.log`, and shows a **Restart** button
+    next to **Pause**/**Resume**.
+  - This fix can't un-stick a queue that's already stuck from *before* updating -- restart
+    Tagcast once to clear that, and the new log entries will catch anything that happens
+    next.
 - **v28** Three small usability fixes, none of them a new page:
   - **Sidebar cleanup**: Track artists, Composers and Tags now start hidden (the first
     time Tagcast ever runs in a browser only -- if you've already opened Settings and

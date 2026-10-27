@@ -840,36 +840,46 @@ class Galaxy:
             self.active, self.manager.item(self.active).get("step", 0) if self.manager.item(self.active) else 0,
             f"API limit reached (45 per 5 min) - waiting {secs:.0f} s")
         while not self.stopping:
-            job = None if self.manager.is_paused() else self.manager.next_queued("galaxy")
-            if job is None:
-                self.wake.wait(0.5)
-                self.wake.clear()
-                if not self.manager.has_queued("galaxy") and not self.manager.is_paused():
-                    return  # nothing left; add() starts a new thread
-                continue
-            self.active, self.cancel_id = job["id"], None
+            # Everything in here used to run unguarded ahead of each song's own try/except
+            # below (is_paused/next_queued, both of which can hit the shared queue's _persist);
+            # any exception there used to kill this whole thread silently, leaving the rest of
+            # the queue stuck with nothing explaining why. The watchdog in downloads.py also
+            # restarts a thread that dies despite this, but it should no longer need to.
             try:
-                self.process(job)
-            except StopRequested:
-                self.manager.update_item(job["id"], persist=True, state="queued", step=-1, step_detail="", progress=0)
-                break
-            except JobCancelled:
-                self.manager.remove([job["id"]])
-            except (JobFailed, GalaxyError) as e:
-                self.manager.update_item(job["id"], persist=True, state="failed", note=str(e), speed=0, eta=0)
-            except Exception as e:  # never let one song stop the queue
-                log.exception("Galaxy download failed")
-                self.manager.update_item(job["id"], persist=True, state="failed", note=f"{type(e).__name__}: {e}")
-            finally:
-                self._cleanup(job["id"])
-                self.active = self.cancel_id = None
-            if self.manager.has_queued("galaxy") and not self.manager.is_paused() and not self.stopping:
-                self.waiting_until = time.monotonic() + self.track_delay
+                job = None if self.manager.is_paused() else self.manager.next_queued("galaxy")
+                if job is None:
+                    self.wake.wait(0.5)
+                    self.wake.clear()
+                    if not self.manager.has_queued("galaxy") and not self.manager.is_paused():
+                        return  # nothing left; add() starts a new thread
+                    continue
+                self.active, self.cancel_id = job["id"], None
                 try:
-                    self._sleep(self.track_delay)
-                except (StopRequested, JobCancelled):
-                    pass
-                self.waiting_until = 0.0
+                    self.process(job)
+                except StopRequested:
+                    self.manager.update_item(job["id"], persist=True, state="queued", step=-1, step_detail="", progress=0)
+                    break
+                except JobCancelled:
+                    self.manager.remove([job["id"]])
+                except (JobFailed, GalaxyError) as e:
+                    self.manager.update_item(job["id"], persist=True, state="failed", note=str(e), speed=0, eta=0)
+                except Exception as e:  # never let one song stop the queue
+                    log.exception("Galaxy download failed")
+                    self.manager.update_item(job["id"], persist=True, state="failed", note=f"{type(e).__name__}: {e}")
+                finally:
+                    self._cleanup(job["id"])
+                    self.active = self.cancel_id = None
+                if self.manager.has_queued("galaxy") and not self.manager.is_paused() and not self.stopping:
+                    self.waiting_until = time.monotonic() + self.track_delay
+                    try:
+                        self._sleep(self.track_delay)
+                    except (StopRequested, JobCancelled):
+                        pass
+                    self.waiting_until = 0.0
+            except Exception:
+                log.exception("Galaxy download thread hit an unexpected error; continuing")
+                self.active = self.cancel_id = None
+                time.sleep(1)  # avoid a tight loop if something keeps failing the same way
 
     def _part_path(self, item_id):
         return Path(self.folder()) / "_incomplete" / f"{item_id}.part"

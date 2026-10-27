@@ -28,9 +28,16 @@ function galaxyStatusHtml() {
   const active = queue.find(i => i.state === "active");
   const waiting = queue.filter(i => i.state === "queued" && i.payload).length;
   const api = `API ${g.api.used}/${g.api.quota} in 5 min${g.api.wait ? ` · waiting ${g.api.wait} s for the API limit` : ""}`;
-  const queueText = g.paused ? `Queue paused (${waiting} waiting)` : active ? `Downloading “${escapeHtml(active.title)}” ${active.progress || 0}%${waiting ? ` · ${waiting} waiting` : ""}`
+  // "running" is the backend thread's own pulse (fork v29): false here, with work still
+  // waiting, means it died -- the server's watchdog restarts it within a few seconds on its
+  // own, but Restart forces that right away instead of waiting for the next poll.
+  const stalled = !g.paused && waiting > 0 && g.running === false;
+  const queueText = g.paused ? `Queue paused (${waiting} waiting)` : stalled ? `Stopped unexpectedly (${waiting} waiting)`
+    : active ? `Downloading “${escapeHtml(active.title)}” ${active.progress || 0}%${waiting ? ` · ${waiting} waiting` : ""}`
     : waiting ? `${waiting} waiting${g.next_in ? ` · next in ${g.next_in} s` : ""}` : "Queue idle";
-  return `${api} · ${queueText} <button type="button" class="text-action" data-downloads-tab="queue">Open queue</button>`;
+  const warning = stalled ? `<p class="error-text">The Galaxy download thread stopped unexpectedly. It should restart on its own within a few seconds -- if it doesn't, use Restart below. Check <code>tagcast.log</code> in your settings folder for what happened.</p>` : "";
+  const persistWarning = downloadsView.persistError ? `<p class="error-text">${escapeHtml(downloadsView.persistError)}</p>` : "";
+  return `${warning}${persistWarning}${api} · ${queueText} <button type="button" class="text-action" data-downloads-tab="queue">Open queue</button>${stalled ? ` <button type="button" class="text-action" data-galaxy-control="restart">Restart</button>` : ""}`;
 }
 
 function galaxyBadge(t) {
