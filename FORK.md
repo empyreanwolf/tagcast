@@ -64,6 +64,20 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v27** **Artist pictures**, a new page on the left: a one-time "Run now" job that
+  gives every album artist with no image one, in order -- a face found in one of their
+  own album covers wins and reuses that cover directly (no re-upload); failing that, a
+  real photo from TheAudioDB (free, no key -- the same source already used for
+  biographies, looked up by exact artist name only; it has no way to search by genre, so
+  genre isn't used); failing that, just one of their own covers anyway, which still looks
+  better than the blank default. Only artists with no image yet are touched -- nothing
+  already set is replaced. Face detection is OpenCV's bundled frontal-face Haar cascade
+  (no extra download, no extra API key) and is best-effort by design: it can miss a
+  stylised, side-profile, small, or busy cover, or occasionally flag something that isn't
+  a face, and a miss just falls through to the next source rather than erroring. "Search
+  Google" wasn't something a free API can actually automate within Google's terms, so
+  this uses TheAudioDB instead. The existing **Change artwork** dialog is completely
+  unaffected and can always override anything this run picks, any time.
 - **v26** **Live sync lyrics**: in the fullscreen Now playing view, a track whose LRCLIB
   lyrics carry line timestamps now scrolls automatically with the music, highlighting the
   current line, and clicking a line seeks there. LRCLIB's timing is community-submitted and

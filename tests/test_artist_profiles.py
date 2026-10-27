@@ -278,3 +278,37 @@ class BiographySourceTests(unittest.TestCase):
         self.assertEqual(source.biography('Brand X')['status'], 'unavailable')
         source, _ = self.source(None)
         self.assertEqual(source.biography('Brand X')['status'], 'missing')
+
+    def test_artist_image_needs_one_exact_name_and_a_usable_http_url(self):
+        row = {'idArtist': '123', 'strArtist': 'Brand X', 'strArtistThumb': 'https://example.test/thumb.jpg',
+               'strArtistFanart': 'https://example.test/fanart.jpg'}
+        source, http = self.source([row])
+        result = source.artist_image('brand x')
+        self.assertEqual(result['status'], 'ready')
+        self.assertEqual(result['image'], 'https://example.test/thumb.jpg')
+        self.assertEqual(result['url'], 'https://www.theaudiodb.com/artist/123')
+        self.assertEqual(http.calls[0][1], {'s': 'brand x'})
+        for requested in ('Brand Y', 'The Brand X'):
+            self.assertEqual(source.artist_image(requested)['status'], 'missing')
+        source, _ = self.source([row, {**row, 'idArtist': '124'}])
+        self.assertEqual(source.artist_image('Brand X')['status'], 'ambiguous')
+        source, _ = self.source([{**row, 'idArtist': '//elsewhere'}])
+        with self.assertRaises(SourceError):
+            source.artist_image('Brand X')
+
+    def test_artist_image_falls_back_through_fanart_and_cutout_and_rejects_bad_urls(self):
+        source, _ = self.source([{'idArtist': '123', 'strArtist': 'Brand X',
+                                  'strArtistFanart': 'https://example.test/fanart.jpg'}])
+        self.assertEqual(source.artist_image('Brand X')['image'], 'https://example.test/fanart.jpg')
+        source, _ = self.source([{'idArtist': '123', 'strArtist': 'Brand X',
+                                  'strArtistCutout': 'https://example.test/cutout.jpg'}])
+        self.assertEqual(source.artist_image('Brand X')['image'], 'https://example.test/cutout.jpg')
+        source, _ = self.source([{'idArtist': '123', 'strArtist': 'Brand X',
+                                  'strArtistThumb': 'javascript:alert(1)'}])
+        result = source.artist_image('Brand X')
+        self.assertEqual(result['image'], '')
+        self.assertEqual(result['status'], 'unavailable')
+        source, _ = self.source([{'idArtist': '123', 'strArtist': 'Brand X'}])
+        self.assertEqual(source.artist_image('Brand X')['status'], 'unavailable')
+        source, _ = self.source(None)
+        self.assertEqual(source.artist_image('Brand X')['status'], 'missing')

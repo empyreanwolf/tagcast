@@ -49,6 +49,7 @@
   <script src="gemini.js" defer></script>
   <script src="recommendations.js" defer></script>
   <script src="digest.js" defer></script>
+  <script src="artist-pictures.js" defer></script>
   <script src="collections.js" defer></script>
   <script src="playlist-tools.js" defer></script>
   <script src="playlist-order.js" defer></script>
@@ -98,6 +99,7 @@
     <button class="nav" id="show-album-guide" hidden><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v16M12 5C9 3 5 3 2 4v15c3-1 7-1 10 2 3-3 7-3 10-2V4c-3-1-7-1-10 1Z"/></svg> 1001 Albums</button>
     <button class="nav" id="show-downloads"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v12M7 10l5 5 5-5M4 19h16"/></svg> Downloads</button>
     <button class="nav" id="show-digest"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 4h16v4H4zM4 11h10M4 15h10M4 19h7"/></svg> Daily Digest</button>
+    <button class="nav" id="show-artist-pictures"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.5 18a6 6 0 0 1 11 0"/></svg> Artist pictures</button>
     <button class="nav" id="show-charts"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 19V9M10 19V5M16 19v-7M20 19V3"/></svg> Charts</button>
     <button class="nav" id="show-gemini"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3c.6 2.8 1.8 4.6 4 6-2.2 1.4-3.4 3.2-4 6-.6-2.8-1.8-4.6-4-6 2.2-1.4 3.4-3.2 4-6Z"/><path d="M19 13c.3 1.4.9 2.3 2 3-1.1.7-1.7 1.6-2 3-.3-1.4-.9-2.3-2-3 1.1-.7 1.7-1.6 2-3Z"/></svg> Ask Gemini</button>
     <button class="nav" id="show-recommendations"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.3 6.2 21l1.6-6.9L2 9.2l7-.6L12 2l3 6.6 7 .6-5.8 4.9 1.6 6.9Z"/></svg> Recommendations</button>
@@ -138,6 +140,11 @@
       <div class="page-intro"><div><div class="eyebrow">WHAT'S NEW, IN ONE PLACE</div><h1>Daily Digest<span>.</span></h1><p>New releases, what the wishlist just found, chart movement since you last looked, and the top of each Recommendations list -- pulled together to read first. Nothing downloads from here; each section links back to its own page for that.</p></div></div>
       <p id="digest-status" class="error-text" role="status"></p>
       <div id="digest-content"></div>
+    </section>
+    <section id="artist-pictures-page" hidden aria-label="Artist pictures">
+      <div class="page-intro"><div><div class="eyebrow">AT LEAST IT LOOKS NICER</div><h1>Artist pictures<span>.</span></h1><p>Give every album artist with no image one: a face found in one of their own album covers, else a real photo from TheAudioDB (free, no key -- the same source used for biographies), else just one of their own covers. Only artists with no image yet are touched. The existing "Change artwork" dialog still overrides anything picked here, any time.</p></div></div>
+      <p id="artist-pictures-status" class="error-text" role="status"></p>
+      <div id="artist-pictures-content"></div>
     </section>
     <section id="charts-page" hidden aria-label="Charts">
       <div class="page-intro"><div><div class="eyebrow">OUTSIDE HIP-HOP CHARTS</div><h1>Charts<span>.</span></h1><p>Chinese and mainstream hip-hop charts from NetEase, HotNewHipHop, Deezer, Apple Music, Shazam and Billboard. Every song is checked against your iBroadcast library and download history first, then "Get it" queues it the same way Downloads does; nothing happens automatically. The fixed tabs above stay hip-hop; <b>Browse</b> picks any country and/or genre, as far as each source actually supports it.</p></div></div>

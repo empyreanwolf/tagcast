@@ -28,6 +28,7 @@ from .album_info import AlbumInformation
 from .artist_bios import ArtistBiographies
 from .artist_cards import ArtistCards
 from .artist_cleanup import ArtistCleanup
+from .artist_pictures import ArtistPictures
 from .bandcamp import Bandcamp
 from .charts import Charts
 from .cleanup import Cleanup
@@ -405,6 +406,7 @@ class Studio:
         self.digest = Digest(self)
         self.artist_cards = ArtistCards(self)
         self.duplicate_cleanup = DuplicateCleanup(self)
+        self.artist_pictures = ArtistPictures(self)
         tokens = self._read("tokens.json")
         if tokens and tokens.get("client_id") == self.client_id and tokens.get("token_set"):
             try:

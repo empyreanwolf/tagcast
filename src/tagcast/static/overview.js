@@ -47,6 +47,8 @@ function showScreen(name) {
   $("#show-downloads").classList.toggle("active", name === "downloads");
   $("#digest-page").hidden = name !== "digest";
   $("#show-digest").classList.toggle("active", name === "digest");
+  $("#artist-pictures-page").hidden = name !== "artist-pictures";
+  $("#show-artist-pictures").classList.toggle("active", name === "artist-pictures");
   $("#charts-page").hidden = name !== "charts";
   $("#show-charts").classList.toggle("active", name === "charts");
   $("#gemini-page").hidden = name !== "gemini";
@@ -77,7 +79,7 @@ function showScreen(name) {
   $("#all-albums").classList.toggle("active", name === "albums" && !state.artist);
   $("#show-artists").classList.toggle("active", name === "artists");
   $("#show-tracks").classList.toggle("active", name === "tracks");
-  $("#breadcrumb").textContent = name === "album-guide" ? "1001 Albums" : name === "browse" ? browseKinds[browseView.kind].label : name === "settings" ? "Settings" : name === "overview" ? "Overview" : name === "downloads" ? "Downloads" : name === "charts" ? "Charts" : name === "gemini" ? "Ask Gemini" : name === "recommendations" ? "Recommendations" : name === "digest" ? "Daily Digest" : name === "artists" ? "Album artists" : name === "tracks" ? "Tracks" : name === "favourites" ? "Favourites" : name === "recently-played" ? "Recently played"
+  $("#breadcrumb").textContent = name === "album-guide" ? "1001 Albums" : name === "browse" ? browseKinds[browseView.kind].label : name === "settings" ? "Settings" : name === "overview" ? "Overview" : name === "downloads" ? "Downloads" : name === "charts" ? "Charts" : name === "gemini" ? "Ask Gemini" : name === "recommendations" ? "Recommendations" : name === "digest" ? "Daily Digest" : name === "artist-pictures" ? "Artist pictures" : name === "artists" ? "Album artists" : name === "tracks" ? "Tracks" : name === "favourites" ? "Favourites" : name === "recently-played" ? "Recently played"
     : name === "album" ? state.albums.find(a => String(a.id) === albumView.id)?.name || "Album" : state.artist || "Albums";
   if (["playlists", "album-favourites"].includes(name) && typeof renderCollections === "function") renderCollections();
   renderFavouriteHub();

@@ -240,6 +240,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._run(lambda: self.studio.artist_cleanup.suggestions(query.get("kind")))
         elif url.path == "/api/artist-cleanup/search":
             self._run(lambda: self.studio.artist_cleanup.search(query.get("q", "")))
+        elif url.path == "/api/artist-pictures":
+            self._run(self.studio.artist_pictures.status)
         elif url.path == "/api/downloads":
             self._run(self.studio.download_manager.view)
         elif url.path == "/api/downloads/queue":
@@ -329,6 +331,8 @@ class Handler(SimpleHTTPRequestHandler):
                 b.get("mode"), b.get("groups"), b.get("ids")),
             "/api/artist-cleanup/start": lambda b: self.studio.artist_cleanup.start(b.get("id"), b.get("excluded")),
             "/api/artist-cleanup/stop": lambda b: self.studio.artist_cleanup.cancel(b.get("id")),
+            "/api/artist-pictures/start": lambda b: self.studio.artist_pictures.start(),
+            "/api/artist-pictures/stop": lambda b: self.studio.artist_pictures.stop(),
             "/api/downloads/check": lambda b: self.studio.download_manager.check(
                 b.get("items"), b.get("lines"), b.get("kind", "song")),
             "/api/downloads/submit": lambda b: self.studio.download_manager.submit(b.get("items"), "manual"),

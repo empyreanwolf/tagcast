@@ -176,6 +176,22 @@ The application consists of a Python server and a plain JavaScript frontend.
   album artist and held in a separate bounded local SQLite cache.
 - `src/tagcast/album_info.py`: opt-in TheAudioDB album background text for a visited
   album, with strict artist/full-title matching and a separate bounded SQLite cache.
+- `src/tagcast/artist_pictures.py` (fork, v27): "Artist pictures", a one-time "Run now"
+  job on its own top-level sidebar page, gap-filling only -- `_missing()` reuses the same
+  "album artist with no `artwork_id`" definition the Overview health stats already use,
+  and `_pick()` never touches an artist that already has one by the time it's reached.
+  Per artist, in order: a face in one of that artist's own album covers (`detect_face()`,
+  OpenCV's bundled Haar cascade, lazily imported so the dependency is optional at import
+  time; any decode/detection problem just means "no face here", never a raised error) --
+  a hit reuses that cover's existing `artwork_id` directly via `change_artwork()`, no
+  re-upload; else `sources.TheAudioDB.artist_image()` (same free, no-key source as
+  `artist_bios.py`, exact-name-match only, no genre parameter -- it can't search by
+  genre); else just the artist's first own cover anyway. Runs as a daemon thread with
+  `progress`/`jobs`/`stop_flag`, mirroring `charts.py`'s job shape; any exception from one
+  artist (a conflict, a bad image) is caught, logged against that artist only, and the run
+  continues. `static/artist-pictures.js` (its own sidebar page, polls `/api/artist-pictures`
+  while running). Never imports from `client.py` (would pull in `ibroadcast`
+  transitively) -- it only calls back into the `Studio` it's given.
 - `src/tagcast/lyrics.py`: lazy native `gettrackuserdata` reads, an account/track-bound
   native text cache and a separate public LRCLIB SQLite cache; separately reviewed, single-use lyrics
   saves preserve all other native userdata and read back without ambiguous retries. LRCLIB's
@@ -186,7 +202,7 @@ The application consists of a Python server and a plain JavaScript frontend.
   `ibroadcast`-sourced results always carry `synced: []`.
 - `src/tagcast/static/`: HTML, CSS, SVG and shared JavaScript files:
   `app.js`, `metadata-export.js`, `genres.js`, `credits.js`, `lookup.js`, `updates.js`, `artwork.js`, `player.js`, `playback.js`, `album.js`,
-  `album-info.js`, `lyrics.js`, `trash.js`, `artists.js`, `tracks.js`, `favourites.js`, `browse.js`, `overview.js`, `cleanup.js`, `collections.js`, `playlist-tools.js`, `playlist-order.js`, `playlist-import.js`, `tags.js`, `queue-sync.js`, `album-guide.js`, `help.js`, `navigation.js`. `album.js` provides album browsing;
+  `album-info.js`, `lyrics.js`, `trash.js`, `artists.js`, `tracks.js`, `favourites.js`, `browse.js`, `overview.js`, `cleanup.js`, `collections.js`, `playlist-tools.js`, `playlist-order.js`, `playlist-import.js`, `tags.js`, `queue-sync.js`, `album-guide.js`, `help.js`, `navigation.js`, `artist-pictures.js`. `album.js` provides album browsing;
   `trash.js` moves chosen tracks of the open album to iBroadcast's trash after a review;
   `artists.js` provides a searchable, paginated album artist grid using album
   summaries; `tracks.js` searches every track through `/api/tracks` (the demo

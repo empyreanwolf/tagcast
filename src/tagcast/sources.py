@@ -446,6 +446,32 @@ class TheAudioDB(Source):
                 "name": row["strArtist"], "biography": biography if isinstance(biography, str) else "",
                 "url": f"https://www.theaudiodb.com/artist/{artist_id}"}
 
+    def artist_image(self, name):
+        """A real artist photo, by exact name match only -- same discipline as biography()."""
+        data = self.http.json(f"{self.API}/search.php", {"s": name}, ttl=0) or {}
+        if not isinstance(data, dict):
+            raise SourceError("returned an invalid artist response")
+        rows = data.get("artists") or []
+        if not isinstance(rows, list):
+            raise SourceError("returned an invalid artist response")
+        matches = [row for row in rows if isinstance(row, dict)
+                   and artist_name_key(row.get("strArtist")) == artist_name_key(name)]
+        empty = {"source": self.name, "name": name, "image": "", "url": ""}
+        if not matches:
+            return {**empty, "status": "missing"}
+        if len(matches) != 1:
+            return {**empty, "status": "ambiguous"}
+        row = matches[0]
+        artist_id = str(row.get("idArtist") or "")
+        if not artist_id.isascii() or not artist_id.isdigit() or len(artist_id) > 20:
+            raise SourceError("returned an invalid artist ID")
+        # A thumb is a portrait-style photo; fanart/cutout are the next-best real photos.
+        image = row.get("strArtistThumb") or row.get("strArtistFanart") or row.get("strArtistCutout")
+        image = image if isinstance(image, str) and image.startswith(("http://", "https://")) else ""
+        return {**empty, "status": "ready" if image else "unavailable",
+                "name": row["strArtist"], "image": image,
+                "url": f"https://www.theaudiodb.com/artist/{artist_id}"}
+
     def album(self, artist, album):
         data = self.http.json(f"{self.API}/searchalbum.php", {"s": artist, "a": album}) or {}
         out = []
