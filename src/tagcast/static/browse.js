@@ -45,7 +45,7 @@ function decadeIntroduction(key) {
   return "Discover the music your collection connects with these years, from familiar styles to new directions and distinctive voices.";
 }
 const browseView = {kind: "track-artists", key: null, label: "", rows: [], albumIds: new Set(), total: 0, page: 0,
-  query: "", sort: "az", pageSize: storedPageSize("tagcast-browse-per-page") || 24,
+  query: "", sort: "az", pageSize: storedPageSize("tagcast-browse-per-page") || DEFAULT_PAGE_SIZE,
   request: 0, details: null, loaded: false, loading: false, error: "", randomIds: []};
 let browseTimer;
 

@@ -62,6 +62,7 @@ class ArtistPictures:
         self.running = False
         self.progress = None   # {"done", "total", "name"} while a run is in progress
         self.jobs = []          # recent per-artist outcomes, most recent first
+        self._song_index = None  # (library, {artist_id: [artwork ids of songs they're on]}) for one run
 
     # -- reading ----------------------------------------------------------------
 
@@ -125,18 +126,45 @@ class ArtistPictures:
     # -- one artist -----------------------------------------------------------------
 
     def _covers_of(self, library, artist_id):
+        """This artist's album covers, then covers of any song they're on (fork v33).
+
+        An album record often has no cover of its own: iBroadcast shows its first track's
+        artwork instead, so that counts as the album's cover. After the albums come the
+        covers of songs the artist performs on, featured guests included, so an artist
+        with no usable album still gets one of their songs' covers."""
         covers = []
         for album_id in library.album_ids():
             album = library.albums[album_id]
             if artist_id not in library.album_artist_ids(album):
                 continue
-            artwork_id = number(album.get("artwork_id"))
+            artwork_id = number(album.get("artwork_id")) or library.album_artwork(library.active_track_ids(album_id))
             if artwork_id and artwork_id not in covers:
+                covers.append(artwork_id)
+        for artwork_id in self._song_covers(library).get(artist_id, ()):
+            if artwork_id not in covers:
                 covers.append(artwork_id)
         return covers
 
+    def _song_covers(self, library):
+        """{artist_id: song artwork ids}, built once per library rather than once per artist."""
+        cached = self._song_index
+        if cached and cached[0] is library:
+            return cached[1]
+        index = {}
+        for track_id, track in library.tracks.items():
+            artwork_id = number(track.get("artwork_id"))
+            if not artwork_id or track.get("trashed"):
+                continue
+            for artist_id in library.performer_ids(track):
+                if artist_id:
+                    found = index.setdefault(artist_id, [])
+                    if artwork_id not in found:
+                        found.append(artwork_id)
+        self._song_index = (library, index)
+        return index
+
     def _pick(self, artist_id, name):
-        """One artist: face in an album cover, else TheAudioDB, else just a cover."""
+        """One artist: face in an album or song cover, else TheAudioDB, else just a cover."""
         library, _ = self.studio._library()
         if number(library.artists.get(artist_id, {}).get("artwork_id")):
             return "", "Already has an image by the time this artist was reached."
@@ -151,7 +179,7 @@ class ArtistPictures:
                 continue
             if detect_face(data):
                 self._apply(artist_id, name, {"artwork_id": artwork_id})
-                return "face", "Found a face in one of this artist's own album covers."
+                return "face", "Found a face in the cover of one of this artist's albums or songs."
 
         if "theaudiodb" not in self.studio.disabled_sources():
             try:
@@ -164,9 +192,9 @@ class ArtistPictures:
 
         if covers:
             self._apply(artist_id, name, {"artwork_id": covers[0]})
-            return "cover", "No face or online photo found; used one of this artist's own album covers."
+            return "cover", "No face or online photo found; used the cover of one of this artist's albums or songs."
 
-        return "", "No album cover to use yet, and no photo found online."
+        return "", "None of this artist's albums or songs has a cover yet, and no photo was found online."
 
     def _apply(self, artist_id, name, source):
         # Any failure here (a conflict, a save-lock clash, a bad image) is caught by the

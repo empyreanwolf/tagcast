@@ -58,6 +58,13 @@ The application consists of a Python server and a plain JavaScript frontend.
 - `src/tagcast/galaxy.py` (fork): GD Studio search and the Galaxy download thread over the Downloads
   queue (ported from empyreanwolf/gd-music-downloader); `artist_cards.py` tells same-name artists
   apart (MusicBrainz, Deezer, library). `static/galaxy.js` is the Galaxy tab. Tags need `mutagen`.
+  Fork v33: `static/artist-tracks.js` (album artist page Albums | Tracks tabs, one cross-album queue);
+  `static/album-merge.js` (drag or select two → album name/year change via the Review dialog; iBroadcast joins
+  same title + album artist; `library._joined()` lets `verify()` follow the moved tracks). `DEFAULT_PAGE_SIZE`
+  (200) in app.js, old saved sizes reset once (`tagcast-page-size-v33`). `Library.warm_browse()` runs in a thread
+  from `Studio._warm()` whenever a new library is installed; `Table.__contains__` avoids building Records.
+  Artist pictures: `_covers_of()` adds album covers taken from tracks, then song covers (`_song_covers()` index).
+  Bandcamp: `Bandcamp.release()` / `releases_on()` describe and log unreadable pages and drop them from the cache.
   Galaxy matching (fork, v32): `artist_matches()` compares with `fold()` (accent-insensitive); `find_song()`
   tries several queries (with/without feat./brackets, title alone) across sources; `fetch_album_exact()` falls
   back from `<src>_album` search to a plain song search grouped by exact album name. Discography's

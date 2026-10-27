@@ -2,7 +2,8 @@
 
 // A manually analysed listening list. Opening the page only reads a saved local report.
 const albumGuide = {enabled: lookup.albumGuideEnabled === true, data: null, details: null, request: 0, loading: false,
-  analysing: false, error: "", query: "", filter: "found", decade: "all", sort: "list", page: 0, pageSize: 24};
+  analysing: false, error: "", query: "", filter: "found", decade: "all", sort: "list", page: 0,
+  pageSize: [24, 48, 96, 200].includes(storedPageSize("tagcast-guide-per-page")) ? storedPageSize("tagcast-guide-per-page") : DEFAULT_PAGE_SIZE};
 const guideLink = {entry: null, request: 0, busy: false, focus: null};
 const guideDisplay = {matching: readGuideMatchingDisplay(), changed: false, pending: Promise.resolve()};
 const guideNotes = {data: null, pending: null, error: false, open: new Set()};
@@ -277,8 +278,9 @@ $("#guide-filter").addEventListener("change", () => {
 });
 $("#guide-per-page").addEventListener("change", () => {
   const size = Number($("#guide-per-page").value);
-  if (![24, 48, 96].includes(size)) return;
-  albumGuide.pageSize = size; albumGuide.page = 0; renderAlbumGuide();
+  if (![24, 48, 96, 200].includes(size)) return;
+  albumGuide.pageSize = size; albumGuide.page = 0;
+  rememberPageSize("tagcast-guide-per-page", size); renderAlbumGuide();
 });
 $("#guide-sort").addEventListener("change", () => {
   const sort = $("#guide-sort").value;

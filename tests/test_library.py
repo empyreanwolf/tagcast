@@ -561,6 +561,22 @@ class SearchTests(unittest.TestCase):
 
 
 class PlanTests(unittest.TestCase):
+    def test_merging_an_album_counts_as_saved_after_ibroadcast_joins_it(self):
+        # fork v33: "Second by A" renamed to "Original" (same album artist, A); iBroadcast
+        # moves its track into album 10 and drops album 12.
+        plan = plan_save(lib(), [change("album", 12, name=("Second by A", "Original"), year=(1990, 1982))])
+        self.assertEqual(write_requests(plan, {}),
+                         [("update_album", {"albums": [{"album_id": 12, "name": "Original", "year": "1982"}]})])
+        data = raw()
+        albums, tracks = data["library"]["albums"], data["library"]["tracks"]
+        albums["10"][2] = [100, 101, 103, 104]
+        del albums["12"]
+        tracks["104"][1] = 10
+        self.assertEqual([r["status"] for r in verify(Library(data), plan, {})], ["saved"])
+        # Gone without its tracks landing in a matching album stays unverified.
+        tracks["104"][6] = True
+        self.assertEqual([r["status"] for r in verify(Library(data), plan, {})], ["unverified"])
+
     def test_album_year_maps_to_string_payload_and_leaves_tracks_alone(self):
         plan = plan_save(lib(), [change("album", 10, year=(1982, 1981))])
         self.assertEqual(write_requests(plan, {}),

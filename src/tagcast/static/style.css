@@ -279,6 +279,9 @@ body.has-player main{padding-bottom:80px}
 .artist-rating .album-rating-choice{font-size:23px}
 #artist-favourite-status{font-size:12px;margin:-18px 0 22px}
 .artist-biography{margin:0 0 24px;font-size:12px;line-height:1.7}
+.album-card[draggable="true"]{cursor:grab}.album-card.merge-target{outline:3px dashed var(--green);outline-offset:3px}
+.artist-tabs{width:max-content;margin:0 0 18px}.artist-tabs button{min-height:36px;font-weight:600}
+.artist-tracks .artist-tracks-toolbar{margin-bottom:6px}.artist-track-table td small.muted{font-size:11px}
 .artist-biography details{border:1px solid var(--line);border-radius:9px;padding:14px 18px}
 .artist-biography summary{cursor:pointer;font-weight:600;font-size:13px}
 .artist-biography summary span{margin-left:10px;font-weight:400;font-size:11px}

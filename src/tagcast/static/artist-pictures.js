@@ -61,7 +61,9 @@ function renderArtistPictures() {
 
 document.addEventListener("click", event => {
   const target = event.target;
-  if (target.closest("#show-artist-pictures")) { showArtistPictures(); return; }
+  // Opened from Overview → Metadata health (fork v33); it no longer has its own sidebar entry.
+  if (target.closest("[data-artist-pictures-open]")) { showArtistPictures(); return; }
+  if (target.closest("[data-artist-pictures-back]")) { showScreen("overview"); return; }
   if (target.closest("#ap-run")) {
     (async () => {
       try { await api("/api/artist-pictures/start", {}); setActionStatus("#artist-pictures-status", ""); await loadArtistPictures(); }

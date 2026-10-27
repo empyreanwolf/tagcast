@@ -121,6 +121,39 @@ class PickOneArtistTests(unittest.TestCase):
         self.assertEqual(source, "")
         self.assertEqual(studio.calls, [])
 
+    def _song_cover_studio(self):
+        # fork v33: Album D has no cover field of its own, but its track has artwork (what
+        # iBroadcast shows as the album's cover). "Guest Only" has an album with no artwork
+        # anywhere, but is a featured guest on Album A's track, which has artwork.
+        studio = LocalStudio()
+        lib = data()["library"]
+        lib["tracks"]["103"]["artwork_id"] = 800
+        lib["tracks"]["100"]["artwork_id"] = 500
+        lib["tracks"]["100"]["artists_additional"] = [{"artist_id": 5, "phrase": "feat.", "type": "artist"}]
+        lib["artists"]["5"] = {"name": "Guest Only"}
+        lib["albums"]["15"] = {"name": "Album F", "artist_id": 5, "tracks": [105]}
+        lib["tracks"]["105"] = {"title": "T", "artist_id": 5, "album_id": 15}
+        studio.library = Library({"library": lib})
+        return studio
+
+    def test_an_album_with_no_cover_field_uses_its_tracks_artwork(self):
+        studio = self._song_cover_studio()
+        with patch("tagcast.artist_pictures.from_url", return_value=(b"data", "n", "image/jpeg")), \
+             patch("tagcast.artist_pictures.detect_face", return_value=False), \
+             patch.object(TheAudioDB, "artist_image", return_value={"status": "missing", "image": ""}):
+            source, note = studio.artist_pictures._pick(3, "No Cover At All")
+        self.assertEqual(source, "cover", note)
+        self.assertEqual(studio.calls[-1]["source"], {"artwork_id": 800})
+
+    def test_an_artist_with_no_album_cover_uses_a_song_they_feature_on(self):
+        studio = self._song_cover_studio()
+        with patch("tagcast.artist_pictures.from_url", return_value=(b"data", "n", "image/jpeg")), \
+             patch("tagcast.artist_pictures.detect_face", return_value=False), \
+             patch.object(TheAudioDB, "artist_image", return_value={"status": "missing", "image": ""}):
+            source, note = studio.artist_pictures._pick(5, "Guest Only")
+        self.assertEqual(source, "cover", note)
+        self.assertEqual(studio.calls[-1]["source"], {"artwork_id": 500})
+
     def test_a_download_failure_on_one_cover_tries_the_next_before_falling_back(self):
         from tagcast.artwork import ArtworkError
         studio = LocalStudio()

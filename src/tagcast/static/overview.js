@@ -48,7 +48,6 @@ function showScreen(name) {
   $("#digest-page").hidden = name !== "digest";
   $("#show-digest").classList.toggle("active", name === "digest");
   $("#artist-pictures-page").hidden = name !== "artist-pictures";
-  $("#show-artist-pictures").classList.toggle("active", name === "artist-pictures");
   $("#charts-page").hidden = name !== "charts";
   $("#show-charts").classList.toggle("active", name === "charts");
   $("#gemini-page").hidden = name !== "gemini";
@@ -75,7 +74,7 @@ function showScreen(name) {
   $("#tracks-page").hidden = name !== "tracks";
   $("#browse-page").hidden = name !== "browse";
   for (const kind of Object.keys(browseKinds)) $("#show-" + kind).classList.toggle("active", name === "browse" && browseView.kind === kind);
-  $("#show-overview").classList.toggle("active", name === "overview");
+  $("#show-overview").classList.toggle("active", ["overview", "artist-pictures"].includes(name));
   $("#all-albums").classList.toggle("active", name === "albums" && !state.artist);
   $("#show-artists").classList.toggle("active", name === "artists");
   $("#show-tracks").classList.toggle("active", name === "tracks");
@@ -140,7 +139,7 @@ function healthCard(s) {
     ["artist_image", "Album artists with an image", ["album artist", "album artists"], "without an image", "artist_image"],
     ["cover", "Tracks with a cover", ["track", "tracks"], "without a cover", "cover"],
   ];
-  return `<section class="card"><h2>Metadata health</h2><button class="button small" data-cleanup-open>Clean up metadata…</button> <button class="button small" data-artist-cleanup-open>Fix duplicate artists…</button><p class="muted">What's still missing. Open a row to work through it album by album.</p>${rows.map(([key, label, noun, missing, filter]) => {
+  return `<section class="card"><h2>Metadata health</h2><button class="button small" data-cleanup-open>Clean up metadata…</button> <button class="button small" data-artist-cleanup-open>Fix duplicate artists…</button> <button class="button small" data-artist-pictures-open>Artist pictures…</button><p class="muted">What's still missing. Open a row to work through it album by album.</p>${rows.map(([key, label, noun, missing, filter]) => {
     const h = s.health[key] || {missing: 0, total: 0}, done = h.total ? (h.total - h.missing) / h.total : 1, pct = (done * 100).toFixed(done < 1 && done > 0.995 ? 2 : 1);
     return `<div class="health-row"><div class="health-head"><span>${label}</span><strong>${pct}%</strong></div>
       <div class="meter" role="meter" aria-label="${label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><span style="width:${done * 100}%"></span></div>

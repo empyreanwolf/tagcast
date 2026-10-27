@@ -9,7 +9,17 @@ const vm = require("node:vm");
 const root = path.join(__dirname, "..");
 const staticDir = path.join(root, "src/tagcast/static");
 
-function page({hash = "", storage = {}, server = true, browserNavigator = {}, metadataClass, setupAudio, deferReady = false} = {}) {
+// Paging tests were written for the sizes before fork v33 (24 albums/artists/groups, 50 tracks);
+// they start from those unless a test asks for a fresh browser with freshPageSizes.
+const LEGACY_PAGE_SIZES = {"tagcast-artists-per-page": "24", "tagcast-favourite-artists-per-page": "24",
+  "tagcast-browse-per-page": "24", "tagcast-favourites-per-page": "50", "tagcast-tracks-per-page": "50",
+  "tagcast-recently-played-per-page": "50", "tagcast-guide-per-page": "24"};
+function page({hash = "", storage = {}, server = true, browserNavigator = {}, metadataClass, setupAudio, deferReady = false, freshPageSizes = false} = {}) {
+  if (!freshPageSizes && !("tagcast-page-size-v33" in storage)) {
+    storage["tagcast-page-size-v33"] = "1";
+    for (const [key, value] of Object.entries(LEGACY_PAGE_SIZES)) if (!(key in storage)) storage[key] = value;
+    if (!("tagcast-per-page" in storage)) storage["tagcast-per-page"] = storage["tagcast-view"] === "list" ? "100" : "24";
+  }
   const nodes = new Map(), requests = [], downloads = [], blobs = new Map();
   const documentEvents = new Map();
   const timers = new Map(), windowEvents = new Map();
@@ -81,7 +91,7 @@ function page({hash = "", storage = {}, server = true, browserNavigator = {}, me
   if (setupAudio) setupAudio(document.querySelector("#audio"));
   const context = vm.createContext({document, window, location, history, navigator: browserNavigator, MediaMetadata: metadataClass, console, confirm: () => true,
     Event, AbortController, performance: {now: () => playbackClock},
-    localStorage: {getItem(key) { return storage[key] ?? null; }, setItem(key, value) { storage[key] = String(value); }}, structuredClone,
+    localStorage: {getItem(key) { return storage[key] ?? null; }, setItem(key, value) { storage[key] = String(value); }, removeItem(key) { delete storage[key]; }}, structuredClone,
     URL: class extends URL {
       static createObjectURL(blob) { const url = `blob:test-${blobs.size}`; blobs.set(url, blob); return url; }
       static revokeObjectURL(url) { blobs.delete(url); }
@@ -9503,4 +9513,84 @@ test('a maybe-preview Galaxy failure offers "Keep it (short track)"; other failu
  assert.equal((html.match(/data-galaxy-control="allow_short"/g) || []).length, 1);
  assert.match(html, /data-galaxy-control="allow_short" data-id="a"/);
  assert.match(html, /Keep it \(short track\)/);
+});
+
+test('fork v33: every page defaults to 200 per page, and sizes saved before are reset once', async () => {
+  const fresh = page({freshPageSizes: true}); await settle();
+  assert.deepEqual(fresh.json('[pageSize(), artistBrowse.pageSize, favouriteArtists.pageSize, browseView.pageSize, trackSearch.pageSize, favourites.pageSize, recentlyPlayed.pageSize, albumGuide.pageSize]'),
+    [200, 200, 200, 200, 200, 200, 200, 200]);
+  const storage = {"tagcast-per-page": "24", "tagcast-artists-per-page": "50"};
+  const upgraded = page({storage, freshPageSizes: true}); await settle();
+  assert.deepEqual(upgraded.json('[pageSize(), artistBrowse.pageSize]'), [200, 200]);
+  assert.equal(storage["tagcast-page-size-v33"], "1");
+  storage["tagcast-per-page"] = "50";  // a size chosen after the update is kept
+  const later = page({storage, freshPageSizes: true}); await settle();
+  assert.equal(later.run('pageSize()'), 50);
+});
+
+test('fork v33: Artist pictures opens from Overview, not the sidebar, and returns there', async () => {
+  const html = readFileSync(path.join(staticDir, 'index.html'), 'utf8');
+  assert.doesNotMatch(html, /id="show-artist-pictures"/);
+  assert.match(html, /data-artist-pictures-back/);
+  const p = page(); await settle();
+  assert.match(p.run('healthCard({health: {}})'), /data-artist-pictures-open/);
+  p.run('showArtistPictures()');
+  assert.equal(p.nodes.get('#artist-pictures-page').hidden, false);
+  assert.equal(p.nodes.get('#show-overview').classList.contains('active'), true);
+  p.run('showScreen("overview")');
+  assert.equal(p.nodes.get('#artist-pictures-page').hidden, true);
+  assert.equal(p.nodes.get('#overview-page').hidden, false);
+});
+
+test('fork v33: an album artist page lists every track of the artist on a Tracks tab', async () => {
+  const p = page({storage: {"tagcast-artist-tab": "albums"}}); await settle();
+  const artist = p.run('albumArtistEntries(state.albums[0])[0].name');
+  p.run(`setArtist(${JSON.stringify(artist)})`); await settle();
+  assert.equal(p.nodes.get('#artist-tabs').hidden, false);
+  assert.equal(p.nodes.get('#artist-tracks').hidden, true);
+  assert.equal(p.nodes.get('#albums').hidden, false);
+  const expected = p.json(`[...state.details.values()].filter(a => albumHasArtist(a, ${JSON.stringify(artist)})).flatMap(a => a.tracks.map(t => t.title))`);
+  assert.ok(expected.length > 0);
+  p.run('artistTracks.tab = "tracks"; renderArtistTabs()'); await settle(); await settle();
+  assert.equal(p.nodes.get('#artist-tracks').hidden, false);
+  assert.equal(p.nodes.get('#albums').hidden, true);
+  assert.equal(p.nodes.get('#albums-toolbar').hidden, true);
+  const html = p.nodes.get('#artist-tracks').innerHTML;
+  for (const title of expected) assert.ok(html.includes(title), `missing ${title}`);
+  assert.match(html, new RegExp(`${expected.length} tracks`));
+  p.run(`artistTracks.query = ${JSON.stringify(expected[0])}; renderArtistTracks()`);
+  assert.match(p.nodes.get('#artist-tracks').innerHTML, new RegExp(`of ${expected.length} tracks`));
+  p.run('setArtist(null)'); await settle();
+  assert.equal(p.nodes.get('#artist-tabs').hidden, true);
+  assert.equal(p.nodes.get('#albums').hidden, false);
+});
+
+test('fork v33: two albums by one artist merge through the review dialog, by drag or selection', async () => {
+  const p = livePage(); await settle();
+  const artist = p.run(`(() => { const counts = new Map(); for (const a of albumShelf()) counts.set(a.artist, (counts.get(a.artist) || 0) + 1);
+    return [...counts].find(([, n]) => n >= 2)[0]; })()`);
+  p.run(`setArtist(${JSON.stringify(artist)})`); await settle();
+  assert.match(p.nodes.get('#albums').innerHTML, /draggable="true" data-merge-album=/);
+  const [small, big] = p.json(`albumShelf().filter(a => a.artist === ${JSON.stringify(artist)}).slice(0, 2)
+    .sort((a, b) => a.track_count - b.track_count).map(a => ({id: a.id, name: a.name, year: a.year, tracks: a.track_count}))`);
+  // Selecting exactly two offers "Merge 2 albums"; the one with more tracks keeps its title.
+  p.run(`for (const a of albumShelf().filter(a => [${JSON.stringify(small.id)}, ${JSON.stringify(big.id)}].includes(a.id))) for (const id of itemIds(a)) state.selected.add(id); render()`);
+  assert.equal(p.nodes.get('#merge-selection').hidden, false);
+  p.run('selectedMergePair()');
+  await p.run(`startAlbumMerge(selectedMergePair().source.id, selectedMergePair().target.id)`);
+  const pending = p.json('pending');
+  assert.equal(pending.scope, 'merge');
+  assert.ok(pending.changes.length >= 1);
+  for (const change of pending.changes) {
+    assert.equal(change.kind, 'album');
+    if (change.fields.name) assert.equal(change.fields.name.after, big.name);
+    assert.ok(!('track' in change.fields), 'track numbers are never touched');
+  }
+  assert.match(p.nodes.get('#review-intro').textContent, /track numbers and covers stay as they are/);
+  // Albums by different album artists are refused.
+  const other = p.run(`albumShelf().find(a => a.artist !== ${JSON.stringify(artist)}).id`);
+  p.run('pending = null');
+  await p.run(`startAlbumMerge(${JSON.stringify(other)}, ${JSON.stringify(big.id)})`);
+  assert.equal(p.run('pending'), null);
+  assert.match(p.nodes.get('#toast').textContent, /same album artist/);
 });

@@ -14,6 +14,7 @@ its album page again when needed).
 
 import html as htmllib
 import json
+import logging
 import re
 import threading
 import time
@@ -36,6 +37,29 @@ ART = "https://f4.bcbits.com/img/a{:010d}_{}.jpg"
 
 class BandcampError(LibraryError):
     pass
+
+
+log = logging.getLogger(__name__)
+
+# What every browser sends; requests without them are a common trigger for "checking your
+# browser" pages (fork v33).
+HEADERS = {"User-Agent": UA, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+           "Accept-Language": "en-US,en;q=0.9"}
+_CHALLENGE = re.compile(r"captcha|verify you are human|are you a robot|checking your browser|just a moment|"
+                        r"access denied|unusual traffic|cf-chl|challenge-platform", re.I)
+
+
+def describe_page(page):
+    """A short, human description of a page Tagcast couldn't read, for the error and the log."""
+    text = str(page or "")
+    m = re.search(r"<title[^>]*>(.*?)</title>", text, re.I | re.S)
+    title = " ".join(htmllib.unescape(m.group(1)).split())[:80] if m else ""
+    if _CHALLENGE.search(text):
+        return (f"Bandcamp sent a “check you're a person” page{f' (“{title}”)' if title else ''} instead. Open the link in "
+                "your browser once, then try again in a few minutes")
+    if not text.strip():
+        return "Bandcamp sent an empty page"
+    return f"Bandcamp sent a page without the album on it{f' (“{title}”)' if title else ''}"
 
 
 # -- reading pages ----------------------------------------------------------------------
@@ -130,7 +154,7 @@ class Bandcamp(FileWorker):
 
     def __init__(self, studio, get=None, fetch=None):
         self._session = requests.Session()
-        self._session.headers["User-Agent"] = UA
+        self._session.headers.update(HEADERS)
         self.get = get or (lambda url: self._session.get(url, timeout=20))
         self._pages = OrderedDict()
         self._page_lock = threading.Lock()
@@ -161,12 +185,36 @@ class Bandcamp(FileWorker):
                 self._pages.popitem(last=False)
         return r.text
 
+    def forget(self, url):
+        with self._page_lock:
+            self._pages.pop(url, None)
+
+    def release(self, url, fresh=False):
+        """parse_release on a fetched page. A page with no album on it is described in the
+        error and in tagcast.log, and dropped from the cache so the next try asks again (v33)."""
+        page = self.page(url, fresh)
+        try:
+            return parse_release(page, url)
+        except BandcampError:
+            self.forget(url)
+            log.warning("Bandcamp page without album data: %s (%d characters) %r", url, len(page), page[:300])
+            raise BandcampError(f"{describe_page(page)}. Details are in tagcast.log.") from None
+
+    def releases_on(self, base):
+        """Album and track links on an artist's /music page; an unreadable page is logged."""
+        page = self.page(base + "/music")
+        found = music_page_releases(page)
+        if not found:
+            self.forget(base + "/music")
+            log.warning("Bandcamp /music page without releases: %s (%d characters) %r", base, len(page), page[:300])
+        return found
+
     # -- discography and albums -------------------------------------------------------------
 
     def discography(self, url):
         """Every release of the artist of this link (album links give that artist's releases too)."""
         base, path = base_url(url)
-        releases = [urljoin(base, p) for p in music_page_releases(self.page(base + "/music"))]
+        releases = [urljoin(base, p) for p in self.releases_on(base)]
         if not releases and re.match(r"^/(album|track)/", path):
             releases = [base + path]
         if not releases:
@@ -178,7 +226,7 @@ class Bandcamp(FileWorker):
         base, path = base_url(url)
         if not re.match(r"^/(album|track)/", path):
             raise BandcampError("That is not an album or track link.")
-        release = parse_release(self.page(base + path), base + path)
+        release = self.release(base + path)
         return self._annotate(release)
 
     def _annotate(self, release):
@@ -219,7 +267,7 @@ class Bandcamp(FileWorker):
     def add(self, url, nums=None):
         """Queue the songs of one album (all, or the chosen track numbers)."""
         base, path = base_url(url)
-        release = parse_release(self.page(base + path), base + path)
+        release = self.release(base + path)
         wanted = None if nums is None else {int(n) for n in nums}
         total = len(release["tracks"])
         items = []
@@ -266,12 +314,12 @@ class Bandcamp(FileWorker):
 
     def find_album(self, base, title):
         """The release URL on this artist's page whose title is this album, else None."""
-        releases = [urljoin(base, p) for p in music_page_releases(self.page(base + "/music"))]
+        releases = [urljoin(base, p) for p in self.releases_on(base)]
         slug = re.sub(r"[^a-z0-9]+", "-", album_key(title)).strip("-")
         ordered = sorted(releases, key=lambda u: u.rsplit("/", 1)[-1] != slug)  # likely match first
         for url in ordered[:8] if slug else []:
             try:
-                release = parse_release(self.page(url), url)
+                release = self.release(url)
             except BandcampError:
                 continue
             if album_key(release["title"]) == album_key(title):
@@ -287,7 +335,7 @@ class Bandcamp(FileWorker):
         p, jid = job["payload"], job["id"]
         self.manager.update_item(jid, started=time.time(), speed=0, eta=0)
         self._step(jid, 0, "Reading the album page…")
-        release = parse_release(self.page(p["page_url"]), p["page_url"])
+        release = self.release(p["page_url"])
         track = next((t for t in release["tracks"] if t["num"] == p["num"] and t["stream"]), None) \
             or self.find_track(release, job["title"])
         if not track:
@@ -299,7 +347,7 @@ class Bandcamp(FileWorker):
             if "HTTP 4" not in str(error):
                 raise
             # The stream link expired: read the page again once.
-            release = parse_release(self.page(p["page_url"], fresh=True), p["page_url"])
+            release = self.release(p["page_url"], fresh=True)
             track = next((t for t in release["tracks"] if t["num"] == p["num"] and t["stream"]), None)
             if not track:
                 raise

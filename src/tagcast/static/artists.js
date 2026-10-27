@@ -1,9 +1,9 @@
 "use strict";
 
 // Album artists come from compact album summaries; opening this view loads no tracks.
-const artistBrowse = {page: 0, pageSize: storedPageSize("tagcast-artists-per-page") || 24, randomNames: [], library: 0};
+const artistBrowse = {page: 0, pageSize: storedPageSize("tagcast-artists-per-page") || DEFAULT_PAGE_SIZE, randomNames: [], library: 0};
 const artistProfile = {enabled: false, revision: 0, serverRevision: null, entries: new Map(), favourite: null, rating: null};
-const favouriteArtists = {page: 0, pageSize: storedPageSize("tagcast-favourite-artists-per-page") || 24};
+const favouriteArtists = {page: 0, pageSize: storedPageSize("tagcast-favourite-artists-per-page") || DEFAULT_PAGE_SIZE};
 let artistBrowseTimer, artistBiographyRetryTimer;
 
 function resetArtistBrowse() {

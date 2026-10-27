@@ -4,7 +4,7 @@
 // Only one server page is downloaded; no browser copy of the entire track library.
 const storedFavouritesSize = storedPageSize("tagcast-favourites-per-page");
 const favourites = {rows: [], total: 0, count: null, query: "", page: 0,
-  pageSize: [50, 100, 200].includes(storedFavouritesSize) ? storedFavouritesSize : 50, request: 0,
+  pageSize: [50, 100, 200].includes(storedFavouritesSize) ? storedFavouritesSize : DEFAULT_PAGE_SIZE, request: 0,
   epoch: 0, details: null, loading: false, busy: false, error: "", pending: null};
 let favouritesTimer;
 const dislikeIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 14V3h4v11h-4ZM17 4H7a2 2 0 0 0-2 1.6l-2 7A2 2 0 0 0 5 15h5l-1 4a2 2 0 0 0 2 2l6-7"/></svg>';
@@ -267,7 +267,8 @@ document.addEventListener("click", event => {
 
 // Read the native iBroadcast playlist only when this page is opened or refreshed.
 // It is an ordered list of recent tracks, not a timestamped log of every play.
-const recentlyPlayed = {rows: [], total: 0, available: false, page: 0, pageSize: 50,
+const recentlyPlayed = {rows: [], total: 0, available: false, page: 0,
+  pageSize: [50, 100, 200].includes(storedPageSize("tagcast-recently-played-per-page")) ? storedPageSize("tagcast-recently-played-per-page") : DEFAULT_PAGE_SIZE,
   request: 0, details: null, loading: false, error: ""};
 let recentlyPlayedTimer;
 
@@ -348,7 +349,8 @@ $("#recently-played-search").addEventListener("input", () => {
 $("#recently-played-per-page").addEventListener("change", () => {
   const size = Number($("#recently-played-per-page").value);
   if (![50, 100, 200].includes(size)) return;
-  recentlyPlayed.pageSize = size; recentlyPlayed.page = 0; loadRecentlyPlayed();
+  recentlyPlayed.pageSize = size; recentlyPlayed.page = 0;
+  rememberPageSize("tagcast-recently-played-per-page", size); loadRecentlyPlayed();
 });
 document.addEventListener("click", event => {
   const page = event.target.closest("[data-recent-page]");

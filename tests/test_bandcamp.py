@@ -64,6 +64,39 @@ class LocalStudio(DownloadsStudio):
         self.bandcamp.pace = 0
 
 
+class UnreadablePageTests(unittest.TestCase):
+    """fork v33: Bandcamp answering with something other than the album page."""
+
+    def setUp(self):
+        self.studio = LocalStudio()
+        self.b = self.studio.bandcamp
+        self.url = "https://coldplay.bandcamp.com/album/ghost-stories"
+        self.real = PAGES[self.url]
+        PAGES[self.url] = "<html><head><title>Just a moment...</title></head><body>Checking your browser</body></html>"
+        self.addCleanup(PAGES.__setitem__, self.url, self.real)
+
+    def test_a_check_page_is_explained_logged_and_not_cached(self):
+        with self.assertLogs("tagcast.bandcamp", "WARNING") as logged:
+            with self.assertRaises(bc.BandcampError) as caught:
+                self.b.album(self.url)
+        self.assertIn("check you're a person", str(caught.exception))
+        self.assertIn("tagcast.log", str(caught.exception))
+        self.assertIn("Just a moment", logged.output[0])
+        PAGES[self.url] = self.real  # Bandcamp sends the real page on the next try
+        self.assertEqual(self.b.album(self.url)["title"], "Ghost Stories")
+
+    def test_a_page_without_album_names_its_title(self):
+        PAGES[self.url] = "<html><head><title>Something else</title></head></html>"
+        with self.assertLogs("tagcast.bandcamp", "WARNING"), self.assertRaises(bc.BandcampError) as caught:
+            self.b.album(self.url)
+        self.assertIn("without the album on it (“Something else”)", str(caught.exception))
+
+    def test_browser_headers_are_sent(self):
+        headers = Bandcamp(self.studio)._session.headers
+        self.assertIn("text/html", headers["Accept"])
+        self.assertIn("en", headers["Accept-Language"])
+
+
 class ParseTests(unittest.TestCase):
     def test_album_page(self):
         r = bc.parse_release(PAGES["https://coldplay.bandcamp.com/album/ghost-stories"], "u")

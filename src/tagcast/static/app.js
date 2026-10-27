@@ -103,9 +103,25 @@ function storedView() {
   try { return localStorage.getItem("tagcast-view") === "list" ? "list" : "grid"; } catch { return "grid"; }
 }
 
+// Every page shows 200 by default (fork v33). Sizes saved before then are reset once, so
+// the new default shows up; a size chosen afterwards is remembered as before.
+// (A function, not consts: the state object near the top of this file reads a size before
+// any const declared here exists.)
+const DEFAULT_PAGE_SIZE = 200;
+function resetOldPageSizes() {
+  try {
+    if (localStorage.getItem("tagcast-page-size-v33")) return;
+    for (const key of ["tagcast-per-page", "tagcast-artists-per-page", "tagcast-favourite-artists-per-page",
+      "tagcast-browse-per-page", "tagcast-favourites-per-page", "tagcast-tracks-per-page",
+      "tagcast-recently-played-per-page", "tagcast-guide-per-page"]) localStorage.removeItem(key);
+    localStorage.setItem("tagcast-page-size-v33", "1");
+  } catch { /* private window */ }
+}
+
 // Albums or album artists per page, as chosen; 0 when nothing was chosen yet.
 function storedPageSize(key) {
-  try { const n = Number(localStorage.getItem(key)); return [24, 50, 100, 200].includes(n) ? n : 0; } catch { return 0; }
+  resetOldPageSizes();
+  try { const n = Number(localStorage.getItem(key)); return [24, 48, 50, 96, 100, 200].includes(n) ? n : 0; } catch { return 0; }
 }
 
 function rememberPageSize(key, size) {
@@ -397,7 +413,7 @@ document.addEventListener("keydown", event => {
 window.addEventListener("resize", () => closeBrowseOptions(true));
 window.addEventListener("scroll", event => { if (!event.target.closest?.("#browse-options-menu")) closeBrowseOptions(); }, true);
 const initials = name => name.split(/\s+/).map(s => s[0]).slice(0, 2).join("");
-const pageSize = () => state.perPage || (state.view === "list" ? 100 : 24);
+const pageSize = () => state.perPage || DEFAULT_PAGE_SIZE;
 
 // Discs of one set (matching title, artist, year and upload dates) are separate albums in iBroadcast
 // while "Combine Multi-Disc Album Sets" is off.
@@ -544,7 +560,7 @@ function selectBox(a) {
 }
 
 function gridView(items) {
-  return items.map(a => `<article class="album-card ${isSelected(a) ? "selected" : ""}">${selectBox(a)}<button class="album-open" data-album="${escapeHtml(a.id)}" aria-label="Open ${escapeHtml(a.name)}">${cover(a)}<span class="album-name">${escapeHtml(a.name)}</span><span class="album-artist">${escapeHtml(albumArtistsText(a))}</span>${hasDuplicateTracks(a) ? `<span class="album-duplicate">${duplicateAlbumBadge(a)}</span>` : ""}</button><div class="card-meta"><div class="album-card-meta-text"><span>${albumCardMetadata(a)}</span>${badge(a)}</div>${typeof albumCardActions === "function" ? albumCardActions(a) : ""}</div></article>`).join("");
+  return items.map(a => `<article class="album-card ${isSelected(a) ? "selected" : ""}" ${typeof albumMergeAttrs === "function" ? albumMergeAttrs(a) : ""}>${selectBox(a)}<button class="album-open" data-album="${escapeHtml(a.id)}" aria-label="Open ${escapeHtml(a.name)}">${cover(a)}<span class="album-name">${escapeHtml(a.name)}</span><span class="album-artist">${escapeHtml(albumArtistsText(a))}</span>${hasDuplicateTracks(a) ? `<span class="album-duplicate">${duplicateAlbumBadge(a)}</span>` : ""}</button><div class="card-meta"><div class="album-card-meta-text"><span>${albumCardMetadata(a)}</span>${badge(a)}</div>${typeof albumCardActions === "function" ? albumCardActions(a) : ""}</div></article>`).join("");
 }
 
 function listView(items) {
@@ -588,6 +604,7 @@ function render() {
   $("#trash-selection").hidden = !live();
   $("#trash-selection").disabled = saving || checking > 0 || !state.selected.size;
   $("#edit-selection").hidden = !state.artist;
+  if (typeof updateAlbumMergeControls === "function") updateAlbumMergeControls();
   const chosen = albumShelf().filter(a => itemIds(a).some(id => state.selected.has(id)));
   const visible = new Set(items), outside = chosen.filter(a => !visible.has(a)).length;
   $("#selection-count").textContent = `${chosen.length} ${chosen.length === 1 ? "album" : "albums"} selected${state.artist ? ` · ${state.artist}` : ""}${outside ? ` · ${outside} outside current results` : ""}`;
@@ -595,6 +612,7 @@ function render() {
   if (typeof renderAlbumView === "function") renderAlbumView();
   if (typeof renderArtistBrowse === "function") renderArtistBrowse();
   if (typeof renderArtistProfile === "function") renderArtistProfile();
+  if (typeof renderArtistTabs === "function") renderArtistTabs();
   if (typeof renderTrackSearch === "function") renderTrackSearch();
   if (typeof renderFavourites === "function") renderFavourites();
   if (typeof renderFavouriteArtists === "function") renderFavouriteArtists();

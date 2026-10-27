@@ -5,7 +5,7 @@
 // A result plays its album from that track, or opens the album with the track marked.
 
 const trackSearch = {query: "", results: [], total: 0, page: 0, request: 0, loading: false, waiting: false,
-  error: "", details: null, pageSize: storedPageSize("tagcast-tracks-per-page") || 50};
+  error: "", details: null, pageSize: storedPageSize("tagcast-tracks-per-page") || DEFAULT_PAGE_SIZE};
 let trackSearchTimer;
 
 // As on the server: case, accents and spacing don't count ("bjork" finds "Björk").

@@ -683,7 +683,15 @@ class Studio:
                 return False
             self.library, self.library_user, self.library_started = library, user_id, started
         self._write_cache(library, user_id, client)
+        self._warm(library)
         return True
+
+    @staticmethod
+    def _warm(library):
+        """Prepare the browse pages for a newly arrived library in the background (fork v33)."""
+        warm = getattr(library, "warm_browse", None)
+        if warm:
+            threading.Thread(target=warm, name="warm-browse", daemon=True).start()
 
     def _current(self, client, refresh=False, after=None):
         """The library as iBroadcast has it now. Downloads only when it changed since our copy.
@@ -705,6 +713,7 @@ class Studio:
                     if client is not self.client:
                         raise NotConnected("You disconnected from iBroadcast.")
                     self.library, self.library_user = library, user_id
+                self._warm(library)
                 return library, "cache"
         with self.download_lock:
             # a download that finished while we waited (e.g. a read-back) may be current

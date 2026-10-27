@@ -64,6 +64,45 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v33** Seven fixes and changes from your feedback list:
+  - **The artist page works like iBroadcast's.** An album artist's page now has **Albums**
+    and **Tracks** tabs. Tracks lists every song on that artist's albums in one table (title,
+    album, year, time), with its own search and sort, **Play all**, **Shuffle**, and click any
+    song to play the list from there. The tab you last used is remembered.
+  - **Merge two albums by the same artist.** On an artist's page, drag one album cover onto
+    another, or select exactly two albums and press **Merge 2 albums** (that one also works on
+    a phone; the album with more tracks keeps its title). The merged album takes the other's
+    title (and year, if different); iBroadcast then joins them, just like dragging in
+    iBroadcast. Track numbers, track tags and covers are left exactly as they are. It goes
+    through the usual Review dialog, so nothing is written until you press Save, and the
+    read-back now counts the joined album as saved rather than "unverified".
+  - **200 per page by default**, everywhere there's a page-size choice (albums, artists,
+    browse pages, tracks, favourites, recently played, 1001 Albums, which gained a 200
+    option). Sizes saved before this version are reset once so you see 200 straight away; any
+    size you pick afterwards is remembered as before. Recently played and 1001 Albums now
+    remember their size too.
+  - **Release year and Decades load faster.** They wait on an index of your whole library
+    that has to be rebuilt every time the library reloads, which happens after every edit
+    (including Artist cleanup and Artist pictures runs). It is now built in the background as
+    soon as a new library arrives, and a general speed-up in how Tagcast looks up library
+    records makes the build itself roughly 20–40% faster (measured on a library the size of yours).
+  - **Artist pictures moved into Overview**: it's the **Artist pictures…** button in the
+    Metadata health card (next to the "Album artists with an image" meter), with a ← Overview
+    button to go back. It no longer has its own sidebar entry.
+  - **Artist pictures uses song covers too.** Most of the "No album cover to use yet"
+    skips were artists whose albums *do* show a cover in iBroadcast: the album record itself
+    has no cover, and iBroadcast shows the first track's artwork. That now counts, and when an
+    artist has no usable album cover at all, the cover of any song they're on (featured
+    appearances included) is used. Press **Run now** again: everyone skipped before is tried
+    again.
+  - **Bandcamp: clearer failures.** Both your links failed the same way, and even the artist's
+    releases page came back empty ("1 releases" for an artist with 28), so Bandcamp was most
+    likely sending Tagcast something other than the real pages, such as a "checking your
+    browser" page. Tagcast now sends the standard headers every browser sends, says what it
+    actually received instead of only "no album on it" (a "check you're a person" page is named
+    as such), writes the start of that page to `tagcast.log`, and no longer keeps such a page
+    cached for 10 minutes, so the next try really asks again. If it still fails, the message and
+    the log line will show what to fix next.
 - **v32** **Galaxy finds songs and albums the GD Studio site shows but Tagcast missed.**
   Two reports: "Empire State Of Mind (feat. Alicia Keys)" by JAŸ-Z came back "Not found
   on Bandcamp, Soulseek or Galaxy" although the site lists it, and an Album search for

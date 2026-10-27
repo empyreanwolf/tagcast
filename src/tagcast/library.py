@@ -103,7 +103,13 @@ class Table(Mapping):
         self.nested = nested or {}  # maps for list fields, e.g. artists_additional_map
 
     def __getitem__(self, key):
-        return Record(self.rows[key], None if isinstance(self.rows[key], dict) else self.fields)
+        row = self.rows[key]
+        return Record(row, None if isinstance(row, dict) else self.fields)
+
+    def __contains__(self, key):
+        # Mapping's default builds a whole Record just to answer "is it there?" (fork v33);
+        # the browse indexes ask that hundreds of thousands of times.
+        return key in self.rows
 
     def __iter__(self):
         return iter(self.rows)
@@ -258,6 +264,7 @@ class Library:
         self._search = None
         self._favourites = None
         self._browse_tracks = None
+        self._active_ids = None  # per-album track lists, kept only while a browse index is built
         self._browse_albums = {}
         self._browse_indexes = {}
         self._browse_lock = Lock()
@@ -301,6 +308,15 @@ class Library:
         return text(self.artists.get(artist_id, {}).get("name")) or "Unknown artist"
 
     def active_track_ids(self, album_id):
+        cache = self._active_ids
+        if cache is not None and album_id in cache:
+            return cache[album_id]
+        ids = self._active_track_ids(album_id)
+        if cache is not None:
+            cache[album_id] = ids
+        return ids
+
+    def _active_track_ids(self, album_id):
         album = self.albums.get(album_id, {})
         ids = [number(i) for i in album.get("tracks") or []]
         return [i for i in ids if i in self.tracks and not self.tracks[i].get("trashed")]
@@ -589,6 +605,31 @@ class Library:
             "rating": number(track.get("rating")),
         }
 
+    def _build_browse_tracks(self):
+        """(track_id, album_id) in display order, shared by every browse index."""
+        rows, seen = [], set()
+        albums = sorted(self.album_ids(), key=lambda i: (
+            fold(self.artist_name(self.albums[i].get("artist_id"))),
+            fold(self.albums[i].get("name")), number(self.albums[i].get("disc")), i))
+        # Match albumShelf/discSet, including year and upload-date sets.
+        sets = {}
+        for album_id in albums:
+            key = self.album_set_key(album_id)
+            sets.setdefault(key, []).append(album_id)
+        for discs in sets.values():
+            merged = len({number(self.albums[i].get("disc")) for i in discs}) == len(discs)
+            for album_id in discs:
+                self._browse_albums[album_id] = discs[0] if merged else album_id
+        for album_id in albums:
+            ids = sorted(self.active_track_ids(album_id), key=lambda i: (
+                number(self.tracks[i].get("track")) or 9999,
+                fold(self.tracks[i].get("title")), i))
+            for track_id in ids:
+                if track_id not in seen:
+                    seen.add(track_id)
+                    rows.append((track_id, album_id))
+        self._browse_tracks = rows
+
     def _browse_index(self, kind):
         """Lazy ID indexes for browsing; shared track pairs stay on the server.
 
@@ -599,28 +640,11 @@ class Library:
             if kind in self._browse_indexes:
                 return self._browse_indexes[kind]
             if self._browse_tracks is None:
-                rows, seen = [], set()
-                albums = sorted(self.album_ids(), key=lambda i: (
-                    fold(self.artist_name(self.albums[i].get("artist_id"))),
-                    fold(self.albums[i].get("name")), number(self.albums[i].get("disc")), i))
-                # Match albumShelf/discSet, including year and upload-date sets.
-                sets = {}
-                for album_id in albums:
-                    key = self.album_set_key(album_id)
-                    sets.setdefault(key, []).append(album_id)
-                for discs in sets.values():
-                    merged = len({number(self.albums[i].get("disc")) for i in discs}) == len(discs)
-                    for album_id in discs:
-                        self._browse_albums[album_id] = discs[0] if merged else album_id
-                for album_id in albums:
-                    ids = sorted(self.active_track_ids(album_id), key=lambda i: (
-                        number(self.tracks[i].get("track")) or 9999,
-                        fold(self.tracks[i].get("title")), i))
-                    for track_id in ids:
-                        if track_id not in seen:
-                            seen.add(track_id)
-                            rows.append((track_id, album_id))
-                self._browse_tracks = rows
+                self._active_ids = {}  # each album's tracks are needed three times below
+                try:
+                    self._build_browse_tracks()
+                finally:
+                    self._active_ids = None
             groups = {str(i): {"key": str(i), "label": tag["name"], "image": "",
                               "archived": tag["archived"], "ids": []}
                       for i, tag in self.tags.items()} if kind == "tags" else {}
@@ -649,6 +673,19 @@ class Library:
                 group["albums"] = len({self._browse_albums[a] for _, a in group["ids"]})
             self._browse_indexes[kind] = groups
             return groups
+
+    def warm_browse(self):
+        """Build the Release year, Decades and Genres indexes ahead of time (fork v33).
+
+        The library is replaced after every edit made in iBroadcast or Tagcast, and these
+        pages used to wait for a full rebuild on the next visit. The server now starts this
+        in the background as soon as a new library arrives; a page opened meanwhile simply
+        waits for the same build (_browse_lock) instead of starting another one."""
+        for kind in ("years", "decades", "genres"):
+            try:
+                self._browse_index(kind)
+            except Exception:  # only a head start; the page builds it again if this failed
+                return
 
     def browse(self, kind, key=None, query="", offset=0, limit=50, sort="az"):
         """Paginated groups, or album IDs with exact group membership.
@@ -1019,6 +1056,8 @@ def plan_save(library, changes):
             if "composers" in patch:  # other extra artists (featured, ...) stay as they are
                 item["keep"] = [e for e in library.extra_artists(library.tracks[item_id])
                                 if e.get("type") != "composer"]
+            if kind == "album":  # followed when iBroadcast joins this album into another (fork v33)
+                item["track_ids"] = library.active_track_ids(item_id)
             items.append(item)
 
     if not album_artists:
@@ -1107,6 +1146,24 @@ def _matches(now, key, value, artist_ids):
     return now[key] == value
 
 
+def _joined(library, item, artist_ids):
+    """An album that is gone after its save: did iBroadcast join it into another album?
+
+    Renaming an album to the title of another album by the same album artist (Merge
+    albums, fork v33) makes iBroadcast move its tracks there and drop the old record.
+    That counts as saved when its former tracks now sit in an album with the new values."""
+    if item["kind"] != "album":
+        return False
+    for track_id in item.get("track_ids") or []:
+        try:
+            album_id = library.active_track_album(track_id)
+            now = library.current("album", album_id)
+        except LibraryError:
+            continue
+        return all(_matches(now, k, v, artist_ids) for k, v in item["patch"].items())
+    return False
+
+
 def verify(library, plan, artist_ids, failed=None):
     """Read every planned change back from a fresh library.
 
@@ -1127,6 +1184,6 @@ def verify(library, plan, artist_ids, failed=None):
                 if ok and "credits" in item["patch"]:
                     entry["credits"] = now["credits"]
             except LibraryError:
-                entry["status"] = "unverified"
+                entry["status"] = "saved" if _joined(library, item, artist_ids) else "unverified"
         results.append(entry)
     return results
