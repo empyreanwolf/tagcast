@@ -22,6 +22,14 @@ is left out, and the system prompt instead asks the model to flag when a questio
 time-sensitive rather than guess from training data. A later "Get it" can still find a
 song it names wrong; the library/history check on each title is the actual safety net.
 
+A per-message "Search the web" checkbox gives a real, free alternative for exactly those
+questions: when ticked, the message is first searched with Tavily (tavily.com, built for
+feeding LLMs live results; free tier is 1,000 searches/month, no card needed), and the
+top results are handed to Gemini as context before it answers, with each source link
+shown under the reply. Left unticked (the default), nothing is searched and no credit is
+spent -- this only runs when asked for, so an ordinary "tell me about Playboi Carti"
+chat never touches Tavily's quota.
+
 The exact request/response shape of Gemini's REST API could not be exercised against the
 real service from this environment (no network path to generativelanguage.googleapis.com
 here), so this follows Google's long-documented ``models.{model}:generateContent`` REST
@@ -46,11 +54,13 @@ from .library import LibraryError, text
 log = logging.getLogger("tagcast")
 STATE_FILE = "gemini.json"
 API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+TAVILY_URL = "https://api.tavily.com/search"
 DEFAULT_MODEL = "gemini-3.8-flash"  # Settings can override; raise if Google retires this
 MAX_TURNS = 40          # user+model pairs kept for context and shown in the page
 MAX_MESSAGE = 4000
 MAX_SONGS_PER_REPLY = 20
 MAX_SIMILAR_PER_REPLY = 12
+MAX_SEARCH_RESULTS = 5
 JSON_BLOCK_RE = re.compile(r"```json\s*(.*?)\s*```\s*$", re.S)
 
 SYSTEM_PROMPT = (
@@ -60,7 +70,10 @@ SYSTEM_PROMPT = (
     "data, so for anything time-sensitive (this week's/month's/year's charts, a release "
     "date, whether something has come out yet) say plainly that you can't check current "
     "data and give your best training-data answer labelled as possibly outdated, rather "
-    "than stating it as current fact. Whenever you can name concrete songs worth "
+    "than stating it as current fact -- unless the user's message itself includes live "
+    "web search results as context, in which case treat those as current and answer from "
+    "them directly, citing what you used in plain prose (the app shows the source links "
+    "separately, so don't repeat URLs). Whenever you can name concrete songs worth "
     "downloading, or other artists worth exploring, end your reply with exactly one "
     "fenced ```json code block, and "
     "nothing after it, shaped exactly like this (use empty arrays if you have nothing to "
@@ -81,6 +94,7 @@ class Gemini:
         data = studio._read(STATE_FILE)
         self.state = data if isinstance(data, dict) else {}
         self.state.setdefault("api_key", "")
+        self.state.setdefault("tavily_api_key", "")
         self.state.setdefault("model", DEFAULT_MODEL)
         self.state.setdefault("history", [])
         self.state.setdefault("next_id", 1)
@@ -95,10 +109,14 @@ class Gemini:
     # -- settings -----------------------------------------------------------------------
 
     def settings(self):
-        return {"has_key": bool(self.state["api_key"]), "model": self.state["model"]}
+        return {"has_key": bool(self.state["api_key"]), "model": self.state["model"],
+                "has_tavily_key": bool(self.state["tavily_api_key"])}
 
     def configured(self):
         return bool(self.state["api_key"])
+
+    def search_configured(self):
+        return bool(self.state["tavily_api_key"])
 
     def save_settings(self, body):
         if not isinstance(body, dict):
@@ -112,6 +130,14 @@ class Gemini:
                     self.state["api_key"] = key
                 else:
                     self.state["api_key"] = ""
+            if "tavily_api_key" in body:
+                key = str(body["tavily_api_key"] or "").strip()
+                if key:
+                    if len(key) > 200 or any(c.isspace() for c in key):
+                        raise GeminiError("That Tavily API key doesn't look right.")
+                    self.state["tavily_api_key"] = key
+                else:
+                    self.state["tavily_api_key"] = ""
             if body.get("model"):
                 model = str(body["model"]).strip()
                 if len(model) > 100 or any(c.isspace() for c in model):
@@ -138,7 +164,7 @@ class Gemini:
 
     # -- asking ---------------------------------------------------------------------------
 
-    def ask(self, message):
+    def ask(self, message, search=False):
         message = " ".join(str(message or "").split())
         if not message:
             raise GeminiError("Type a message.")
@@ -146,6 +172,11 @@ class Gemini:
             raise GeminiError(f"Keep it under {MAX_MESSAGE} characters.")
         if not self.configured():
             raise GeminiError("Add your free Gemini API key in Settings first (aistudio.google.com/apikey).")
+        sources = []
+        if search:
+            if not self.search_configured():
+                raise GeminiError("Add your free Tavily API key in Settings first (tavily.com) to search the web.")
+            sources = self._tavily_search(message)
         with self.lock:
             model, api_key = self.state["model"], self.state["api_key"]
             history = list(self.state["history"])[-MAX_TURNS * 2:]
@@ -154,7 +185,8 @@ class Gemini:
         for turn in history:
             contents.append({"role": "model" if turn["role"] == "model" else "user",
                               "parts": [{"text": turn["text"]}]})
-        contents.append({"role": "user", "parts": [{"text": message}]})
+        sent = f"{message}\n\n{self._format_search_context(sources)}" if sources else message
+        contents.append({"role": "user", "parts": [{"text": sent}]})
         reply = self._generate(model, api_key, contents)
         shown, songs_raw, similar = self._parse_reply(reply)
         with self.lock:
@@ -163,11 +195,35 @@ class Gemini:
                 songs.append({"id": self.state["next_id"], **s})
                 self.state["next_id"] += 1
             songs = self._with_status(songs)
-            self.state["history"].append({"role": "user", "text": message})
-            self.state["history"].append({"role": "model", "text": shown, "songs": songs, "similar_artists": similar})
+            self.state["history"].append({"role": "user", "text": message, "searched": bool(sources)})
+            self.state["history"].append({"role": "model", "text": shown, "songs": songs, "similar_artists": similar,
+                                           "sources": [{"title": r["title"], "url": r["url"]} for r in sources]})
             del self.state["history"][:-MAX_TURNS * 2]
             self._persist()
         return self.view()
+
+    def _tavily_search(self, query):
+        try:
+            r = self.session.post(TAVILY_URL, json={"api_key": self.state["tavily_api_key"], "query": f"{query} music",
+                                                     "max_results": MAX_SEARCH_RESULTS}, timeout=20)
+            r.raise_for_status()
+            data = r.json()
+        except requests.HTTPError as error:
+            raise GeminiError(f"Tavily didn't answer -- check the API key in Settings ({error}).") from None
+        except (requests.RequestException, ValueError) as error:
+            raise GeminiError(f"Couldn't reach Tavily: {error}") from None
+        out = []
+        for row in (data.get("results") or [])[:MAX_SEARCH_RESULTS]:
+            if isinstance(row, dict) and text(row.get("title")) and text(row.get("url")):
+                out.append({"title": text(row.get("title")), "url": text(row.get("url")),
+                             "content": text(row.get("content"))[:800]})
+        return out
+
+    @staticmethod
+    def _format_search_context(sources):
+        lines = [f"{i + 1}. {r['title']}\n{r['content']}\n({r['url']})" for i, r in enumerate(sources)]
+        return ("Live web search results for this message, fetched just now -- use them to answer accurately, "
+                "and ignore anything irrelevant:\n\n" + "\n\n".join(lines))
 
     def _generate(self, model, api_key, contents):
         url = f"{API_BASE}/{model}:generateContent"

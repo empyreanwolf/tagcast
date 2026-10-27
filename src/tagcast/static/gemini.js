@@ -30,11 +30,17 @@ function renderGemini() {
   const d = geminiView.data;
   const needsKey = d && !d.has_key;
   $("#gemini-setup").hidden = !(needsKey || geminiView.settingsOpen);
-  if (needsKey || geminiView.settingsOpen) $("#gemini-key-input").value = "";
+  if (needsKey || geminiView.settingsOpen) { $("#gemini-key-input").value = ""; $("#gemini-tavily-input").value = ""; }
   $("#gemini-chat").innerHTML = d ? geminiChatHtml(d) : `<p class="muted">Loading…</p>`;
   const sending = geminiView.busy;
   $("#gemini-send").disabled = sending || needsKey;
   $("#gemini-input").disabled = sending || needsKey;
+  const canSearch = d && d.has_tavily_key;
+  $("#gemini-search-toggle").disabled = sending || needsKey || !canSearch;
+  if (!canSearch) $("#gemini-search-toggle").checked = false;
+  $("#gemini-search-label").title = canSearch ? "Search Tavily for this message before asking Gemini"
+    : "Add a free Tavily key in Settings to use this";
+  $("#gemini-search-label").classList.toggle("muted", !canSearch);
 }
 
 function geminiChatHtml(d) {
@@ -43,9 +49,10 @@ function geminiChatHtml(d) {
 }
 
 function geminiTurnHtml(turn) {
-  if (turn.role === "user") return `<div class="gemini-turn gemini-user"><b>You</b><p>${escapeHtml(turn.text)}</p></div>`;
+  if (turn.role === "user") return `<div class="gemini-turn gemini-user"><b>You${turn.searched ? ` · 🔎 searched the web` : ""}</b><p>${escapeHtml(turn.text)}</p></div>`;
   const songs = turn.songs || [];
   const picked = songs.filter(s => geminiView.picked.has(s.id)).length;
+  const sources = turn.sources || [];
   return `<div class="gemini-turn gemini-model"><b>Gemini</b><p>${escapeHtml(turn.text).replace(/\n/g, "<br>")}</p>
     ${songs.length ? `<div class="dl-actions">
         <label><input type="checkbox" data-gemini-all="${songs.map(s => s.id).join(',')}" ${songs.every(s => geminiView.picked.has(s.id)) ? "checked" : ""}> Select all (${songs.length})</label>
@@ -53,6 +60,8 @@ function geminiTurnHtml(turn) {
       <ul class="dl-list">${songs.map(geminiSongHtml).join("")}</ul>` : ""}
     ${(turn.similar_artists || []).length ? `<div class="gemini-similar">${turn.similar_artists.map(a =>
         `<button type="button" class="pill" data-gemini-similar="${escapeHtml(a)}">${escapeHtml(a)}</button>`).join("")}</div>` : ""}
+    ${sources.length ? `<div class="gemini-sources">${sources.map(s =>
+        `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.title)}</a>`).join("")}</div>` : ""}
     </div>`;
 }
 
@@ -72,13 +81,14 @@ function geminiJobsHtml() {
          <div><b>${escapeHtml(e.title)}</b> · ${escapeHtml(e.artist)}<br><span class="muted">${escapeHtml(e.note || "")}</span></div></li>`).join("")}</ul>`;
 }
 
-async function geminiSend(message) {
+async function geminiSend(message, search) {
   if (geminiView.busy || !message.trim()) return;
   geminiView.busy = true;
   renderGemini();
   try {
-    geminiView.data = await api("/api/gemini/ask", {message});
+    geminiView.data = await api("/api/gemini/ask", {message, search: !!search});
     $("#gemini-input").value = "";
+    $("#gemini-search-toggle").checked = false;
     renderGemini();
     geminiJobsLoad();
   } catch (error) {
@@ -91,7 +101,7 @@ async function geminiSend(message) {
 
 $("#gemini-form").addEventListener("submit", event => {
   event.preventDefault();
-  geminiSend($("#gemini-input").value);
+  geminiSend($("#gemini-input").value, $("#gemini-search-toggle").checked);
 });
 
 document.addEventListener("click", event => {
@@ -99,7 +109,7 @@ document.addEventListener("click", event => {
   if (target.closest("#show-gemini")) { showGemini(); return; }
   if (!target.closest("#gemini-page")) return;
   const similar = target.closest("[data-gemini-similar]");
-  if (similar) { $("#gemini-input").value = `Tell me more about ${similar.dataset.geminiSimilar}`; geminiSend($("#gemini-input").value); return; }
+  if (similar) { $("#gemini-input").value = `Tell me more about ${similar.dataset.geminiSimilar}`; geminiSend($("#gemini-input").value, false); return; }
   const action = target.closest("[data-gemini]")?.dataset.gemini;
   if (action === "new") {
     (async () => {
@@ -116,6 +126,18 @@ document.addEventListener("click", event => {
       try {
         await api("/api/gemini/settings", {api_key: key});
         geminiView.settingsOpen = false;
+        geminiView.data = await api("/api/gemini");
+        renderGemini();
+      } catch (error) { setActionStatus("#gemini-status", error.message); }
+    })();
+    return;
+  }
+  if (action === "save-tavily") {
+    (async () => {
+      const key = $("#gemini-tavily-input").value.trim();
+      if (!key) return;
+      try {
+        await api("/api/gemini/settings", {tavily_api_key: key});
         geminiView.data = await api("/api/gemini");
         renderGemini();
       } catch (error) { setActionStatus("#gemini-status", error.message); }

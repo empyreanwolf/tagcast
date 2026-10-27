@@ -84,9 +84,16 @@ The application consists of a Python server and a plain JavaScript frontend.
   renamed/retired model needs no code change. The exact API shape could not be exercised
   against the real service from this sandbox (no network path to
   generativelanguage.googleapis.com here); it follows Google's long-documented REST method
-  and fails with an actionable error rather than a crash if that's wrong. State:
-  `gemini.json` (API key, model, the conversation -- persists across restarts; "New
-  conversation" clears it). `static/gemini.js` (its own sidebar page, not a Downloads tab).
+  and fails with an actionable error rather than a crash if that's wrong. No Google Search
+  grounding is used -- it is paid-tier only even though a small monthly quota is bundled in
+  free once billing is enabled, which doesn't fit a free-key feature. Instead a per-message
+  "Search the web" checkbox runs one Tavily search first (tavily.com, free, no card, 1,000/mo,
+  `_tavily_search()`) and hands the results to Gemini as inline context (`_format_search_context()`),
+  so time-sensitive questions ("Thailand top hip hop songs") get a real current answer instead
+  of a training-data guess; left unticked, nothing is searched and no Tavily credit is spent.
+  State: `gemini.json` (Gemini key, Tavily key, model, the conversation -- persists across
+  restarts; "New conversation" clears it). `static/gemini.js` (its own sidebar page, not a
+  Downloads tab).
 - `src/tagcast/updates.py`: public stable-release checks, version comparison and a
   daily persistent cache, independent of iBroadcast credentials.
 - `src/tagcast/album_guide.py`: opt-in, explicitly started comparison with the bundled

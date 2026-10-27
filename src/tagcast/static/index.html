@@ -137,15 +137,18 @@
       <div id="charts-content" role="tabpanel"></div>
     </section>
     <section id="gemini-page" hidden aria-label="Ask Gemini">
-      <div class="page-intro"><div><div class="eyebrow">TALK ABOUT MUSIC, THEN DOWNLOAD IT</div><h1>Ask Gemini<span>.</span></h1><p>Type an artist, a mood, or a question about music. This talks to your own free Gemini API key (not the gemini.google.com chat, which has no API) -- any songs or artists it names are checked against your library and download history, same as Charts; nothing downloads until you pick "Get it". It has no live internet access, so it says so rather than guessing for "what's out right now"-type questions.</p></div></div>
+      <div class="page-intro"><div><div class="eyebrow">TALK ABOUT MUSIC, THEN DOWNLOAD IT</div><h1>Ask Gemini<span>.</span></h1><p>Type an artist, a mood, or a question about music. This talks to your own free Gemini API key (not the gemini.google.com chat, which has no API) -- any songs or artists it names are checked against your library and download history, same as Charts; nothing downloads until you pick "Get it". It has no live internet access on its own, so it says so rather than guessing for "what's out right now"-type questions -- tick "Search the web" on a message to actually look it up first (uses a free Tavily search, separate from Gemini).</p></div></div>
       <p id="gemini-status" class="error-text" role="status"></p>
       <div id="gemini-setup" hidden>
         <div class="dl-card"><p>Add a free Gemini API key to start: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a>, then paste it below.</p>
-          <div class="dl-actions"><input type="password" id="gemini-key-input" placeholder="Gemini API key" autocomplete="off" spellcheck="false"><button type="button" class="button primary" data-gemini="save-key">Save key</button></div></div>
+          <div class="dl-actions"><input type="password" id="gemini-key-input" placeholder="Gemini API key" autocomplete="off" spellcheck="false"><button type="button" class="button primary" data-gemini="save-key">Save key</button></div>
+          <p>Optional: a free Tavily key (<a href="https://tavily.com" target="_blank" rel="noopener noreferrer">tavily.com</a>, no card needed, 1,000 searches/month) lets "Search the web" actually work for current questions.</p>
+          <div class="dl-actions"><input type="password" id="gemini-tavily-input" placeholder="Tavily API key (optional)" autocomplete="off" spellcheck="false"><button type="button" class="button" data-gemini="save-tavily">Save Tavily key</button></div></div>
       </div>
       <div id="gemini-chat"></div>
       <form id="gemini-form" class="dl-actions">
         <input type="text" id="gemini-input" maxlength="4000" placeholder="Ask about an artist, a mood, or what to listen to next…" aria-label="Message to Gemini">
+        <label id="gemini-search-label"><input type="checkbox" id="gemini-search-toggle"> Search the web</label>
         <button type="submit" class="button primary" id="gemini-send">Send</button>
         <button type="button" class="button" data-gemini="new">New conversation</button>
         <button type="button" class="button" data-gemini="settings">Settings</button>

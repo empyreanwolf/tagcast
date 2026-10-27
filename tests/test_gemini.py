@@ -25,27 +25,33 @@ class FakeResponse:
 
 
 class FakeSession:
-    """requests.Session() stand-in for Gemini's generateContent POST."""
+    """requests.Session() stand-in for both Gemini's generateContent and Tavily's search POST."""
 
-    def __init__(self, replies=None):
+    def __init__(self, replies=None, tavily_results=None, tavily_status=200):
         self.replies = list(replies or [])  # queue of raw model text, consumed in order
+        self.tavily_results = tavily_results if tavily_results is not None else []
+        self.tavily_status = tavily_status
         self.calls = []
 
     def post(self, url, params=None, json=None, timeout=None):
         self.calls.append({"url": url, "params": params, "json": json})
+        import json as jsonlib
+        if "tavily.com" in url:
+            if self.tavily_status >= 400:
+                return FakeResponse(status=self.tavily_status)
+            return FakeResponse(jsonlib.dumps({"results": self.tavily_results}))
         if not self.replies:
             return FakeResponse(status=500)
         text = self.replies.pop(0)
         body = {"candidates": [{"content": {"parts": [{"text": text}]}}]}
-        import json as jsonlib
         return FakeResponse(jsonlib.dumps(body))
 
 
 class LocalStudio(DiscographyStudio):
-    def __init__(self, soulseek=False, replies=None):
+    def __init__(self, soulseek=False, replies=None, tavily_results=None, tavily_status=200):
         super().__init__(soulseek)
         self.wishlist = Wishlist(self, scheduler=False)
-        self.session = FakeSession(replies)
+        self.session = FakeSession(replies, tavily_results, tavily_status)
         self.gemini = Gemini(self, session=self.session)
 
 
@@ -76,7 +82,7 @@ class SettingsTests(unittest.TestCase):
     def test_save_and_read_settings_never_echoes_the_key(self):
         studio = LocalStudio()
         out = studio.gemini.save_settings({"api_key": "secret-key", "model": "gemini-2.5-flash"})
-        self.assertEqual(out, {"has_key": True, "model": "gemini-2.5-flash"})
+        self.assertEqual(out, {"has_key": True, "model": "gemini-2.5-flash", "has_tavily_key": False})
         self.assertNotIn("secret", json.dumps(out))
 
     def test_blank_key_clears_it(self):
@@ -95,7 +101,7 @@ class SettingsTests(unittest.TestCase):
         studio = LocalStudio()
         studio.gemini.save_settings({"api_key": "secret-key", "model": "gemini-1.5-flash"})
         again = Gemini(studio, session=studio.session)
-        self.assertEqual(again.settings(), {"has_key": True, "model": "gemini-1.5-flash"})
+        self.assertEqual(again.settings(), {"has_key": True, "model": "gemini-1.5-flash", "has_tavily_key": False})
 
 
 class AskTests(unittest.TestCase):
@@ -104,7 +110,7 @@ class AskTests(unittest.TestCase):
         studio.gemini.save_settings({"api_key": "k"})
         data = studio.gemini.ask("Who are Coldplay?")
         self.assertEqual(len(data["history"]), 2)
-        self.assertEqual(data["history"][0], {"role": "user", "text": "Who are Coldplay?"})
+        self.assertEqual(data["history"][0], {"role": "user", "text": "Who are Coldplay?", "searched": False})
         self.assertEqual(data["history"][1]["text"], "Coldplay are a British rock band formed in 1996.")
         self.assertEqual(data["history"][1]["songs"], [])
         self.assertEqual(data["history"][1]["similar_artists"], [])
@@ -191,6 +197,47 @@ class AskTests(unittest.TestCase):
         self.assertTrue(studio.gemini.view()["history"])
         data = studio.gemini.reset()
         self.assertEqual(data["history"], [])
+
+
+class SearchTests(unittest.TestCase):
+    def test_search_without_tavily_key_raises(self):
+        studio = LocalStudio(replies=["hi"])
+        studio.gemini.save_settings({"api_key": "k"})
+        with self.assertRaises(GeminiError):
+            studio.gemini.ask("Thailand top hip hop songs", search=True)
+
+    def test_not_searching_never_calls_tavily(self):
+        studio = LocalStudio(replies=["hi"])
+        studio.gemini.save_settings({"api_key": "k", "tavily_api_key": "t"})
+        studio.gemini.ask("hi", search=False)
+        self.assertFalse(any("tavily" in c["url"] for c in studio.session.calls))
+
+    def test_search_results_are_sent_to_gemini_as_context_and_shown_as_sources(self):
+        results = [{"title": "Thai Hip Hop Chart", "url": "https://example.com/thai-chart", "content": "1. Rapper X - Song Y"}]
+        studio = LocalStudio(replies=[reply("Here's what's current.")], tavily_results=results)
+        studio.gemini.save_settings({"api_key": "k", "tavily_api_key": "t"})
+        data = studio.gemini.ask("Thailand top hip hop songs", search=True)
+        gemini_call = next(c for c in studio.session.calls if "generativelanguage" in c["url"])
+        sent_text = gemini_call["json"]["contents"][-1]["parts"][0]["text"]
+        self.assertIn("Thai Hip Hop Chart", sent_text)
+        self.assertIn("Rapper X - Song Y", sent_text)
+        turn = data["history"][0]
+        self.assertTrue(turn["searched"])
+        model_turn = data["history"][1]
+        self.assertEqual(model_turn["sources"], [{"title": "Thai Hip Hop Chart", "url": "https://example.com/thai-chart"}])
+
+    def test_tavily_http_error_is_a_clean_error_not_a_crash(self):
+        studio = LocalStudio(replies=["hi"], tavily_status=401)
+        studio.gemini.save_settings({"api_key": "k", "tavily_api_key": "bad"})
+        with self.assertRaises(GeminiError):
+            studio.gemini.ask("Thailand top hip hop songs", search=True)
+
+    def test_search_configured_reflects_tavily_key(self):
+        studio = LocalStudio()
+        self.assertFalse(studio.gemini.search_configured())
+        studio.gemini.save_settings({"tavily_api_key": "t"})
+        self.assertTrue(studio.gemini.search_configured())
+        self.assertTrue(studio.gemini.settings()["has_tavily_key"])
 
 
 class GetSongsTests(unittest.TestCase):

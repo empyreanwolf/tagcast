@@ -318,7 +318,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/tagclean/apply-genre": lambda b: self.studio.tagclean.apply_genre(b.get("ids")),
             "/api/tagclean/assign-genre": lambda b: self.studio.tagclean.assign_genre(b.get("ids"), b.get("genre")),
             "/api/charts/get": lambda b: self.studio.charts.get(b.get("chart"), b.get("ranks")),
-            "/api/gemini/ask": lambda b: self.studio.gemini.ask(b.get("message")),
+            "/api/gemini/ask": lambda b: self.studio.gemini.ask(b.get("message"), bool(b.get("search"))),
             "/api/gemini/get": lambda b: self.studio.gemini.get(b.get("ids")),
             "/api/gemini/reset": lambda b: self.studio.gemini.reset(),
             "/api/gemini/settings": lambda b: self.studio.gemini.save_settings(b),

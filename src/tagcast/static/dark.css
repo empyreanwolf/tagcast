@@ -212,7 +212,8 @@
 :root[data-theme="dark"] .gemini-similar .pill{background:var(--palette-surface,#1b2520)}
 :root[data-theme="dark"] .gemini-similar .pill:hover{background:var(--palette-tint,#2d2f2a)}
 :root[data-theme="dark"] #gemini-input{background:var(--palette-surface,#1b2520)}
-:root[data-theme="dark"] #gemini-key-input{background:var(--palette-surface,#1b2520)}
+:root[data-theme="dark"] #gemini-key-input,:root[data-theme="dark"] #gemini-tavily-input{background:var(--palette-surface,#1b2520)}
+:root[data-theme="dark"] .gemini-sources a{color:var(--palette-link,#97a68d)}
 
 /* set by hand */
 :root[data-theme="dark"]{color-scheme:dark}
@@ -440,7 +441,8 @@
 :root:not([data-theme="light"]) .gemini-similar .pill{background:var(--palette-surface,#1b2520)}
 :root:not([data-theme="light"]) .gemini-similar .pill:hover{background:var(--palette-tint,#2d2f2a)}
 :root:not([data-theme="light"]) #gemini-input{background:var(--palette-surface,#1b2520)}
-:root:not([data-theme="light"]) #gemini-key-input{background:var(--palette-surface,#1b2520)}
+:root:not([data-theme="light"]) #gemini-key-input,:root:not([data-theme="light"]) #gemini-tavily-input{background:var(--palette-surface,#1b2520)}
+:root:not([data-theme="light"]) .gemini-sources a{color:var(--palette-link,#97a68d)}
 
 /* set by hand */
 :root:not([data-theme="light"]){color-scheme:dark}

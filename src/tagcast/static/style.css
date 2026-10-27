@@ -1162,4 +1162,7 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 .gemini-similar .pill:hover{background:var(--palette-tint,#edf2e7)}
 #gemini-form{align-items:center;margin-top:8px}
 #gemini-input{flex:1;min-width:160px;padding:11px 14px;border:1px solid var(--line);border-radius:6px;font:inherit;background:var(--palette-surface,#fff);color:var(--ink)}
-#gemini-key-input{min-width:260px;padding:11px 14px;border:1px solid var(--line);border-radius:6px;font:inherit;background:var(--palette-surface,#fff);color:var(--ink)}
+#gemini-key-input,#gemini-tavily-input{min-width:260px;padding:11px 14px;border:1px solid var(--line);border-radius:6px;font:inherit;background:var(--palette-surface,#fff);color:var(--ink)}
+#gemini-search-label{display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap}
+.gemini-sources{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;padding-top:8px;border-top:1px solid var(--line);font-size:11px}
+.gemini-sources a{color:var(--palette-link,#7f8e76)}
