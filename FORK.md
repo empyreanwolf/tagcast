@@ -64,6 +64,14 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v26** **Live sync lyrics**: in the fullscreen Now playing view, a track whose LRCLIB
+  lyrics carry line timestamps now scrolls automatically with the music, highlighting the
+  current line, and clicking a line seeks there. LRCLIB's timing is community-submitted and
+  can be a little off the actual recording. A track with only plain lyrics (most of them,
+  or anything saved in iBroadcast, which has no timing field at all) still shows the same
+  plain, non-highlighted scrollable text as before; a track with no lyrics at all shows
+  nothing. Nothing changes outside the fullscreen view -- the Lyrics dialog and the Now
+  playing panel are unaffected.
 - **v24** **Daily Digest**, a new page on the left: one read-first page pulling together
   what the other pages already track. New releases (its own undismissed results). Wishlist,
   just found -- the most recent items it dug up, flagged "New" until you hit "Mark seen"

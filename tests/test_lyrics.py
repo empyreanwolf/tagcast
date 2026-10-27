@@ -6,6 +6,7 @@ import os
 import sqlite3
 import tempfile
 import threading
+import time
 import unittest
 from contextlib import closing
 from pathlib import Path
@@ -194,6 +195,31 @@ class LyricsTests(unittest.TestCase):
             contents = str(db.execute('SELECT * FROM lyrics').fetchall())
             self.assertNotIn('Preserve me', contents)
             self.assertNotIn('session-one', contents)
+
+    def test_synced_lyrics_survive_the_cache_and_a_restart(self):
+        public = {**self.public, 'synced': [{'time': 1.2, 'text': 'First'}, {'time': 3.0, 'text': 'Next'}]}
+        with patch('tagcast.lyrics.fetch_lrclib', return_value=public):
+            result = self.service.view({**self.body, 'lookup': True})
+        self.assertEqual(result['synced'], public['synced'])
+        restarted = Lyrics(self.studio).view(self.body)
+        self.assertEqual(restarted['synced'], public['synced'])
+
+    def test_old_cached_rows_without_synced_read_back_as_an_empty_list(self):
+        key = 'old-row'
+        with closing(self.service._db()) as db, db:
+            db.execute('INSERT INTO lyrics VALUES (?, ?, ?, ?)',
+                       (key, json.dumps(self.public), time.time() + 86400, time.time()))
+        self.assertEqual(self.service._cached(key)['synced'], [])
+
+    def test_invalid_synced_shapes_are_rejected_as_a_corrupt_cache(self):
+        key = 'k'
+        for bad in ('x', [{'time': 1.2}], [{'time': 1.2, 'text': 1}], [{'time': 'x', 'text': 'a'}],
+                    [{'time': -1, 'text': 'a'}], [{'time': 1, 'text': 'a', 'extra': 1}]):
+            with self.subTest(bad=bad), closing(self.service._db()) as db, db:
+                db.execute('INSERT OR REPLACE INTO lyrics VALUES (?, ?, ?, ?)',
+                           (key, json.dumps({**self.public, 'synced': bad}), time.time() + 86400, time.time()))
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.service._cached(key)
 
     def test_disabled_source_hides_cached_public_lyrics_but_not_native_lyrics(self):
         with patch('tagcast.lyrics.fetch_lrclib', return_value=self.public):
@@ -431,6 +457,29 @@ class LRCLIBTests(unittest.TestCase):
         for change in ({'trackName': 'Song'}, {'artistName': 'Another'}, {'duration': 204}, {'duration': True}):
             with self.subTest(change=change):
                 self.assertEqual(self.fetch({**data, **change})['status'], 'missing')
+
+    def test_synced_lyrics_parse_timestamps_into_an_ordered_list(self):
+        data = {'trackName': 'Song (Live)', 'artistName': 'Artist', 'duration': 201,
+                'plainLyrics': None, 'instrumental': False,
+                'syncedLyrics': '[ar:Artist]\n[02:03.00]Second\n[00:01.20]First\n[00:04]No decimals\n'
+                                 '[00:05.5][00:06.5]Shared stamp\n[00:07.00]   \n'}
+        result = self.fetch(data)
+        self.assertEqual(result['synced'], [
+            {'time': 1.2, 'text': 'First'}, {'time': 4.0, 'text': 'No decimals'},
+            {'time': 5.5, 'text': 'Shared stamp'}, {'time': 6.5, 'text': 'Shared stamp'},
+            {'time': 123.0, 'text': 'Second'},
+        ])
+        # A timestamp whose line has no text, and the metadata line, never show up.
+        self.assertEqual([entry['text'] for entry in result['synced']],
+                          ['First', 'No decimals', 'Shared stamp', 'Shared stamp', 'Second'])
+
+    def test_synced_lyrics_empty_when_only_plain_text_or_nothing_is_available(self):
+        data = {'trackName': 'Song (Live)', 'artistName': 'Artist', 'duration': 201,
+                'plainLyrics': 'Line\nNext', 'instrumental': False}
+        self.assertEqual(self.fetch(data)['synced'], [])
+        self.assertEqual(self.fetch({**data, 'instrumental': True})['synced'], [])
+        self.assertEqual(self.fetch({**data, 'trackName': 'Other'})['synced'], [])
+        self.assertEqual(self.fetch({}, 404)['synced'], [])
 
     def test_missing_errors_redirects_and_oversized_text(self):
         self.assertEqual(self.fetch({}, 404)['status'], 'missing')

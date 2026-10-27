@@ -35,6 +35,7 @@ function page({hash = "", storage = {}, server = true, browserNavigator = {}, me
   let respondNotes = null;
   let respondAlbumNotes = null;
   let respondLyricsCache = null;
+  let respondLyrics = null;
   let playbackClock = 0;
   function element() {
     const classes = new Set();
@@ -95,6 +96,7 @@ function page({hash = "", storage = {}, server = true, browserNavigator = {}, me
         : {ok:true,json:async()=>({entries:[]})};
       if (url.startsWith("/api/lyrics/cache?")) return respondLyricsCache ? respondLyricsCache(url, options)
         : {ok:true,json:async()=>({tracks:[]})};
+      if (respondLyrics && (url === "/api/lyrics" || url.startsWith("/api/lyrics?"))) return respondLyrics(url, options);
       if (url === "/api/status" && respondStatus) return respondStatus(url, options);
       if (url === "/api/updates" || url === "/api/updates/check") return respondUpdates ? respondUpdates(url, options)
         : {ok: true, json: async () => ({current: "0.10.1", latest: "0.10.1", available: false, state: "current", auto_updates: true})};
@@ -118,6 +120,7 @@ function page({hash = "", storage = {}, server = true, browserNavigator = {}, me
     setNotesFetch(handler) { respondNotes = handler; },
     setAlbumNotesFetch(handler) { respondAlbumNotes = handler; },
     setLyricsCacheFetch(handler) { respondLyricsCache = handler; },
+    setLyricsFetch(handler) { respondLyrics = handler; },
     flushTimers(delay) {
       for (const [id, timer] of [...timers]) if (timer.delay === delay) { timers.delete(id); timer.callback(); }
     },
@@ -4321,6 +4324,8 @@ test("random playback lazily loads only its selected album, cancels late loads a
 
 test("fullscreen Now playing reuses audio and queue, updates metadata safely and restores the library without requests", async () => {
   const p = livePage(); await settle();
+  p.setLyricsFetch(() => ({ok:true,json:async()=>({status:"missing",text:"",source:"ibroadcast",native_text:"",
+    can_save:false,can_lookup:false,persisted:true,synced:[]})}));
   p.run('playTracks(state.details.get("1")); $("main").inert = false; $(".sidebar").inert = true; audio.currentTime = 43; player.queue[0].title = "<img onerror=bad>"');
   const src = p.nodes.get("#audio").src, queue = p.json('player.queue'), history = p.history.length, requests = p.requests.length;
   await p.nodes.get("#player-fullscreen").emit("click");
@@ -4333,7 +4338,8 @@ test("fullscreen Now playing reuses audio and queue, updates metadata safely and
   assert.equal(p.nodes.get("#audio").src, src);
   assert.equal(p.nodes.get("#audio").paused, false);
   assert.deepEqual(p.json('player.queue'), queue);
-  assert.equal(p.requests.length, requests, "The view never fetches album or track details");
+  // Opening fullscreen now also checks lyrics for the current track; that is the only new request.
+  assert.equal(p.requests.filter(r => !r.url.startsWith("/api/lyrics")).length, requests, "The view never fetches album or track details");
   p.run('audio.pause()');
   assert.equal(p.run('visualPlayer.open'), true);
   p.run('step(1)');
@@ -4357,8 +4363,56 @@ test("fullscreen Now playing reuses audio and queue, updates metadata safely and
   assert.equal(preview.run('visualPlayer.open'), false);
 });
 
+test("fullscreen Now playing shows synced lyrics, highlights the current line and seeks on click", async () => {
+  const p = livePage(); await settle();
+  const synced = [{time: 1.2, text: "First line"}, {time: 5, text: "Second line"}, {time: 9.5, text: "Third line"}];
+  p.setLyricsFetch(() => ({ok:true,json:async()=>({status:"ready",text:"First line\nSecond line\nThird line",
+    source:"lrclib",native_text:"",can_save:false,can_lookup:false,persisted:true,synced})}));
+  p.run('playTracks(state.details.get("1")); audio.duration = 200; audio.currentTime = 0');
+  await p.nodes.get("#player-fullscreen").emit("click");
+  await settle();
+  const box = p.nodes.get("#visual-player-lyrics");
+  assert.equal(box.hidden, false);
+  assert.match(box.innerHTML, /First line/);
+  assert.match(box.innerHTML, /Second line/);
+  assert.match(box.innerHTML, /Third line/);
+  p.run('audio.currentTime = 6');
+  await p.nodes.get("#audio").emit("timeupdate");
+  await p.click({"[data-lyrics-sync-line]": {dataset: {lyricsSyncLine: "1"}}});
+  assert.equal(p.run('audio.currentTime'), 5, "Clicking the current line's own button still seeks to its exact time");
+  await p.click({"[data-lyrics-sync-line]": {dataset: {lyricsSyncLine: "2"}}});
+  assert.equal(p.run('audio.currentTime'), 9.5);
+  await p.nodes.get("#player-close").emit("click");
+  assert.equal(p.run('visualPlayer.open'), false);
+});
+
+test("fullscreen Now playing falls back to plain scrollable text when LRCLIB has no timing", async () => {
+  const p = livePage(); await settle();
+  p.setLyricsFetch(() => ({ok:true,json:async()=>({status:"ready",text:"Only plain text here",
+    source:"lrclib",native_text:"",can_save:false,can_lookup:false,persisted:true,synced:[]})}));
+  p.run('playTracks(state.details.get("1"))');
+  await p.nodes.get("#player-fullscreen").emit("click");
+  await settle();
+  const box = p.nodes.get("#visual-player-lyrics");
+  assert.equal(box.hidden, false);
+  assert.match(box.innerHTML, /Only plain text here/);
+  assert.doesNotMatch(box.innerHTML, /data-lyrics-sync-line/);
+});
+
+test("fullscreen Now playing hides the lyrics panel when nothing is found", async () => {
+  const p = livePage(); await settle();
+  p.setLyricsFetch(() => ({ok:true,json:async()=>({status:"not_cached",text:"",source:"ibroadcast",
+    native_text:"",can_save:false,can_lookup:false,persisted:true,synced:[]})}));
+  p.run('playTracks(state.details.get("1"))');
+  await p.nodes.get("#player-fullscreen").emit("click");
+  await settle();
+  assert.equal(p.nodes.get("#visual-player-lyrics").hidden, true);
+});
+
 test("Now playing can fill the app window without native fullscreen or playback changes", async () => {
   const storage = {}, p = livePage({storage}); await settle();
+  p.setLyricsFetch(() => ({ok:true,json:async()=>({status:"missing",text:"",source:"ibroadcast",native_text:"",
+    can_save:false,can_lookup:false,persisted:true,synced:[]})}));
   p.run('playTracks(state.details.get("1")); audio.currentTime = 39; openSettings(); let fullRequests = 0; $("#player-stage").requestFullscreen = () => {fullRequests++; return Promise.resolve()}');
   const source = p.nodes.get('#audio').src, queue = p.json('player.queue'), requests = p.requests.length, history = p.history.length;
   assert.match(p.nodes.get('#settings-content').innerHTML, /value="fullscreen" selected/);
@@ -4382,7 +4436,8 @@ test("Now playing can fill the app window without native fullscreen or playback 
   assert.equal(p.nodes.get('#audio').currentTime, 39);
   assert.deepEqual(p.json('player.queue'), queue);
   assert.equal(p.history.length, history);
-  assert.equal(p.requests.length, requests);
+  // Opening the window view now also checks lyrics for the current track; that is the only new request.
+  assert.equal(p.requests.filter(r => !r.url.startsWith("/api/lyrics")).length, requests);
   p.run('openSettings()');
   assert.match(p.nodes.get('#settings-content').innerHTML, /value="window" selected/);
   await p.change({id:'player-view-mode', value:'fullscreen', matches: () => false});
@@ -4421,6 +4476,8 @@ test("in-window Now playing leaves an existing browser fullscreen session untouc
 
 test("fullscreen loads known large artwork only on opening, falls back once and preserves playback", async () => {
   const p = livePage(); await settle();
+  p.setLyricsFetch(() => ({ok:true,json:async()=>({status:"missing",text:"",source:"ibroadcast",native_text:"",
+    can_save:false,can_lookup:false,persisted:true,synced:[]})}));
   p.run('const largeArtAlbum = state.details.get("1"); largeArtAlbum.artwork = "https://art.example/artwork/77-300?variant=1"; playTracks(largeArtAlbum)');
   const art = p.nodes.get('#visual-player-art'), writes = [];
   let imageSrc;
@@ -4442,7 +4499,8 @@ test("fullscreen loads known large artwork only on opening, falls back once and 
   assert.equal(p.nodes.get('#audio').src, source);
   assert.equal(p.nodes.get('#audio').paused, false);
   assert.deepEqual(p.json('player.queue'), queue);
-  assert.equal(p.requests.length, requests, 'Artwork requires no library or track API request');
+  // Opening fullscreen now also checks lyrics for the current track; that is the only new request.
+  assert.equal(p.requests.filter(r => !r.url.startsWith("/api/lyrics")).length, requests, 'Artwork requires no library or track API request');
   p.run('player.queue[player.index].album.artwork = "https://art.example/artwork/88-150"; markPlaying()');
   assert.equal(art.src, 'https://art.example/artwork/88-1000');
   assert.equal(art.hidden, false, 'Changing artwork recovers from the previous failure');

@@ -178,7 +178,12 @@ The application consists of a Python server and a plain JavaScript frontend.
   album, with strict artist/full-title matching and a separate bounded SQLite cache.
 - `src/tagcast/lyrics.py`: lazy native `gettrackuserdata` reads, an account/track-bound
   native text cache and a separate public LRCLIB SQLite cache; separately reviewed, single-use lyrics
-  saves preserve all other native userdata and read back without ambiguous retries.
+  saves preserve all other native userdata and read back without ambiguous retries. LRCLIB's
+  `syncedLyrics` line timestamps are parsed (`_parse_synced`) into a `synced` list of
+  `{time, text}` entries alongside the existing plain `text`, cached and validated the same
+  way (`_valid_synced`; a cache row saved before this field existed reads back as `synced: []`,
+  not corruption). iBroadcast's own lyrics storage has no timing field at all, so native/
+  `ibroadcast`-sourced results always carry `synced: []`.
 - `src/tagcast/static/`: HTML, CSS, SVG and shared JavaScript files:
   `app.js`, `metadata-export.js`, `genres.js`, `credits.js`, `lookup.js`, `updates.js`, `artwork.js`, `player.js`, `playback.js`, `album.js`,
   `album-info.js`, `lyrics.js`, `trash.js`, `artists.js`, `tracks.js`, `favourites.js`, `browse.js`, `overview.js`, `cleanup.js`, `collections.js`, `playlist-tools.js`, `playlist-order.js`, `playlist-import.js`, `tags.js`, `queue-sync.js`, `album-guide.js`, `help.js`, `navigation.js`. `album.js` provides album browsing;

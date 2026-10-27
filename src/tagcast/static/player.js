@@ -159,6 +159,7 @@ function renderVisualPlayer() {
     art.hidden = !artwork;
     if (artwork) art.src = largeArtworkUrl(artwork); else art.removeAttribute("src");
   }
+  if (typeof renderVisualPlayerLyrics === "function") renderVisualPlayerLyrics();
 }
 
 function hideVisualPlayer() {

@@ -29,12 +29,47 @@ MAX_RESPONSE = 512000
 CACHE_TTL = 30 * 86400
 NATIVE_CACHE_ENTRIES = 5000
 NATIVE_CACHE_BYTES = 20 * 1024 * 1024
+MAX_SYNCED_LINES = 2000
+
+LRC_TIMESTAMP = re.compile(r"\[(\d+):(\d+(?:[.:]\d+)?)\]")
+LRC_METADATA_LINE = re.compile(r"(?m)^\[(?:ar|al|ti|by|offset|length):[^\n]*\]\s*")
 
 
 def lyric_text(value):
     if not isinstance(value, str) or len(value) > MAX_LYRICS or "\x00" in value:
         raise LibraryError("Lyrics must be text of at most 50,000 characters, without null characters.")
     return value.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _parse_synced(raw):
+    """LRC line timestamps, kept in order; a line with several stamps repeats once per stamp."""
+    entries = []
+    for line in LRC_METADATA_LINE.sub("", raw).replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        stamps = list(LRC_TIMESTAMP.finditer(line))
+        if not stamps:
+            continue
+        text_part = LRC_TIMESTAMP.sub("", line).strip()
+        if not text_part:
+            continue
+        for stamp in stamps:
+            minutes, seconds = int(stamp.group(1)), float(stamp.group(2).replace(":", "."))
+            entries.append({"time": round(minutes * 60 + seconds, 2), "text": text_part})
+    entries.sort(key=lambda entry: entry["time"])
+    return entries[:MAX_SYNCED_LINES]
+
+
+def _valid_synced(value):
+    """A cache row saved before this field existed has none; that is not corruption."""
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > MAX_SYNCED_LINES:
+        raise ValueError("Invalid lyrics cache")
+    for entry in value:
+        if not isinstance(entry, dict) or set(entry) != {"time", "text"} \
+                or type(entry["time"]) not in (int, float) or not math.isfinite(entry["time"]) \
+                or entry["time"] < 0 or not isinstance(entry["text"], str) or len(entry["text"]) > 1000:
+            raise ValueError("Invalid lyrics cache")
+    return value
 
 
 def fetch_lrclib(track):
@@ -49,7 +84,7 @@ def fetch_lrclib(track):
             with session.get("https://lrclib.net/api/get", params=params, timeout=(5, 15),
                              stream=True, allow_redirects=False) as response:
                 if response.status_code == 404:
-                    return {"status": "missing", "text": "", "source": "lrclib"}
+                    return {"status": "missing", "text": "", "source": "lrclib", "synced": []}
                 if response.status_code != 200:
                     raise SourceError(f"LRCLIB returned HTTP {response.status_code}. Try again later.")
                 chunks, size, started = [], 0, time.monotonic()
@@ -72,20 +107,20 @@ def fetch_lrclib(track):
         matching = (matching and type(duration) in (int, float) and math.isfinite(duration)
                     and abs(duration - track["length"]) <= 2)
     if not matching:
-        return {"status": "missing", "text": "", "source": "lrclib"}
+        return {"status": "missing", "text": "", "source": "lrclib", "synced": []}
     if data.get("instrumental") is True:
-        return {"status": "instrumental", "text": "", "source": "lrclib"}
-    lyrics = data.get("plainLyrics")
-    if not lyrics and isinstance(data.get("syncedLyrics"), str):
-        # Display text only; timestamps never drive playback in this first version.
-        lyrics = re.sub(r"\[\d+:\d+(?:[.:]\d+)?\]", "", data["syncedLyrics"])
+        return {"status": "instrumental", "text": "", "source": "lrclib", "synced": []}
+    lyrics, synced_source = data.get("plainLyrics"), data.get("syncedLyrics")
+    synced = _parse_synced(synced_source) if isinstance(synced_source, str) else []
+    if not lyrics and isinstance(synced_source, str):
+        lyrics = re.sub(r"\[\d+:\d+(?:[.:]\d+)?\]", "", synced_source)
         lyrics = re.sub(r"(?m)^\[(?:ar|al|ti|by|offset|length):[^\n]*\]\s*", "", lyrics)
     try:
         lyrics = lyric_text(lyrics or "")
     except LibraryError:
         raise SourceError("LRCLIB returned invalid or oversized lyrics.") from None
     return {"status": "ready" if lyrics.strip() else "missing", "text": lyrics,
-            "source": "lrclib"}
+            "source": "lrclib", "synced": synced if lyrics.strip() else []}
 
 
 class Lyrics:
@@ -225,10 +260,11 @@ class Lyrics:
             db.execute("DELETE FROM native_lyrics WHERE account=? AND track_id=?", self._native_key(selection)[:2])
 
     def _result(self, selection, body, lyrics, rows=None):
+        # iBroadcast's own lyrics storage has no timing field; only LRCLIB can ever supply one.
         enabled = "lrclib" not in self.studio.disabled_sources()
         result = {"status": "ready" if lyrics.strip() else "missing", "text": lyrics,
                   "source": "ibroadcast", "native_text": lyrics, "can_save": self.studio.premium,
-                  "can_lookup": enabled and not lyrics.strip(), "persisted": rows is None}
+                  "can_lookup": enabled and not lyrics.strip(), "persisted": rows is None, "synced": []}
         if rows is not None:
             result["before_token"] = self._token(selection, body, rows)
         if lyrics.strip() or not enabled:
@@ -281,7 +317,8 @@ class Lyrics:
                 or data.get("status") not in ("ready", "missing", "instrumental"):
             raise ValueError("Invalid lyrics cache")
         lyric_text(data.get("text"))
-        return {"source": "lrclib", "status": data["status"], "text": data["text"], "cached": True}
+        return {"source": "lrclib", "status": data["status"], "text": data["text"],
+                "synced": _valid_synced(data.get("synced")), "cached": True}
 
     def _cache(self, key, data):
         now = time.time()
@@ -340,7 +377,7 @@ class Lyrics:
             result = {"status": "ready" if lyrics.strip() else "missing", "text": lyrics,
                       "source": "ibroadcast", "before_token": self._token(selection, body, rows),
                       "native_text": lyrics, "can_save": self.studio.premium,
-                      "can_lookup": enabled and not lyrics.strip()}
+                      "can_lookup": enabled and not lyrics.strip(), "synced": []}
             if lyrics.strip() or not enabled:
                 return result
             if len(track["title"]) > 200 or len(track["artist"]) > 200 \

@@ -72,7 +72,8 @@ Design mockups (6 screens): https://claude.ai/artifact/48RUd5CmZUQqde3ihyFqNW
 | v23 ✔ | Recommendations: Deezer related-artist list + a Gemini-based list, shown separately |
 | v24 ✔ | Daily Digest: new page aggregating new releases, wishlist finds, chart movement, recommendations |
 | v25 ✔ | Remote access: `TAGCAST_EXTRA_HOSTS` opt-in Host-header allowlist for reaching the same loopback socket through `tailscale serve` (phone access, no new attack surface) |
-| v26 | Telegram check (listener inside Tagcast) |
+| v26 ✔ | Live sync lyrics: LRCLIB's line timestamps drive an auto-scrolling, click-to-seek lyrics panel in the fullscreen Now playing view |
+| v27 | Telegram check (listener inside Tagcast) |
 
 Testing: unit tests with `tests/mock_ibroadcast.py` / LocalStudio and one quick real
 check per version. Avoid full-library stress runs unless something needs it.
