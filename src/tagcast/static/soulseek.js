@@ -40,7 +40,7 @@ function soulseekHtml() {
 function soulseekSettingsHtml() {
   const st = soulseekView.status?.settings;
   if (!st) { soulseekLoad(); return '<p class="muted">Loading…</p>'; }
-  return `<p class="muted">Download Sockseek for Windows from its GitHub releases page (github.com/fiso64/sockseek/releases), unzip it, and choose <code>sockseek.exe</code> here. A free Soulseek account is enough; the name and password are kept on this computer only.</p>
+  return `<p class="muted">Download Sockseek for Windows from its GitHub releases page (github.com/fiso64/sockseek/releases), unzip it, and choose <code>sockseek.exe</code> here, <strong>not</strong> SoulseekQt (the Soulseek app with a window). A free Soulseek account is enough; the name and password are kept on this computer only. One login can be online only once, so close SoulseekQt while Tagcast downloads, or give Tagcast its own Soulseek username.</p>
     <div class="dl-settings">
       <label>Sockseek program <input id="soulseek-exe" class="dl-path" maxlength="400" value="${escapeHtml(st.exe)}" placeholder="C:\\Users\\you\\Downloads\\sockseek\\sockseek.exe"></label>
       <label>Soulseek username <input id="soulseek-username" maxlength="100" value="${escapeHtml(st.username)}" autocomplete="off"></label>

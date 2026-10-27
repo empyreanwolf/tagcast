@@ -64,6 +64,13 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v34** **Soulseek: SoulseekQt is no longer accepted as "the Sockseek program".** Tagcast
+  runs a separate background downloader called Sockseek; pointing that setting at SoulseekQt
+  (the normal Soulseek app) made a SoulseekQt window pop up on every job ("already running"),
+  and every job failed with "Sockseek did not start". Tagcast now refuses SoulseekQt there,
+  both when you choose it and if it was saved before, and says what to pick instead:
+  sockseek.exe from github.com/fiso64/sockseek/releases. The same Soulseek login can only be
+  online once, so close SoulseekQt while Tagcast downloads, or give Tagcast its own username.
 - **v33** Seven fixes and changes from your feedback list:
   - **The artist page works like iBroadcast's.** An album artist's page now has **Albums**
     and **Tracks** tabs. Tracks lists every song on that artist's albums in one table (title,

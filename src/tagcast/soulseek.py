@@ -94,12 +94,28 @@ class Soulseek:
     def configured(self):
         return bool(self.state["exe"] and self.state["username"] and self.state["password"])
 
+    @staticmethod
+    def _not_sockseek(exe):
+        """The message when the chosen program is the Soulseek desktop app, not Sockseek (fork v34).
+
+        SoulseekQt ignores "daemon --config ..." and just opens its window (or says it's
+        already running), so every job used to end in a vague "Sockseek did not start"."""
+        name = Path(str(exe or "")).name.lower()
+        if "soulseek" in name and "sockseek" not in name:
+            return (f"{Path(exe).name} is the Soulseek desktop app. Tagcast needs Sockseek, a separate downloader "
+                    "without a window: download it from github.com/fiso64/sockseek/releases, unzip it, and choose "
+                    "sockseek.exe here. Close SoulseekQt while Tagcast downloads, or give Tagcast a second "
+                    "Soulseek username: the same login can only be online once.")
+        return ""
+
     def save_settings(self, body):
         if not isinstance(body, dict):
             raise SoulseekError("Choose the Soulseek settings.")
         new = dict(self.state)
         if "exe" in body:
             exe = str(body["exe"] or "").strip().strip('"')
+            if exe and self._not_sockseek(exe):
+                raise SoulseekError(self._not_sockseek(exe))
             if exe and not Path(exe).is_file():
                 raise SoulseekError(f"No Sockseek program at {exe}. Choose sockseek.exe from the Sockseek download.")
             new["exe"] = exe
@@ -173,6 +189,8 @@ class Soulseek:
             return self.status()
         if not self.configured():
             raise SoulseekError("Set the Sockseek program and your Soulseek login under Downloads → Settings first.")
+        if self._not_sockseek(self.state["exe"]):  # saved before v34 checked it
+            raise SoulseekError(self._not_sockseek(self.state["exe"]))
         conf = self._write_conf()
         log_path = Path(self.studio.home) / "sockseek.log"
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0

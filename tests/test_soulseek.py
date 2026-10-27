@@ -101,6 +101,24 @@ class SoulseekTests(unittest.TestCase):
         with self.assertRaises(SoulseekError):
             self.s.save_settings({"port": 80})
 
+    def test_the_soulseek_desktop_app_is_refused_with_a_clear_message(self):
+        # fork v34: SoulseekQt.exe chosen as "the Sockseek program" opened its window on
+        # every job and each one failed with "Sockseek did not start".
+        qt = Path(self.studio.home) / "SoulseekQt.exe"
+        qt.write_text("")
+        with self.assertRaises(SoulseekError) as caught:
+            self.s.save_settings({"exe": str(qt)})
+        self.assertIn("SoulseekQt.exe is the Soulseek desktop app", str(caught.exception))
+        self.assertIn("github.com/fiso64/sockseek", str(caught.exception))
+        # A setting saved before this check still never launches it.
+        configure(self.studio)
+        self.s.state["exe"] = str(qt)
+        self.s.ping = lambda: False
+        with self.assertRaises(SoulseekError) as caught:
+            self.s.start()
+        self.assertIn("Soulseek desktop app", str(caught.exception))
+        self.assertEqual(self.studio.started, [])
+
     def test_start_writes_the_config_and_launches_the_daemon(self):
         configure(self.studio)
         self.studio.daemon.up = False
