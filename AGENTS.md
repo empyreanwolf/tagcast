@@ -58,6 +58,10 @@ The application consists of a Python server and a plain JavaScript frontend.
 - `src/tagcast/galaxy.py` (fork): GD Studio search and the Galaxy download thread over the Downloads
   queue (ported from empyreanwolf/gd-music-downloader); `artist_cards.py` tells same-name artists
   apart (MusicBrainz, Deezer, library). `static/galaxy.js` is the Galaxy tab. Tags need `mutagen`.
+  Galaxy matching (fork, v32): `artist_matches()` compares with `fold()` (accent-insensitive); `find_song()`
+  tries several queries (with/without feat./brackets, title alone) across sources; `fetch_album_exact()` falls
+  back from `<src>_album` search to a plain song search grouped by exact album name. Discography's
+  `_galaxy_song`/`_galaxy_album` go chosen source → `FALLBACK_SOURCES`.
   `Galaxy.check_audio()` only rejects on size/bitrate evidence of truncation; a whole file under
   `SHORT_SECONDS` goes to `check_short()` (fork, v31) after the MusicBrainz lookup, which keeps it when
   the recording's `length_s` agrees, rejects it when MusicBrainz says longer, and otherwise fails it with

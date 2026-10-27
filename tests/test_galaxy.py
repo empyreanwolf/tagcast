@@ -104,6 +104,36 @@ def wait_idle(studio, seconds=10):
 
 
 class HelperTests(unittest.TestCase):
+    def test_accents_and_feat_do_not_hide_a_song(self):
+        # v32: "JAŸ-Z" matches "JAY-Z", and a title with "(feat. X)" is also searched without it.
+        self.assertTrue(gx.artist_matches("JAŸ-Z", "JAY-Z"))
+        self.assertFalse(gx.artist_matches("Jay", "JAY-Z"))
+        self.assertEqual(gx.plain_title("Empire State Of Mind (feat. Alicia Keys)"), "Empire State Of Mind")
+        self.assertEqual(gx.plain_title("Mask Off ft. Future"), "Mask Off")
+        gd = FakeGD()
+        api = gx.GDApi(QuotaLimiter(interval=0), gd)
+        wanted = song(5, "Empire State Of Mind", "JAŸ-Z", "The Hits Collection", "joox")
+        wanted["artist"] = ["JAY-Z", "Alicia Keys"]
+        gd.search_results[("joox", "Empire State Of Mind", 1)] = [
+            song(4, "Empire State Of Mind (COVER)", "Someone Else", "Covers", "joox"), wanted]
+        best = gx.find_song(api, ["netease", "joox"], "JAŸ-Z", "Empire State Of Mind (feat. Alicia Keys)")
+        self.assertEqual((best["id"], best["source"]), ("5", "joox"))  # netease had nothing; joox did
+        self.assertIsNone(gx.find_song(api, ["netease"], "JAŸ-Z", "Empire State Of Mind"))
+
+    def test_album_found_by_song_search_when_album_search_misses(self):
+        # v32: the API's album search lists nothing; the site's song search shows the album.
+        gd = FakeGD()
+        api = gx.GDApi(QuotaLimiter(interval=0), gd)
+        gd.search_results[("netease", "Heavy Lies the Crown", 1)] = [
+            song(i, t, "While You Were Gone", "Heavy Lies the Crown")
+            for i, t in enumerate(["Sinner", "Waiting", "Learn To Fight", "Heavy Lies The Crown", "Thief"], 1)] + [
+            song(9, "Heavy Lies the Crown", "Other Band", "")]  # a loose single never counts as the album
+        tracks, name = gx.fetch_album_exact(api, "netease", "Heavy Lies the Crown")
+        self.assertEqual((len(tracks), name), (5, "Heavy Lies the Crown"))
+        tracks, _ = gx.fetch_album_exact(api, "netease", "Heavy Lies the Crown", "While You Were Gone")
+        self.assertEqual(len(tracks), 5)
+        self.assertEqual(gx.fetch_album_exact(api, "netease", "Heavy Lies the Crown", "Someone Else"), ([], ""))
+
     def test_paths_and_names(self):
         self.assertEqual(gx.build_path("D:/M", "AC/DC", "Back: in Black", 1, "Hells Bells?").as_posix(),
                          "D:/M/ACDC/Back in Black/01 - Hells Bells.mp3")

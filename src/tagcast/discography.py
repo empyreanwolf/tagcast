@@ -25,7 +25,7 @@ from collections import Counter
 
 from . import artist_match as match
 from .downloads import album_key
-from .galaxy import artist_matches, sim
+from .galaxy import FALLBACK_SOURCES, find_song
 from .library import LibraryError
 from .sources import PACING, Http, SourceError
 
@@ -320,11 +320,18 @@ class Discography:
         # 3. Galaxy
         return self._galaxy_album(name, title)
 
+    def _galaxy_sources(self):
+        """The chosen source first, then the other open ones (v32): one source missing a song
+        no longer means Galaxy hasn't got it."""
+        chosen = self.studio.galaxy.state.get("source") or "netease"
+        return list(dict.fromkeys([chosen, *FALLBACK_SOURCES]))
+
     def _galaxy_album(self, name, title):
         galaxy = self.studio.galaxy
-        data = galaxy.album(title, name, galaxy.state.get("source") or "netease")
-        if data.get("found"):
-            return "Galaxy", self._summary(galaxy.add(data["tracks"], data["album_artist"], len(data["tracks"])))
+        for source in self._galaxy_sources():
+            data = galaxy.album(title, name, source)
+            if data.get("found"):
+                return "Galaxy", self._summary(galaxy.add(data["tracks"], data["album_artist"], len(data["tracks"])))
         return None, "Not found on Bandcamp, Soulseek or Galaxy"
 
     def _song(self, name, title, album, ctx):
@@ -345,13 +352,7 @@ class Discography:
 
     def _galaxy_song(self, name, title):
         galaxy = self.studio.galaxy
-        source = galaxy.state.get("source") or "netease"
-        best, score = None, 0.0
-        for t in galaxy.api.search(source, f"{name} {title}", 10, 1):
-            ts = sim(t["title"], title)
-            ar = max((1.0 if artist_matches(a, name) else sim(a, name) for a in t["artists"]), default=0.0)
-            if ts >= 0.8 and ar >= 0.7 and ts + ar > score:
-                best, score = t, ts + ar
+        best = find_song(galaxy.api, self._galaxy_sources(), name, title)
         if not best:
             return None, "Not found on Bandcamp, Soulseek or Galaxy"
         return "Galaxy", self._summary(galaxy.add([best]))

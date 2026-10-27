@@ -64,6 +64,24 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v32** **Galaxy finds songs and albums the GD Studio site shows but Tagcast missed.**
+  Two reports: "Empire State Of Mind (feat. Alicia Keys)" by JAŸ-Z came back "Not found
+  on Bandcamp, Soulseek or Galaxy" although the site lists it, and an Album search for
+  "Heavy Lies the Crown" (While You Were Gone) said no such album although the site shows
+  its 5 songs. Fixed in three ways:
+  - **"Get it" (Discography, Charts, Recommendations, Wishlist) searches the way you
+    would.** It used to make one search, "Artist Title" with the "(feat. …)" left in, on one
+    source, and look at only 10 results. It now also tries without "(feat. …)" or brackets,
+    and the title alone, with 30 results each, stopping at the first real match. The artist
+    still has to match, so a cover by someone else isn't picked.
+  - **Accents no longer split an artist.** "JAŸ-Z" and "JAY-Z", "Beyoncé" and "Beyonce" now
+    count as the same artist when Galaxy checks who a song is by.
+  - **Albums: a song search backs up the album search.** When the API's album search has
+    nothing, Tagcast now runs a normal song search (the same one as the site's 歌曲搜索)
+    and keeps only songs whose album name matches exactly; loose singles never count.
+  - "Get it" and "Get the missing" now try your chosen source first, then netease and joox,
+    before giving up. A manual Album search stays on the source you picked, and its
+    "not found" note now suggests the other sources to try.
 - **v31** **Short songs are no longer thrown away as "previews".** Galaxy used to reject
   every file under 35 seconds as a 30-second preview, so a real 32-second intro or skit
   could never be downloaded (reported: "A WORD 4RM MEL" by Kal Banx, "Preview only (32s)").

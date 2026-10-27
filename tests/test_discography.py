@@ -127,6 +127,15 @@ class DiscographyTests(unittest.TestCase):
         sources = {i["title"]: i["source"] for i in studio.download_manager.state["queue"]}
         self.assertEqual(sources, {"Magic": "bandcamp", "Ink": "bandcamp", "Square One": "galaxy"})
 
+    def test_galaxy_tries_the_other_open_source(self):
+        # v32: netease has nothing for the album, joox does.
+        studio = LocalStudio()
+        studio.gd.search_results[("joox_album", "X&Y", 1)] = [gd_song(31, "Square One", "Coldplay", "X&Y", "joox")]
+        result = wait_job(studio.discography, studio.discography.get("Coldplay", albums=[{"title": "X&Y", "status": "missing"}]))
+        self.assertEqual({e["title"]: e["source"] for e in result["log"]}, {"X&Y": "Galaxy"})
+        item = next(i for i in studio.download_manager.state["queue"] if i["title"] == "Square One")
+        self.assertEqual(item["payload"]["source"], "joox")
+
     def test_soulseek_comes_before_galaxy_and_falls_back(self):
         studio = LocalStudio(soulseek=True)
         studio.gd.search_results[("netease_album", "X&Y", 1)] = [gd_song(31, "Square One", "Coldplay", "X&Y")]

@@ -123,8 +123,24 @@ def sim(a, b):
     return max(r1, r2 * 0.97)
 
 
+def fold(s):
+    """norm() without accents: "JAŸ-Z" and "JAY-Z", "Beyoncé" and "Beyonce" compare equal (v32)."""
+    s = unicodedata.normalize("NFKD", str(s or ""))
+    return norm("".join(c for c in s if not unicodedata.combining(c)))
+
+
+_FEAT_TAIL = re.compile(r"\s+(?:feat\.?|ft\.?|featuring)\s.*$", re.IGNORECASE)
+
+
+def plain_title(title):
+    """The title without "(feat. X)", "[Remastered]" or a trailing "feat. X": what people type into a search."""
+    t = _BRACKETS.sub("", str(title or ""))
+    t = _FEAT_TAIL.sub("", t)
+    return " ".join(t.split()) or " ".join(str(title or "").split())
+
+
 def artist_matches(name, wanted):
-    return norm(name) == norm(wanted)
+    return fold(name) == fold(wanted)
 
 
 _FORBIDDEN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -377,32 +393,76 @@ class GDApi:
 
 def fetch_album_exact(api, source, album, artist_hint=None):
     """(tracks, found_name) for an album with exactly this name, else ([], "").
-    Another edition ("X Plus" for "X") or loose songs are never offered."""
+    Another edition ("X Plus" for "X") or loose songs are never offered.
+
+    The API's album search comes first. When it has nothing (it misses some smaller
+    albums the site's own song search lists, e.g. "Heavy Lies the Crown" by While You
+    Were Gone), a plain song search is grouped by album instead, with the same
+    exact-name and artist rules (v32)."""
     base = source.replace("_album", "")
-    want = norm(album)
+    want = fold(album)
+    queries = [album] + ([f"{album} {artist_hint}"] if artist_hint else [])
 
     def by_artist(items):
         return bool(artist_hint) and any(artist_matches(a, artist_hint) for t in items for a in t["artists"])
 
-    for q in [album] + ([f"{album} {artist_hint}"] if artist_hint else []):
-        groups = {}
-        for t in api.search(f"{base}_album", q, ALBUM_COUNT, 1):
-            groups.setdefault(t["album"] or album, []).append(t)
-        exact = [items for name, items in groups.items() if norm(name) == want]
+    def pick(results, unnamed):
+        groups, seen = {}, set()
+        for t in results:
+            if (t["source"], t["id"]) in seen:
+                continue
+            seen.add((t["source"], t["id"]))
+            groups.setdefault(t["album"] or unnamed, []).append(t)
+        exact = [items for name, items in groups.items() if name and fold(name) == want]
         if artist_hint:
             # Another artist's album can share the exact same title ("Intro", a compilation
             # name, ...). Never fall back to "biggest same-named group" in that case -- that
             # silently queues the wrong artist's songs. Only a group actually credited to
             # artist_hint counts; nothing found this way means try the next query, or fail.
-            matching = [items for items in exact if by_artist(items)]
-            if matching:
-                items = max(matching, key=len)
-                return items, items[0]["album"] or album
-            continue
-        if exact:
-            items = max(exact, key=len)
-            return items, items[0]["album"] or album
+            exact = [items for items in exact if by_artist(items)]
+        if not exact:
+            return None
+        items = max(exact, key=len)
+        return items, items[0]["album"] or album
+
+    for q in queries:
+        found = pick(api.search(f"{base}_album", q, ALBUM_COUNT, 1), album)
+        if found:
+            return found
+    # Song search: an empty album name is a loose song, never "this album".
+    results = []
+    for q in queries:
+        results += api.search(base, q, ALBUM_COUNT, 1)
+        found = pick(results, "")
+        if found:
+            return found
     return [], ""
+
+
+def find_song(api, sources, artist, title):
+    """The best match for one song across these sources, or None (v32).
+
+    Tries "Artist Title" first, then without "(feat. X)" / brackets, then the title alone
+    (what a person would type on the site), stopping at the first good match. The
+    artist must still match, ignoring accents, so "Empire State Of Mind" alone can't
+    turn up somebody's cover."""
+    simple = plain_title(title)
+    folded = fold(artist)
+    queries = []
+    for q in (f"{artist} {title}", f"{artist} {simple}", f"{folded} {simple}" if folded != norm(artist) else "", simple):
+        if q and q.strip() and q not in queries:
+            queries.append(q)
+    for source in dict.fromkeys(sources):
+        for q in queries:
+            best, score = None, 0.0
+            for t in api.search(source, q, SEARCH_COUNT, 1):
+                ts = max(sim(t["title"], title), sim(plain_title(t["title"]), simple))
+                ar = max((1.0 if artist_matches(a, artist) else sim(fold(a), folded) for a in t["artists"]), default=0.0)
+                if ts >= 0.8 and ar >= 0.7 and ts + ar > score:
+                    best, score = t, ts + ar
+            if best:
+                return best
+    return None
 
 
 def artist_tracks(api, source, artist):
@@ -749,8 +809,10 @@ class Galaxy:
         source = self._source(source)
         tracks, found = fetch_album_exact(self.api, source, album, artist or None)
         if not tracks:
+            others = " / ".join(s for s in OPEN_SOURCES if s != source)
             return {"mode": "album", "query": album, "source": source, "found": False, "tracks": [],
-                    "note": f"No album named exactly “{album}” on {source}. Other editions and loose songs are skipped.",
+                    "note": f"No album named exactly “{album}” on {source}. Other editions and loose songs are skipped."
+                            + (f" Try {others}." if others else ""),
                     **self.status()}
         album_artist = artist if artist and any(artist_matches(a, artist) for t in tracks for a in t["artists"]) \
             else album_artist_for(tracks)
