@@ -47,6 +47,7 @@
   <script src="tagclean.js" defer></script>
   <script src="charts.js" defer></script>
   <script src="gemini.js" defer></script>
+  <script src="recommendations.js" defer></script>
   <script src="collections.js" defer></script>
   <script src="playlist-tools.js" defer></script>
   <script src="playlist-order.js" defer></script>
@@ -97,6 +98,7 @@
     <button class="nav" id="show-downloads"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v12M7 10l5 5 5-5M4 19h16"/></svg> Downloads</button>
     <button class="nav" id="show-charts"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 19V9M10 19V5M16 19v-7M20 19V3"/></svg> Charts</button>
     <button class="nav" id="show-gemini"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3c.6 2.8 1.8 4.6 4 6-2.2 1.4-3.4 3.2-4 6-.6-2.8-1.8-4.6-4-6 2.2-1.4 3.4-3.2 4-6Z"/><path d="M19 13c.3 1.4.9 2.3 2 3-1.1.7-1.7 1.6-2 3-.3-1.4-.9-2.3-2-3 1.1-.7 1.7-1.6 2-3Z"/></svg> Ask Gemini</button>
+    <button class="nav" id="show-recommendations"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.3 6.2 21l1.6-6.9L2 9.2l7-.6L12 2l3 6.6 7 .6-5.8 4.9 1.6 6.9Z"/></svg> Recommendations</button>
     <button class="nav" id="show-overview"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/></svg> Overview</button>
     <button class="nav" id="show-history"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 6v6h6"/></svg> Change history <b id="history-count">0</b></button>
     </nav>
@@ -153,6 +155,12 @@
         <button type="button" class="button" data-gemini="new">New conversation</button>
         <button type="button" class="button" data-gemini="settings">Settings</button>
       </form>
+    </section>
+    <section id="recommendations-page" hidden aria-label="Recommendations">
+      <div class="page-intro"><div><div class="eyebrow">BASED ON WHAT YOU ALREADY HAVE</div><h1>Recommendations<span>.</span></h1><p>Two separate lists, both seeded from the artists New releases already tracks (followed artists, plus your library's own if that's turned on): one from Deezer's related-artist data (deterministic, no AI), one from Ask Gemini (conversational, same key/model as that page). Shown separately on purpose -- different kinds of evidence. Every song is checked against your library and history first, then "Get it" queues it the same way Charts does.</p></div></div>
+      <div id="recommendations-tabs" class="favourites-tabs dl-tabs" role="tablist" aria-label="Recommendations"></div>
+      <p id="recommendations-status" class="error-text" role="status"></p>
+      <div id="recommendations-content" role="tabpanel"></div>
     </section>
     <section id="album-guide-page" hidden aria-label="1001 Albums">
       <div class="page-intro"><div><div class="eyebrow">DISCOVER YOUR COLLECTION</div><h1>1001 Albums<span>.</span></h1><p>Based on <cite><a href="https://en.wikipedia.org/wiki/1001_Albums_You_Must_Hear_Before_You_Die" target="_blank" rel="noopener noreferrer">1001 Albums You Must Hear Before You Die</a></cite>, edited by Robert Dimery. Explore the albums you already have from this selection, covering 1955–2007.</p></div></div>

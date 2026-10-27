@@ -53,6 +53,7 @@ from .lyrics import Lyrics
 from .metadata_export import MetadataExport
 from .playlist_import import PlaylistImport
 from .queue_sync import QUEUE_SCOPES, QueueSync
+from .recommendations import Recommendations
 from .releases import NewReleases
 from .service_status import ServiceStatus
 from .soulseek import Soulseek
@@ -399,6 +400,7 @@ class Studio:
         self.tagclean = TagClean(self)
         self.charts = Charts(self)
         self.gemini = Gemini(self)
+        self.recommendations = Recommendations(self)
         self.artist_cards = ArtistCards(self)
         self.duplicate_cleanup = DuplicateCleanup(self)
         tokens = self._read("tokens.json")

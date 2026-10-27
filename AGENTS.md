@@ -111,6 +111,25 @@ The application consists of a Python server and a plain JavaScript frontend.
   State: `gemini.json` (Gemini key, Tavily key, model, the conversation -- persists across
   restarts; "New conversation" clears it). `static/gemini.js` (its own sidebar page, not a
   Downloads tab).
+- `src/tagcast/recommendations.py` (fork, v23): "Recommendations", its own top-level
+  sidebar page with two separate lists, both seeded from `new_releases.artists()` (the same
+  followed-artists-plus-library-3+-albums set New releases already tracks, capped at
+  `MAX_SEEDS`). **Deezer** (`_deezer_related`): no AI -- for each seed, `_deezer_candidate()`
+  finds its Deezer id (exact name match, most-followed act wins when several share the name,
+  the same tie-break `discography._deezer_artists()` uses, reimplemented locally rather than
+  called into so this module stays independently testable), then `/artist/{id}/related` is
+  tallied across all seeds so an act related to several of them ranks first, and
+  `_deezer_top_track()` gives each kept artist a real song to offer -- one with no current top
+  track is dropped rather than shown with nothing to get. **Gemini** (`_gemini_related`): the
+  seed list is sent as a one-off prompt (`REC_PROMPT`, never saved into `gemini.json`'s
+  conversation) through `studio.gemini._generate()`, reusing that page's own key/model and its
+  exact fenced ```json reply shape, parsed with the same `Gemini._parse_reply()`. The two lists
+  are cached and returned separately, never merged -- a deterministic signal and a model's
+  guess are different kinds of evidence, and merging them would hide which is which. "Get it"
+  reuses the Bandcamp → Soulseek → Galaxy chain and job-queue/progress pattern from
+  Charts/Gemini, keyed by source (`deezer`/`gemini`) rather than a chart id. State: in-memory
+  cache only (`CACHE_SECONDS`), nothing persisted. `static/recommendations.js` (its own
+  sidebar page, not a Downloads tab).
 - `src/tagcast/updates.py`: public stable-release checks, version comparison and a
   daily persistent cache, independent of iBroadcast credentials.
 - `src/tagcast/album_guide.py`: opt-in, explicitly started comparison with the bundled

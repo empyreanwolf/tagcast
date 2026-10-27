@@ -41,6 +41,17 @@ on 8912. Close the black window to stop it.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v23** **Recommendations**, a new page on the left, next to Ask Gemini: two separate
+  lists seeded from the artists New releases already tracks (followed artists, plus your
+  library's own 3+-album artists if that setting is on). **Deezer (related artists)** is
+  deterministic -- no AI -- using Deezer's own related-artist data, tallied across your
+  seed artists so someone related to several of them ranks first; each kept artist's
+  current top track on Deezer is the song offered. **Gemini** asks your own Ask Gemini key
+  and model (Settings are shared) for other artists worth exploring, one song each, as a
+  one-off question that isn't added to that page's conversation. The two lists are shown
+  separately, never merged -- a deterministic signal and a model's opinion are different
+  kinds of evidence. "Get it" works the same as Charts: Bandcamp → Soulseek → Galaxy, one
+  song at a time, landing on the wishlist if nothing has it.
 - **v22** Charts → **Browse**, alongside the existing fixed hip-hop tabs (which are unchanged):
   pick any country and/or genre, as far as each source actually supports it -- nothing here
   is guessed. Apple Music takes any 2-letter country code (its feed has no reliable genre-id

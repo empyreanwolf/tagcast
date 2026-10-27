@@ -49,6 +49,8 @@ function showScreen(name) {
   $("#show-charts").classList.toggle("active", name === "charts");
   $("#gemini-page").hidden = name !== "gemini";
   $("#show-gemini").classList.toggle("active", name === "gemini");
+  $("#recommendations-page").hidden = name !== "recommendations";
+  $("#show-recommendations").classList.toggle("active", name === "recommendations");
   $("#album-guide-page").hidden = name !== "album-guide";
   $("#show-album-guide").classList.toggle("active", name === "album-guide");
   $("#albums-page").hidden = name !== "albums";
@@ -73,7 +75,7 @@ function showScreen(name) {
   $("#all-albums").classList.toggle("active", name === "albums" && !state.artist);
   $("#show-artists").classList.toggle("active", name === "artists");
   $("#show-tracks").classList.toggle("active", name === "tracks");
-  $("#breadcrumb").textContent = name === "album-guide" ? "1001 Albums" : name === "browse" ? browseKinds[browseView.kind].label : name === "settings" ? "Settings" : name === "overview" ? "Overview" : name === "downloads" ? "Downloads" : name === "charts" ? "Charts" : name === "gemini" ? "Ask Gemini" : name === "artists" ? "Album artists" : name === "tracks" ? "Tracks" : name === "favourites" ? "Favourites" : name === "recently-played" ? "Recently played"
+  $("#breadcrumb").textContent = name === "album-guide" ? "1001 Albums" : name === "browse" ? browseKinds[browseView.kind].label : name === "settings" ? "Settings" : name === "overview" ? "Overview" : name === "downloads" ? "Downloads" : name === "charts" ? "Charts" : name === "gemini" ? "Ask Gemini" : name === "recommendations" ? "Recommendations" : name === "artists" ? "Album artists" : name === "tracks" ? "Tracks" : name === "favourites" ? "Favourites" : name === "recently-played" ? "Recently played"
     : name === "album" ? state.albums.find(a => String(a.id) === albumView.id)?.name || "Album" : state.artist || "Albums";
   if (["playlists", "album-favourites"].includes(name) && typeof renderCollections === "function") renderCollections();
   renderFavouriteHub();

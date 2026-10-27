@@ -247,6 +247,10 @@ class Handler(SimpleHTTPRequestHandler):
             self._run(self.studio.gemini.view)
         elif url.path == "/api/gemini/jobs":
             self._run(self.studio.gemini.jobs_view)
+        elif url.path == "/api/recommendations":
+            self._run(lambda: self.studio.recommendations.view(query.get("source"), query.get("refresh") == "1"))
+        elif url.path == "/api/recommendations/jobs":
+            self._run(self.studio.recommendations.jobs_view)
         elif url.path == "/api/wishlist":
             self._run(self.studio.wishlist.view)
         elif url.path == "/api/releases":
@@ -329,6 +333,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/gemini/get": lambda b: self.studio.gemini.get(b.get("ids")),
             "/api/gemini/reset": lambda b: self.studio.gemini.reset(),
             "/api/gemini/settings": lambda b: self.studio.gemini.save_settings(b),
+            "/api/recommendations/get": lambda b: self.studio.recommendations.get(b.get("source"), b.get("ranks")),
             "/api/wishlist/retry": lambda b: self.studio.wishlist.retry(b.get("ids")),
             "/api/wishlist/remove": lambda b: self.studio.wishlist.remove(b.get("ids")),
             "/api/wishlist/settings": lambda b: self.studio.wishlist.save_settings(b),
