@@ -134,6 +134,36 @@ class StartTests(unittest.TestCase):
                 thread.join()
                 server.server_close()
 
+    def test_extra_hosts_env_var_allows_a_tailscale_name_without_opening_up_to_everyone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "index.html").write_text("Hi", encoding="utf-8")
+            handler = type("StaticHandler", (app.Handler,), {"port": 0})
+            server = app.Server(("127.0.0.1", 0), partial(handler, directory=directory))
+            handler.port = server.server_port
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            def request(host_header):
+                connection = HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+                try:
+                    connection.request("GET", "/", headers={"Host": host_header} if host_header else {})
+                    return connection.getresponse().status
+                finally:
+                    connection.close()
+
+            try:
+                self.assertEqual(request(f"127.0.0.1:{server.server_port}"), 200)  # unaffected by default
+                self.assertEqual(request("my-laptop.tailxxxx.ts.net"), 403)  # not allowed yet
+                with mock.patch.object(app, "EXTRA_HOSTS", {"my-laptop.tailxxxx.ts.net"}):
+                    self.assertEqual(request("my-laptop.tailxxxx.ts.net"), 200)  # exact match, any port
+                    self.assertEqual(request(f"my-laptop.tailxxxx.ts.net:{server.server_port}"), 200)
+                    self.assertEqual(request("someone-elses-device.ts.net"), 403)  # still rejected
+                    self.assertEqual(request(f"127.0.0.1:{server.server_port}"), 200)  # loopback still works too
+            finally:
+                server.shutdown()
+                thread.join()
+                server.server_close()
+
     def test_favourites_routes_keep_host_header_and_fetch_metadata_protection(self):
         studio = mock.Mock()
         studio.browse.return_value = {"groups": [], "total": 0, "count": 0, "offset": 0}

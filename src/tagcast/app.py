@@ -1,4 +1,14 @@
-"""Local web server for Tagcast. Listens on 127.0.0.1 only."""
+"""Local web server for Tagcast. Listens on 127.0.0.1 only.
+
+Remote access (fork v25): the socket itself never leaves loopback, and `_host_ok()` still
+rejects any Host header it doesn't recognize by default -- that pair is what keeps a
+same-network device, or a malicious page's background request, from reaching your
+iBroadcast session. ``TAGCAST_EXTRA_HOSTS`` (comma-separated hostnames, no scheme/port) is
+the one opt-in escape hatch, meant for a `tailscale serve 127.0.0.1:<port>` setup: Tailscale
+forwards from its own private, authenticated network into this same loopback socket, and
+the env var just tells `_host_ok()` to also trust the hostname that arrives with it. Off by
+default, so a normal install is exactly as closed as before this existed.
+"""
 
 import argparse
 import json
@@ -25,6 +35,13 @@ from .sources import SourceError
 
 STATIC = Path(__file__).parent / "static"
 MAX_BODY = 24 * 1024 * 1024  # an uploaded image arrives base64-encoded
+# Extra hostnames this server answers to, beyond 127.0.0.1/localhost -- e.g. a Tailscale
+# MagicDNS name, once you're reaching it through `tailscale serve` (fork v25). Off by
+# default: a wrong guess here just means another device on your tailnet can reach your
+# iBroadcast session and downloads, so it's opt-in, one env var, never auto-detected.
+# Comma-separated hostnames only, no scheme or port -- `tailscale serve` forwards whatever
+# Host your browser used, which is the tailnet name, not "127.0.0.1".
+EXTRA_HOSTS = {h.strip().lower() for h in os.environ.get("TAGCAST_EXTRA_HOSTS", "").split(",") if h.strip()}
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -44,7 +61,10 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _host_ok(self):
         host = (self.headers.get("Host") or "").lower()
-        return host in {f"127.0.0.1:{self.port}", f"localhost:{self.port}"}
+        if host in {f"127.0.0.1:{self.port}", f"localhost:{self.port}"}:
+            return True
+        hostname = host.rsplit(":", 1)[0] if host.count(":") == 1 else host  # strip a :port, keep IPv6 literals intact
+        return hostname in EXTRA_HOSTS
 
     def _json(self, status, payload):
         body = json.dumps(payload).encode()
@@ -120,7 +140,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         if not self._host_ok():
-            self.send_error(403, "Open Tagcast via http://127.0.0.1")
+            host = self.headers.get("Host") or "(no Host header)"
+            self.send_error(403, f'Open Tagcast via http://127.0.0.1, or add "{host}" to TAGCAST_EXTRA_HOSTS.')
             return
         url = urlparse(self.path)
         query = {k: v[0] for k, v in parse_qs(url.query).items()}

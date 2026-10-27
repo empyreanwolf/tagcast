@@ -17,7 +17,17 @@
 The application consists of a Python server and a plain JavaScript frontend.
 
 - `src/tagcast/app.py`: CLI, local HTTP server, API routes, OAuth callback and
-  streaming proxy. Uses `ThreadingHTTPServer` and `SimpleHTTPRequestHandler`.
+  streaming proxy. Uses `ThreadingHTTPServer` and `SimpleHTTPRequestHandler`. The socket
+  binds `127.0.0.1` only (`Server.server_bind`), and `Handler._host_ok()` separately checks
+  every request's `Host` header against that, so both layers have to agree before anything
+  touches the studio. **Remote access (fork, v25)**: `EXTRA_HOSTS`, read once at import from
+  `TAGCAST_EXTRA_HOSTS` (comma-separated hostnames, no scheme/port, same env-var convention
+  as the existing `TAGCAST_PORT`/`TAGCAST_DEBUG`), is the one opt-in addition `_host_ok()`
+  checks beyond `127.0.0.1`/`localhost` -- meant for reaching this same loopback-only socket
+  through `tailscale serve`, never for opening the bind address itself to the LAN. The 403
+  on a rejected Host names the exact value it saw, so a mismatch (e.g. if `tailscale serve`
+  doesn't forward the hostname the way this assumes, unverified from this sandbox -- no
+  network path to Tailscale here) is self-diagnosing rather than a silent dead end.
 - `src/tagcast/client.py`: `StudioClient` for iBroadcast requests; `Studio` for
   OAuth, connection state, local storage, library caching, saves and read-back jobs.
 - `src/tagcast/auth.py`: OAuth requests with timeouts; uses endpoints,

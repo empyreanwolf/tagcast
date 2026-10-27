@@ -36,6 +36,29 @@ on 8912. Close the black window to stop it.
 3. **Duplicates** → **Combined names** → **Featured in titles** → **Duplicates** again.
 4. Export each report before preparing the next preview if you want to keep it.
 
+## Using it from your phone, anywhere (v25)
+
+Tagcast only answers `http://127.0.0.1` by default -- on purpose, since it holds your
+iBroadcast sign-in and any API keys you've added, and can start downloads. To reach it from
+your phone from anywhere (not just your home WiFi), without opening it up to anyone else:
+
+1. Install [Tailscale](https://tailscale.com) on this PC and on your phone, and sign in to
+   the same Tailscale account on both (free for personal use).
+2. On this PC, run `tailscale serve --https=443 127.0.0.1:8913` (use 8913, this fork's
+   port). Run `tailscale status` to see this PC's Tailscale name, something like
+   `your-pc.tailxxxxx.ts.net`.
+3. Set a Windows environment variable `TAGCAST_EXTRA_HOSTS` to that name (System Properties
+   → Environment Variables, or `setx TAGCAST_EXTRA_HOSTS your-pc.tailxxxxx.ts.net` in a new
+   Command Prompt), then restart Tagcast so it picks it up.
+4. On your phone, with the Tailscale app running, open `https://your-pc.tailxxxxx.ts.net` in
+   the browser. "Add to Home Screen" there makes it feel like its own app.
+
+If step 4 gives a 403, the error message on the page names the exact Host it saw and didn't
+recognize -- add that one to `TAGCAST_EXTRA_HOSTS` instead (`tailscale serve`'s exact
+forwarding behavior wasn't something I could test from here). Downloads you start from your
+phone still run, and land in your Music folder, on this PC -- your phone is only the remote
+control.
+
 ## Versions
 
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
