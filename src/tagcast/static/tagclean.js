@@ -11,6 +11,11 @@ const tagcleanView = {data: null, scope: "folder", path: "", pickedArtists: new 
   genreChoice: {}, timer: null};
 
 function tagcleanHtml() {
+  // Two tabs (fork v38): the scan-before-upload tool and Recently uploaded (uploads.js).
+  return uploadsTabsHtml() + (uploadsView.sub === "uploads" ? uploadsHtml() : tagcleanScanHtml());
+}
+
+function tagcleanScanHtml() {
   const v = tagcleanView;
   if (!v.data) { tagcleanLoad(); return '<p class="muted">Loading…</p>'; }
   const d = v.data;

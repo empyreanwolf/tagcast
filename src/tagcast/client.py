@@ -820,6 +820,31 @@ class Studio:
         library, _ = self._current(self._require_client())
         return library.favourites(query, offset, limit)
 
+    def uploads(self, view="days", day=""):
+        """Recently uploaded (fork v38): upload days, one day's albums and tracks, or the flat newest list."""
+        library, _ = self._current(self._require_client())
+        checked = sorted(self.config.get("uploads_checked") or [], reverse=True)
+        if view == "day":
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(day or "")):
+                raise ApiError("Choose an upload day.")
+            return {**library.upload_day(day), "checked": day in checked}
+        if view == "recent":
+            return library.upload_recent()
+        if view != "days":
+            raise ApiError("Choose days, a day or recent uploads.")
+        return {"days": library.upload_days(), "checked": checked}
+
+    def uploads_checked(self, body):
+        day, checked = str(body.get("day") or ""), body.get("checked")
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) or type(checked) is not bool:
+            raise ApiError("Choose an upload day and whether it is checked.")
+        with self.lock:
+            days = {d for d in self.config.get("uploads_checked") or [] if isinstance(d, str)}
+            days.add(day) if checked else days.discard(day)
+            self.config["uploads_checked"] = sorted(days)[-3650:]
+            self._write("config.json", self.config)
+        return {"day": day, "checked": checked}
+
     def recently_played(self, query="", offset="0", limit="50", refresh=False):
         query = str(query or "").strip()
         try:

@@ -64,6 +64,17 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v38** **Recently uploaded: check your uploads by day.** Downloads → **Clean up** now has two
+  tabs; **Recently uploaded** mirrors iBroadcast's Date Uploaded page.
+  - **By day**: one row per upload day, newest first, with a cover mosaic, the date, albums,
+    tracks and total length. Click a day for its albums and tracks (genre, artist, album artist,
+    album, year).
+  - Anything missing or suspicious is flagged: no genre, an odd genre (Unknown, Other…), genres
+    joined with ";", no artist / album artist / album name / year / cover. **Problems only**
+    shows just those.
+  - **Edit album** opens the normal editor and Review dialog; the list refreshes after you save.
+  - **Most recent**: the flat newest-first list, like the Most Recent Uploads playlist.
+  - Tick **I checked this day** to remember a day is done (kept in Tagcast's settings).
 - **v37** **Instrumental versions are left out of "download all".** In Downloads → Galaxy, **Queue all**
   and **Download album** (artist, album and whole-album buttons) skip tracks whose title says
   Instrumental, Karaoke, Off Vocal, Backing Track, 伴奏, 纯音乐 / 純音樂, 无人声 / 無人聲 or 消音.

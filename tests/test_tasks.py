@@ -9,7 +9,7 @@ from http.server import ThreadingHTTPServer
 from unittest import mock
 
 from tagcast import app, tasks
-from tagcast.client import ApiError
+
 from tagcast.library import ConflictError
 from tagcast.tasks import TaskQueue
 
@@ -115,7 +115,7 @@ class QueueTests(unittest.TestCase):
         def run():
             calls.append(1)
             if len(calls) < 3:
-                raise ApiError("Another save is still running.")
+                raise app.ApiError("Another save is still running.")
             return {"saved": True}
 
         with mock.patch.object(tasks.time, "sleep", lambda s: REAL_SLEEP(.001)):
@@ -128,7 +128,7 @@ class QueueTests(unittest.TestCase):
         queue = TaskQueue()
 
         def run():
-            raise ApiError("Another save is still running.")
+            raise app.ApiError("Another save is still running.")
 
         with mock.patch.object(tasks, "BUSY_RETRY_SECONDS", -1):
             task = queue.submit("/api/save", "save", run, classify)
@@ -140,7 +140,7 @@ class QueueTests(unittest.TestCase):
 
         def run():
             calls.append(1)
-            raise ApiError("Choose an album or an artist.")
+            raise app.ApiError("Choose an album or an artist.")
 
         queue.submit("/api/artwork", "cover", run, classify)
         self.assertTrue(queue.wait_idle())

@@ -446,6 +446,107 @@ class Library:
             self._track_tags = index
         return self._track_tags.get(track_id, [])
 
+    # -- Recently uploaded (fork v38) ------------------------------------------------
+
+    SUSPECT_GENRES = {"unknown", "other", "others", "none", "misc", "miscellaneous", "n/a", "na", "blank",
+                      "unclassifiable", "genre", "untitled", "undefined", "various"}
+    SUSPECT_NAMES = {"", "unknown", "unknown artist", "unknown album", "untitled", "untitled album", "n/a", "na", "<unknown>"}
+
+    def upload_problems(self, track, album):
+        """Why an uploaded track's tags look wrong or missing (short codes the page words)."""
+        problems = []
+        genres = stored_genres(track)
+        if not genres:
+            problems.append("no_genre")
+        elif any(g.casefold() in self.SUSPECT_GENRES for g in genres):
+            problems.append("odd_genre")
+        elif any(";" in g for g in genres):
+            problems.append("combined_genre")
+        artist = self.artist_name(track.get("artist_id")).strip().casefold()
+        if artist in self.SUSPECT_NAMES:
+            problems.append("no_artist")
+        if self.artist_name(album.get("artist_id")).strip().casefold() in self.SUSPECT_NAMES:
+            problems.append("no_album_artist")
+        if text(album.get("name")).strip().casefold() in self.SUSPECT_NAMES:
+            problems.append("no_album")
+        if not number(track.get("year")) and not number(album.get("year")):
+            problems.append("no_year")
+        if not number(track.get("artwork_id")):
+            problems.append("no_cover")
+        return problems
+
+    def _uploaded_tracks(self):
+        """(track_id, track, album_id, album) for every active track with a stored upload date."""
+        for album_id in self.album_ids():
+            album = self.albums[album_id]
+            for track_id in self.active_track_ids(album_id):
+                track = self.tracks[track_id]
+                if uploaded_at(track):
+                    yield track_id, track, album_id, album
+
+    def upload_days(self):
+        """One entry per upload day, newest first, as iBroadcast's Date Uploaded page lists them."""
+        days = {}
+        for track_id, track, album_id, album in self._uploaded_tracks():
+            day = uploaded_at(track)[:10]
+            entry = days.setdefault(day, {"date": day, "albums": set(), "tracks": 0, "seconds": 0, "problems": 0,
+                                          "covers": [], "latest": ""})
+            entry["albums"].add(album_id)
+            entry["tracks"] += 1
+            entry["seconds"] += number(track.get("length"))
+            entry["problems"] += bool(self.upload_problems(track, album))
+            entry["latest"] = max(entry["latest"], uploaded_at(track))
+            art = number(track.get("artwork_id"))
+            if art and art not in entry["covers"] and len(entry["covers"]) < 4:
+                entry["covers"].append(art)
+        out = []
+        for entry in sorted(days.values(), key=lambda e: e["date"], reverse=True):
+            entry["albums"] = len(entry["albums"])
+            entry["covers"] = [self.art_url(a, 150) for a in entry["covers"]]
+            out.append(entry)
+        return out
+
+    def _upload_row(self, track_id, track, album_id, album):
+        problems = self.upload_problems(track, album)
+        return {"id": str(track_id), "album_id": str(album_id), "title": text(track.get("title")) or "Untitled track",
+                "track": number(track.get("track")), "artist": self.artist_name(track.get("artist_id")),
+                "album_artist": self.artist_name(album.get("artist_id")),
+                "album": text(album.get("name")) or "Untitled album",
+                "year": number(track.get("year")) or number(album.get("year")),
+                "genres": stored_genres(track), "seconds": number(track.get("length")),
+                "uploaded_at": uploaded_at(track), "cover": self.art_url(track.get("artwork_id"), 150),
+                "problems": problems}
+
+    def upload_day(self, day):
+        """Everything uploaded on one day, grouped by album."""
+        albums = {}
+        for track_id, track, album_id, album in self._uploaded_tracks():
+            if uploaded_at(track)[:10] != day:
+                continue
+            group = albums.setdefault(album_id, {"id": str(album_id), "tracks": []})
+            group["tracks"].append(self._upload_row(track_id, track, album_id, album))
+        out = []
+        for group in albums.values():
+            group["tracks"].sort(key=lambda r: (r["track"], r["title"].casefold()))
+            first = group["tracks"][0]
+            group.update({"album": first["album"], "album_artist": first["album_artist"],
+                          "year": first["year"], "cover": next((r["cover"] for r in group["tracks"] if r["cover"]), ""),
+                          "seconds": sum(r["seconds"] for r in group["tracks"]),
+                          "problems": sum(bool(r["problems"]) for r in group["tracks"]),
+                          "latest": max(r["uploaded_at"] for r in group["tracks"])})
+            out.append(group)
+        out.sort(key=lambda g: (g["latest"], g["album"].casefold()), reverse=True)
+        return {"date": day, "albums": out, "tracks": sum(len(g["tracks"]) for g in out),
+                "seconds": sum(g["seconds"] for g in out), "problems": sum(g["problems"] for g in out)}
+
+    def upload_recent(self, limit=200):
+        """The newest uploaded tracks first, like iBroadcast's Most Recent Uploads playlist."""
+        rows = [(uploaded_at(track), track_id, track, album_id, album)
+                for track_id, track, album_id, album in self._uploaded_tracks()]
+        rows.sort(key=lambda r: (r[0], r[1]), reverse=True)
+        tracks = [self._upload_row(t, tr, a, al) for _, t, tr, a, al in rows[:limit]]
+        return {"tracks": tracks, "total": len(rows), "problems": sum(bool(r["problems"]) for r in tracks)}
+
     def albums_view(self):
         return [self.album_view(i) for i in self.album_ids()]
 

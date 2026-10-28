@@ -1212,3 +1212,12 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 .tasks-list li[data-state="error"] .muted{color:#a4472f}
 @keyframes tasks-pulse{50%{opacity:.3}}
 @media (prefers-reduced-motion:reduce){.tasks-pill::before{animation:none}}
+
+/* Recently uploaded (fork v38) */
+.uploads-days{list-style:none;padding:0;margin:0}
+.uploads-day{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;width:100%;padding:10px 12px;margin:0 0 8px;border:1px solid var(--line);border-radius:8px;background:var(--palette-surface,#fff);color:var(--ink);text-align:left}
+.uploads-day:hover{background:var(--palette-tint,#edf2e7)}
+.uploads-mosaic{display:grid;grid-template-columns:repeat(2,28px);grid-template-rows:repeat(2,28px);gap:2px;border-radius:5px;overflow:hidden;background:var(--palette-line,#ccd5ca)}
+.uploads-mosaic img,.uploads-mosaic i{width:28px;height:28px;object-fit:cover;display:block}
+.uploads-cover{width:48px;height:48px;border-radius:5px;object-fit:cover}
+.uploads-bad{background:#f7ede1;color:#8a5f2a}

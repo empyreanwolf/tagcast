@@ -257,6 +257,8 @@ class Handler(SimpleHTTPRequestHandler):
         elif url.path == "/api/tags/selection":
             self._run(lambda: self.studio.tags.selection((query.get("albums") or "").split(","), query.get("track"),
                                                         {"0": False, "1": True}.get(query.get("multiple", "0"))))
+        elif url.path == "/api/uploads":
+            self._run(lambda: self.studio.uploads(query.get("view", "days"), query.get("day", "")))
         elif url.path == "/api/favourites":
             self._run(lambda: self.studio.favourites(query.get("q"), query.get("offset", "0"),
                                                    query.get("limit", "50")))
@@ -405,6 +407,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/wishlist/remove": lambda b: self.studio.wishlist.remove(b.get("ids")),
             "/api/wishlist/settings": lambda b: self.studio.wishlist.save_settings(b),
             "/api/wishlist/add": lambda b: self.studio.wishlist.add(b.get("kind"), b.get("artist"), b.get("title"), b.get("album") or ""),
+            "/api/uploads/checked": lambda b: self.studio.uploads_checked(b),
             "/api/releases/settings": lambda b: self.studio.new_releases.save_settings(b),
             "/api/releases/check": lambda b: self.studio.new_releases.check(),
             "/api/releases/seen": lambda b: self.studio.new_releases.mark_seen(),

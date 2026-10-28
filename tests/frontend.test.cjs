@@ -9892,3 +9892,51 @@ test("Queue all and Download album leave out instrumental versions (伴奏 inclu
   assert.equal(p.run(`galaxyIsInstrumental({title: "Instrumentalist Blues"})`), true, "a title that merely contains the word counts; it stays listed and downloadable by hand");
   assert.equal(p.run(`galaxyIsInstrumental({title: "Hello"})`), false);
 });
+
+// ---- Recently uploaded (fork v38) -------------------------------------------------------------
+
+test("Recently uploaded: days are listed newest first with counts, a cover mosaic and a problems count; Problems only hides clean days", async () => {
+  const p = page();
+  p.run(`uploadsView.sub = "uploads"; uploadsView.checked = new Set(["2026-10-01"]); uploadsView.days = [
+    {date: "2026-10-02", albums: 2, tracks: 14, seconds: 3000, problems: 3, covers: ["https://a/1", "https://a/2"]},
+    {date: "2026-10-01", albums: 1, tracks: 1, seconds: 125, problems: 0, covers: []}]`);
+  const html = p.run("uploadsHtml()");
+  assert.ok(html.indexOf("2026") >= 0 && html.indexOf('data-uploads-day="2026-10-02"') < html.indexOf('data-uploads-day="2026-10-01"'));
+  assert.match(html, /2 albums · 14 tracks · 50 min 00 s/);
+  assert.match(html, /1 album · 1 track · 2 min 05 s/);
+  assert.match(html, /3 to check/);
+  assert.match(html, /✓ Checked/);
+  assert.equal((html.match(/<img src=/g) || []).length, 2);
+  p.run("uploadsView.problemsOnly = true");
+  const only = p.run("uploadsHtml()");
+  assert.match(only, /2026-10-02/);
+  assert.doesNotMatch(only, /data-uploads-day="2026-10-01"/);
+});
+
+test("Recently uploaded: a day shows albums and tracks with the fields to check, flags what is wrong, and Problems only keeps just those tracks", async () => {
+  const p = page();
+  const track = (title, extra = {}) => ({id: title, album_id: "9", title, track: 1, artist: "A <b>", album_artist: "A", album: "Alb", year: 2020,
+    genres: ["Rock"], uploaded_at: "2026-10-02T09:00:00", problems: [], ...extra});
+  p.run(`uploadsView.sub = "uploads"; uploadsView.day = "2026-10-02"; uploadsView.dayData = ${JSON.stringify({date: "2026-10-02", tracks: 2, seconds: 400, problems: 1,
+    albums: [{id: "9", album: "Alb", album_artist: "A", year: 2020, cover: "", tracks: [track("Fine"), track("Bad", {genres: [], problems: ["no_genre"]})]}]})}`);
+  const all = p.run("uploadsHtml()");
+  assert.match(all, /Fine/); assert.match(all, /Bad/);
+  assert.match(all, /No genre/);
+  assert.match(all, /A &lt;b&gt;/);
+  assert.match(all, /data-uploads-edit="9"/);
+  assert.match(all, /1 with problems/);
+  p.run("uploadsView.problemsOnly = true");
+  const only = p.run("uploadsHtml()");
+  assert.doesNotMatch(only, /Fine/); assert.match(only, /Bad/);
+});
+
+test("Recently uploaded: the Most recent view is one flat list with upload time and an Edit album button per row", async () => {
+  const p = page();
+  p.run(`uploadsView.sub = "uploads"; uploadsView.mode = "recent"; uploadsView.recent = {total: 900, tracks: [
+    {id: "1", album_id: "5", title: "T", track: 1, artist: "X", album_artist: "X", album: "Z", year: 0, genres: [], uploaded_at: "2026-10-02T09:05:00", problems: ["no_year", "no_genre"]}]}`);
+  const html = p.run("uploadsHtml()");
+  assert.match(html, /2026-10-02 09:05/);
+  assert.match(html, /900/);
+  assert.match(html, /data-uploads-edit="5"/);
+  assert.match(html, /No year/);
+});

@@ -228,6 +228,11 @@ The application consists of a Python server and a plain JavaScript frontend.
   `QUEUED_PATHS` through the queue transparently. `saveDraft()` is optimistic and non-blocking
   (`runSave`, `saveFailed`, `revertLocally`). Artist pictures apply in batches of 10 via
   `apply_artist_image` and are confirmed with `check_artist_images`.
+- `src/tagcast/static/uploads.js` + `Library.upload_days/upload_day/upload_recent` (fork, v38):
+  the Clean up page's "Recently uploaded" tab. `GET /api/uploads?view=days|day|recent` reads the
+  in-memory library (no download besides the usual `_current` check); `POST /api/uploads/checked`
+  stores ticked days in `config["uploads_checked"]`. Problem codes come from
+  `Library.upload_problems`; the page words them in `uploadProblemLabels`.
 - `src/tagcast/artist_pictures.py` (fork, v27): "Artist pictures", a one-time "Run now"
   job on its own top-level sidebar page, gap-filling only -- `_missing()` reuses the same
   "album artist with no `artwork_id`" definition the Overview health stats already use,
