@@ -84,6 +84,11 @@ SYSTEM_PROMPT = (
 )
 
 
+def clean_key(value):
+    """A pasted API key without the spaces, line breaks and invisible characters a copy can add."""
+    return "".join(c for c in str(value or "") if not c.isspace() and c not in "\u200b\u200c\u200d\u2060\ufeff")
+
+
 class GeminiError(LibraryError):
     pass
 
@@ -123,17 +128,17 @@ class Gemini:
             raise GeminiError("Choose the Gemini settings.")
         with self.lock:
             if "api_key" in body:
-                key = str(body["api_key"] or "").strip()
+                key = clean_key(body["api_key"])
                 if key:
-                    if len(key) > 200 or any(c.isspace() for c in key):
+                    if len(key) > 200:
                         raise GeminiError("That Gemini API key doesn't look right.")
                     self.state["api_key"] = key
                 else:
                     self.state["api_key"] = ""
             if "tavily_api_key" in body:
-                key = str(body["tavily_api_key"] or "").strip()
+                key = clean_key(body["tavily_api_key"])
                 if key:
-                    if len(key) > 200 or any(c.isspace() for c in key):
+                    if len(key) > 200:
                         raise GeminiError("That Tavily API key doesn't look right.")
                     self.state["tavily_api_key"] = key
                 else:

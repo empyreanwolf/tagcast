@@ -92,10 +92,12 @@ class SettingsTests(unittest.TestCase):
         studio.gemini.save_settings({"api_key": ""})
         self.assertFalse(studio.gemini.configured())
 
-    def test_key_with_whitespace_is_rejected(self):
+    def test_whitespace_in_a_pasted_key_is_removed_and_an_absurd_key_is_rejected(self):
         studio = LocalStudio()
+        studio.gemini.save_settings({"api_key": "good key\nwith spaces"})
+        self.assertEqual(studio.gemini.state["api_key"], "goodkeywithspaces")
         with self.assertRaises(GeminiError):
-            studio.gemini.save_settings({"api_key": "bad key with spaces"})
+            studio.gemini.save_settings({"api_key": "x" * 201})
 
     def test_settings_persist_across_a_restart(self):
         studio = LocalStudio()
@@ -284,3 +286,10 @@ class GetSongsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PastedKeyTests(unittest.TestCase):
+    def test_a_pasted_key_loses_spaces_line_breaks_and_invisible_characters(self):
+        from tagcast.gemini import clean_key
+        self.assertEqual(clean_key(" AQ.Ab8RN6\n KOc3u​jzeQ Boo3F-T4 "), "AQ.Ab8RN6KOc3ujzeQBoo3F-T4")
+        self.assertEqual(clean_key(None), "")

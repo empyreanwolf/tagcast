@@ -64,6 +64,8 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v39** **Ask Gemini / Tavily keys: pasted spaces are removed.** A key copied with a space, line break
+  or invisible character inside is cleaned instead of refused with "That Gemini API key doesn't look right."
 - **v38** **Recently uploaded: check your uploads by day.** Downloads → **Clean up** now has two
   tabs; **Recently uploaded** mirrors iBroadcast's Date Uploaded page.
   - **By day**: one row per upload day, newest first, with a cover mosaic, the date, albums,
