@@ -145,6 +145,24 @@ def search_results(page):
     return out
 
 
+def album_search_results(page):
+    """[(url, title, artist)] from a bandcamp.com/search?item_type=a page (v46)."""
+    out = []
+    for block in re.split(r'<li class="searchresult', page)[1:]:
+        m = re.search(r'<div class="heading">\s*<a href="([^"]+)"[^>]*>\s*([^<]+?)\s*</a>', block)
+        if not m:
+            continue
+        sub = re.search(r'<div class="subhead">(.*?)</div>', block, re.S)
+        artist = ""
+        if sub:
+            plain = htmllib.unescape(re.sub(r"<[^>]+>", " ", sub.group(1)))
+            by = re.search(r"\bby\s+(.+?)\s*$", " ".join(plain.split()), re.I | re.S)
+            artist = by.group(1) if by else ""
+            artist = re.split(r"\s+(?:from|released)\b", artist, maxsplit=1)[0].strip()
+        out.append((htmllib.unescape(m.group(1)).split("?")[0].rstrip("/"), htmllib.unescape(m.group(2)).strip(), artist))
+    return out
+
+
 # -- the service -------------------------------------------------------------------------
 
 class Bandcamp(FileWorker):
@@ -323,6 +341,23 @@ class Bandcamp(FileWorker):
             except BandcampError:
                 continue
             if album_key(release["title"]) == album_key(title):
+                return release
+        return None
+
+    def find_album_by_search(self, name, title):
+        """Bandcamp's own album search (v46): the release whose title matches and whose artist
+        matches the name (either may carry extra words, like "A & B"). None when nothing fits."""
+        page = self.page(f"https://bandcamp.com/search?q={requests.utils.quote(f'{name} {title}')}&item_type=a")
+        want_artist, want_title = match.match_key(name), album_key(title)
+        for url, found_title, artist in album_search_results(page)[:8]:
+            key = match.match_key(artist)
+            if album_key(found_title) != want_title or not key or not (want_artist in key or key in want_artist):
+                continue
+            try:
+                release = self.release(url)
+            except BandcampError:
+                continue
+            if album_key(release["title"]) == want_title:
                 return release
         return None
 

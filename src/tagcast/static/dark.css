@@ -224,6 +224,7 @@
 :root[data-theme="dark"] .uploads-mosaic{background:var(--palette-line,#4d524c)}
 :root[data-theme="dark"] .uploads-bad{background:#332e29;color:#d9a974}
 :root[data-theme="dark"] #pagelist-link{background:var(--palette-surface,#1b2520)}
+:root[data-theme="dark"] .dl-stuck{color:#d2923e}
 
 /* set by hand */
 :root[data-theme="dark"]{color-scheme:dark}
@@ -463,6 +464,7 @@
 :root:not([data-theme="light"]) .uploads-mosaic{background:var(--palette-line,#4d524c)}
 :root:not([data-theme="light"]) .uploads-bad{background:#332e29;color:#d9a974}
 :root:not([data-theme="light"]) #pagelist-link{background:var(--palette-surface,#1b2520)}
+:root:not([data-theme="light"]) .dl-stuck{color:#d2923e}
 
 /* set by hand */
 :root:not([data-theme="light"]){color-scheme:dark}

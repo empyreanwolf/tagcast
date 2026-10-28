@@ -64,6 +64,25 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v46** **Tags after every download, genres into your own list, Soulseek live numbers, Bandcamp album search.**
+  - **Every download is tagged right after it is saved** (Galaxy, Bandcamp and Soulseek): the artist is
+    one field "A; B", the album artist is the first artist, and the genre is placed in one of *your*
+    genres from MusicBrainz (country and tags): hip-hop by country (Chinese, Hong Kong, Taiwan,
+    Singapore, Malaysian, Japanese, Korean, Australian, UK Rap, African), otherwise **Underground
+    Hip Hop**; Instrumental Hip Hop, Electronica, K-Pop, OST, Cantopop, Chinese Song, English Song
+    and so on by tag. A song already in exactly one of your genres is never touched again.
+  - **Clean up** now covers every genre that is not one of yours ("Hip-Hop", "Electronic",
+    "Comedy\\Experimental…", no genre), not just hip-hop. The decision page is **one line per artist**:
+    name, song count, MusicBrainz's genres, your matching genres as buttons and an "Other" box.
+    No more 300-song lists.
+  - **Soulseek**: the running row shows MB done / total, MB/s and the current file, turns yellow
+    after 2 minutes without data, red after 10, and after **30 minutes with no data it is cancelled**
+    and the next source (or the wishlist) takes over. Numbers Sockseek doesn't report are left out.
+  - **Bandcamp**: if the artist page has no match, Bandcamp's own album search is tried; when it
+    still fails, the reason is shown in the result and `tagcast.log`.
+  - **Galaxy line**: no more false "Galaxy thread stopped unexpectedly" when only Soulseek/Bandcamp
+    items were waiting.
+  - **Discography**: instrumental albums (incl. "Petestrumentals") are tagged and start unticked.
 - **v45** **Downloads → From a page, and Galaxy now comes before Soulseek.**
   - **From a page** (new Downloads tab, next to Check): paste the link of a page with a list of
     albums (a "best of 2024" article, a Reddit thread, a Wikipedia list, a public Spotify

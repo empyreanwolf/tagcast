@@ -19,7 +19,7 @@ MP3 = (Path(__file__).parent / "fixtures" / "galaxy-silence.mp3").read_bytes()
 def library():
     raw = library_data()
     lib = raw["library"]
-    lib["tracks"]["102"]["genre"] = "Hip-Hop"  # Company Flow (US) - should become Underground Hip Hop
+    lib["tracks"]["102"]["genre"] = "Hip-Hop/Rap"  # Company Flow (US) - should become Underground Hip Hop
     lib["artists"]["5"] = {"name": "Gai"}
     lib["tracks"]["106"] = {"title": "Freestyle", "artist_id": 5, "album_id": 99, "genre": "Rap"}  # Chinese, via MB
     lib["artists"]["6"] = {"name": "Mystery Artist"}
@@ -51,6 +51,7 @@ class LocalStudio(DownloadsStudio):
         self.library = Library(library())
         self.http = FakeHttp({"/ws/2/artist": mb_artist})
         self.tagclean = TagClean(self, http=self.http)
+        self.tagclean.genres = lambda: ["Underground Hip Hop", "Chinese Hip Hop", "Electronica", "English Song"]  # your own list
         self.saved = []
 
     def save(self, changes):
@@ -98,8 +99,10 @@ class LibraryScanTests(unittest.TestCase):
         self.assertEqual(by_title["Blind"]["new_genre"], "Underground Hip Hop")  # Company Flow, US
         self.assertEqual(by_title["Freestyle"]["new_genre"], "Chinese Hip Hop")  # Gai, CN
         # An artist MusicBrainz can't place with confidence needs a manual decision instead of a guess.
-        decide = {d["artist"]: d["rows"] for d in view["needs_decision"]}
-        self.assertEqual([r["title"] for r in decide["Mystery Artist"]], ["Who Knows"])
+        decide = {d["artist"]: d for d in view["needs_decision"]}
+        self.assertEqual(decide["Mystery Artist"]["count"], 1)
+        self.assertNotIn("rows", decide["Mystery Artist"])  # one short line per artist, never the songs
+        self.assertIn("Underground Hip Hop", decide["Mystery Artist"]["suggestions"])
 
     def test_apply_genre_writes_through_studio_save(self):
         studio = LocalStudio()
@@ -109,7 +112,9 @@ class LibraryScanTests(unittest.TestCase):
         result = studio.tagclean.apply_genre([row["id"]])
         self.assertEqual(result["results"], [{"id": row["id"], "status": "saved"}])
         self.assertEqual(studio.library.tracks[102]["genre"], "Underground Hip Hop")
-        self.assertEqual([r["title"] for r in studio.tagclean.view()["genre_ready"]], ["Freestyle"])
+        ready = [r["title"] for r in studio.tagclean.view()["genre_ready"]]
+        self.assertNotIn("Blind", ready)
+        self.assertIn("Freestyle", ready)
 
     def test_assign_genre_for_a_needs_decision_group(self):
         studio = LocalStudio()
@@ -117,9 +122,9 @@ class LibraryScanTests(unittest.TestCase):
         wait(studio.tagclean)
         group = next(d for d in studio.tagclean.view()["needs_decision"] if d["artist"] == "Mystery Artist")
         with self.assertRaises(LibraryError):
-            studio.tagclean.assign_genre([group["rows"][0]["id"]], "   ")
-        result = studio.tagclean.assign_genre([group["rows"][0]["id"]], "underground hip hop")
-        self.assertEqual(result["results"], [{"id": group["rows"][0]["id"], "status": "saved"}])
+            studio.tagclean.assign_genre(group["ids"], "   ")
+        result = studio.tagclean.assign_genre(group["ids"], "underground hip hop")
+        self.assertEqual(result["results"], [{"id": group["ids"][0], "status": "saved"}])
         self.assertEqual(studio.library.tracks[111]["genre"], "Underground Hip Hop")
         self.assertNotIn("Mystery Artist", [d["artist"] for d in studio.tagclean.view()["needs_decision"]])
 
@@ -140,7 +145,7 @@ class FolderScanTests(unittest.TestCase):
             path = Path(tmp) / "song.mp3"
             path.write_bytes(MP3)
             write_tags(path, "mp3", title="Track One", artists=["Artist A feat. Artist B"], album_artist="Artist A",
-                      album="Demo", track_no=1, track_total=1, genre="Hip-Hop")
+                      album="Demo", track_no=1, track_total=1, genre="Hip-Hop/Rap")
             studio.tagclean.scan("folder", str(tmp))
             view = wait(studio.tagclean)
             self.assertEqual(len(view["artist_ready"]), 1)
@@ -179,10 +184,6 @@ class SettingsTests(unittest.TestCase):
         self.assertIn("feat.", reset["separators"])  # falls back to the defaults
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class Mp3tagStyleTests(unittest.TestCase):
     """Fork v41: the artist field is written the way it is typed in Mp3tag, and any genre can be set."""
 
@@ -219,7 +220,7 @@ class Mp3tagStyleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path, view = self.scan(studio, tmp, artists=["Artist A"], genre="")
             group = next(d for d in view["needs_decision"] if d["artist"] == "Artist A")
-            studio.tagclean.assign_genre([group["rows"][0]["id"]], "  Mandopop  ")
+            studio.tagclean.assign_genre(group["ids"], "  Mandopop  ")
             from tagcast.tagclean import read_tags
             self.assertEqual(read_tags(path, "mp3")["genre"], "Mandopop")
 
@@ -238,3 +239,59 @@ class SettledGenreTests(unittest.TestCase):
             view = wait(studio.tagclean)
             self.assertEqual(view["needs_decision"], [])
             self.assertEqual(view["genre_ready"], [])
+
+
+class PlacingTests(unittest.TestCase):
+    """Fork v46: anything that is not already one of your genres is placed from MusicBrainz."""
+    LABELS = ["Underground Hip Hop", "Chinese Hip Hop", "Taiwan Hip Hop", "Electronica", "English Song", "Chinese Song", "Instrumental Hip Hop"]
+
+    def test_rules(self):
+        from tagcast.tagclean import genre_settled, pick_label
+        info = lambda country, *tags: {"found": True, "country": country, "area": "", "tags": list(tags)}
+        self.assertEqual(pick_label(info("US", "hip hop"), ["Hip-Hop"], self.LABELS), ("Underground Hip Hop", True))  # the default
+        self.assertEqual(pick_label(info("TW", "rap"), [], self.LABELS), ("Taiwan Hip Hop", True))
+        self.assertEqual(pick_label(info("CN", "hip hop"), [], self.LABELS), ("Chinese Hip Hop", True))
+        self.assertEqual(pick_label(info("US", "instrumental hip hop"), [], self.LABELS), ("Instrumental Hip Hop", True))
+        self.assertEqual(pick_label(info("DE", "techno"), ["Electronic"], self.LABELS), ("Electronica", True))
+        self.assertEqual(pick_label(info("GB", "pop"), [], self.LABELS), ("English Song", True))
+        self.assertEqual(pick_label(info("FR", "comedy"), ["Comedy"], self.LABELS)[0], None)  # asked, not guessed
+        self.assertEqual(pick_label({"found": False}, ["Electronic"], self.LABELS), ("Electronica", False))  # a guess is only offered
+        self.assertTrue(genre_settled(["english song"], self.LABELS))
+        self.assertFalse(genre_settled(["English Song", "Pop"], self.LABELS))  # two values: not in a hole
+        self.assertFalse(genre_settled(["Comedy"], self.LABELS))
+
+    def test_a_download_is_tagged_right_after_it_is_saved(self):
+        studio = LocalStudio()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "d.mp3"
+            path.write_bytes(MP3)
+            write_tags(path, "mp3", title="D", artists=["Artist A", "Artist B"], album_artist="Artist B", album="Demo",
+                       track_no=1, track_total=1, genre="Hip-Hop/Rap")
+            studio.tagclean.tidy_downloaded([path])
+            for _ in range(200):
+                if not studio.tagclean.tidy_thread:
+                    break
+                time.sleep(0.02)
+            from tagcast.tagclean import read_tags
+            after = read_tags(path, "mp3")
+            self.assertEqual(after["artists"], ["Artist A; Artist B"])
+            self.assertEqual(after["album_artist"], "Artist A")
+            self.assertEqual(after["genre"], "Underground Hip Hop")
+            self.assertEqual(studio.tagclean.state["rows"], [])
+
+    def test_an_artist_that_cannot_be_placed_waits_on_the_decision_page_with_its_artist_tag_fixed(self):
+        studio = LocalStudio()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "m.mp3"
+            path.write_bytes(MP3)
+            write_tags(path, "mp3", title="M", artists=["Mystery Artist feat. Z"], album_artist="x", album="Demo",
+                       track_no=1, track_total=1, genre="Comedy")
+            studio.tagclean.tidy_file(str(path))
+            from tagcast.tagclean import read_tags
+            self.assertEqual(read_tags(path, "mp3")["artists"], ["Mystery Artist; Z"])
+            group = studio.tagclean.view()["needs_decision"][0]
+            self.assertEqual((group["artist"], group["count"]), ("Mystery Artist", 1))
+
+
+if __name__ == "__main__":
+    unittest.main()

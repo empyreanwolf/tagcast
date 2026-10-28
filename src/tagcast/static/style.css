@@ -1207,3 +1207,6 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 .dl-cover{border-radius:4px;object-fit:cover;flex:none}
 #pagelist-link{flex:1;min-width:0;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;background:var(--palette-surface,#fff);color:var(--ink)}
 [data-pagelist-text-box]{margin:8px 0}
+.dl-stuck{color:#b7791f;font-weight:600}
+.tagclean-artist{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between;padding:6px 0}
+.tagclean-artist .dl-actions{margin:0;flex-wrap:wrap}

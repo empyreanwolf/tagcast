@@ -10019,3 +10019,31 @@ test("From a page: lists every album with its status, ticks only sure New ones, 
   p.run("pagelistView.picked = new Set()");
   assert.match(p.run("pagelistHtml()"), /data-pagelist-get disabled/);
 });
+
+// ---- fork v46 -----------------------------------------------------------------------------------
+
+test("v46: the genre decision page is one line per artist with MusicBrainz genres and your genres as buttons, never song lists", async () => {
+  const p = page();
+  p.run(`tagcleanView.data = {genres: ["Underground Hip Hop", "Electronica"], separators: [], artist_ready: [], genre_ready: [], scanned: 1,
+    needs_decision: [{artist: "Some <b>Guy", count: 300, ids: ["a", "b"], suggestions: ["Electronica", "Underground Hip Hop"], tags: ["techno", "house"], current: ""}]}`);
+  const html = p.run("tagcleanDecisionHtml()");
+  assert.match(html, /Some &lt;b&gt;Guy/);
+  assert.match(html, /300 songs/);
+  assert.match(html, /MusicBrainz: techno, house/);
+  assert.match(html, /data-genre="Electronica"/);
+  assert.match(html, /data-ids="a,b"/);
+  assert.doesNotMatch(html, /<ul class="dl-list"><li><div>/);
+});
+
+test("v46: Soulseek items waiting in the queue never make the Galaxy line say its thread stopped; instrumental albums start unticked", async () => {
+  const p = page();
+  p.run(`downloadsView.galaxy = {api: {used: 0, quota: 45}, paused: false, running: false};
+    downloadsView.queue = [{id: "1", source: "soulseek", state: "queued", payload: {x: 1}}, {id: "2", source: "soulseek", state: "queued", payload: {x: 1}}]`);
+  const idle = p.run("galaxyStatusHtml()");
+  assert.doesNotMatch(idle, /stopped unexpectedly/i);
+  p.run(`downloadsView.queue = [{id: "3", source: "galaxy", state: "queued", payload: {x: 1}}]`);
+  assert.match(p.run("galaxyStatusHtml()"), /stopped unexpectedly/i);
+  assert.equal(p.run(`discographyIsInstrumental({title: "NY's Finest (Instrumentals)"})`), true);
+  assert.equal(p.run(`discographyIsInstrumental({title: "Petestrumentals 4"})`), true);
+  assert.equal(p.run(`discographyIsInstrumental({title: "Soul Survivor II"})`), false);
+});

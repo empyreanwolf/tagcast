@@ -173,3 +173,15 @@ class ServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AlbumSearchTests(unittest.TestCase):
+    def test_album_search_results_are_read_with_their_artist(self):
+        from tagcast.bandcamp import album_search_results
+        page = ('<li class="searchresult data-search"><div class="result-info"><div class="itemtype">ALBUM</div>'
+                '<div class="heading"><a href="https://pr.bandcamp.com/album/soul-survivor?from=search">Soul Survivor</a></div>'
+                '<div class="subhead">by Pete Rock</div></div></li>'
+                '<li class="searchresult data-search"><div class="heading"><a href="https://x.bandcamp.com/album/y">Y &amp; Z</a></div>'
+                '<div class="subhead">from Some Label\n by Other</div></li>')
+        self.assertEqual(album_search_results(page), [("https://pr.bandcamp.com/album/soul-survivor", "Soul Survivor", "Pete Rock"),
+                                                      ("https://x.bandcamp.com/album/y", "Y & Z", "Other")])

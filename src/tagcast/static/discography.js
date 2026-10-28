@@ -46,7 +46,7 @@ function discographyResultsHtml() {
     <ul class="discography-list">${shown.map(r => `<li class="${r.status}">
       <input type="checkbox" data-discography-pick="${escapeHtml(r.title)}" aria-label="Select ${escapeHtml(r.title)}" ${view.picked.has(r.title) ? "checked" : ""}>
       ${bandcampThumb(r.cover, "galaxy-album-art")}
-      <div><b>${escapeHtml(r.title)}</b><div class="muted">${[r.year, ({album: "Album", ep: "EP", single: "Single", compile: "Compilation"})[r.type], r.tracks ? `${r.tracks} tracks` : "", r.genre].filter(Boolean).map(escapeHtml).join(" · ")}</div>
+      <div><b>${escapeHtml(r.title)}</b>${discographyIsInstrumental(r) ? ' <span class="pill">Instrumental</span>' : ""}<div class="muted">${[r.year, ({album: "Album", ep: "EP", single: "Single", compile: "Compilation"})[r.type], r.tracks ? `${r.tracks} tracks` : "", r.genre].filter(Boolean).map(escapeHtml).join(" · ")}</div>
         <div class="muted discography-sources">${escapeHtml(r.sources.join(", "))}</div></div>
       <div>${discographyBadge(r.status)}<div class="dl-have">${downloadsYouHave(r.you_have)}</div></div></li>`).join("") || '<li class="muted">No releases of these types.</li>'}</ul>
     ${discographyTopHtml()}`;
@@ -87,7 +87,7 @@ async function discographyLoad(options = {}) {
     const data = await api("/api/discography", {name: view.name, deezer_id: options.deezerId || null, musicbrainz: Boolean(options.musicbrainz), refresh: Boolean(options.refresh)});
     if (request !== view.request) return;
     view.data = data;
-    if (!options.keep) for (const r of data.releases) if (["missing", "partly"].includes(r.status) && view.types.has(r.type)) view.picked.add(r.title);
+    if (!options.keep) for (const r of data.releases) if (["missing", "partly"].includes(r.status) && view.types.has(r.type) && !discographyIsInstrumental(r)) view.picked.add(r.title);
     setActionStatus("#downloads-status", "");
   } catch (error) {
     if (request === view.request) downloadsError(error);
@@ -100,6 +100,9 @@ async function discographyLoad(options = {}) {
   } catch (error) { view.top = {source: "nowhere", songs: [], error: error.message}; }
   if (request === view.request && downloadsView.tab === "discography") renderDownloads();
 }
+
+// Instrumental albums (v46) are shown with a tag but never ticked for you; tick one by hand to get it.
+const discographyIsInstrumental = r => galaxyIsInstrumental({title: r?.title || ""});
 
 async function discographyGet(albums, songs) {
   const view = discographyView;
@@ -151,7 +154,7 @@ document.addEventListener("click", event => {
   else if (action === "musicbrainz") discographyLoad({keep: true, musicbrainz: true, deezerId: view.data?.artist?.id});
   else if (action === "refresh") discographyLoad({refresh: true, deezerId: view.data?.artist?.id});
   else if (action === "pick-missing") {
-    view.picked = new Set(view.data.releases.filter(r => view.types.has(r.type) && ["missing", "partly"].includes(r.status)).map(r => r.title)); renderDownloads();
+    view.picked = new Set(view.data.releases.filter(r => view.types.has(r.type) && ["missing", "partly"].includes(r.status) && !discographyIsInstrumental(r)).map(r => r.title)); renderDownloads();
   } else if (action === "pick-none") { view.picked.clear(); renderDownloads(); }
   else if (action === "pick-songs") { view.pickedSongs = new Set(view.top.songs.filter(s => s.status === "missing").map(s => s.title)); renderDownloads(); }
   else if (action === "close-job") { view.job = null; renderDownloads(); }

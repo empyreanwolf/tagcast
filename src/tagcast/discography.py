@@ -304,20 +304,36 @@ class Discography:
                 log.info("Bandcamp search failed: %s", error)
         return ctx["bandcamp"]
 
+    def _bandcamp_album(self, name, title, ctx):
+        """("Bandcamp", note) when queued, else a short reason Bandcamp was skipped."""
+        bandcamp = self.studio.bandcamp
+        reason = "no artist with this exact name"
+        try:
+            base = self._bandcamp_base(name, ctx, [title])
+            release = None
+            if base:
+                reason = "artist found, album not on their page"
+                release = bandcamp.find_album(base, title)
+            if not release:
+                release = bandcamp.find_album_by_search(name, title)
+                if not release and not base:
+                    reason = "not found by artist or album search"
+            if release:
+                return "Bandcamp", self._summary(bandcamp.add(release["url"]))
+        except Exception as error:
+            reason = f"search failed ({error})"
+        log.info("Bandcamp skipped %s - %s: %s", name, title, reason)
+        return reason
+
     def _album(self, name, title, status, deezer_id, ctx):
-        # 1. Bandcamp
-        base = self._bandcamp_base(name, ctx, [title])
-        if base:
-            try:
-                release = self.studio.bandcamp.find_album(base, title)
-                if release:
-                    return "Bandcamp", self._summary(self.studio.bandcamp.add(release["url"]))
-            except LibraryError as error:
-                log.info("Bandcamp album failed: %s", error)
+        # 1. Bandcamp: the artist's page first, then Bandcamp's own album search (v46)
+        why = self._bandcamp_album(name, title, ctx)
+        if isinstance(why, tuple):
+            return why
         # 2. Galaxy
         source, note = self._galaxy_album(name, title)
         if source:
-            return source, note
+            return source, f"{note} (Bandcamp: {why})"
         # 3. Soulseek (whole albums only; a partly owned album would be fetched again)
         soulseek = getattr(self.studio, "soulseek", None)
         if soulseek is not None and soulseek.configured() and status != "partly":

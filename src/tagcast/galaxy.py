@@ -1019,6 +1019,12 @@ class Galaxy:
                                  format=fmt, speed=0, eta=0, year=year, genre=genre, track_no=track_no)
         self.manager.record({"title": job["title"], "artists": p["artists"], "album": p["album"],
                              "source": "galaxy", "path": str(final)})
+        tagclean = getattr(self.studio, "tagclean", None)  # v46: artist "A; B", album artist, genre
+        if tagclean is not None:
+            try:
+                tagclean.tidy_downloaded([final])
+            except Exception:
+                log.exception("Could not queue the tag clean-up for a download")
 
     def get_link(self, job):
         p = job["payload"]

@@ -90,6 +90,15 @@ class FileWorker:
         if self.active and self.cancel_id == self.active:
             raise JobCancelled()
 
+    def _tidy(self, paths):
+        """v46: artist "A; B", album artist = the first one and a genre from your list, right after the save."""
+        tagclean = getattr(self.studio, "tagclean", None)
+        if tagclean is not None:
+            try:
+                tagclean.tidy_downloaded(paths)
+            except Exception:
+                log.exception("Could not queue the tag clean-up for a download")
+
     def _step(self, item_id, idx, detail="", **extra):
         self.manager.update_item(item_id, step=idx, step_detail=detail, **extra)
 
@@ -236,4 +245,5 @@ class FileWorker:
                                  format=fmt, speed=0, eta=0, year=year, track_no=track_no)
         self.manager.record({"title": title, "artists": artists, "album": album, "source": self.source,
                              "path": str(final)})
+        self._tidy([final])
         return final

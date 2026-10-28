@@ -36,6 +36,46 @@ CONF_FILE = "sockseek.conf"
 NAME_FORMAT = "{albumartist|sartist|artist}/{album|salbum}/{track( - )title|slsk-filename}"
 MAX_ACTIVE = 2
 POLL = 2.0
+STUCK_CANCEL = 30 * 60   # no data at all for this long: cancel and move on (v46)
+STUCK_WARN = 120         # the queue row turns yellow after this many seconds without data
+DONE_KEYS = ("bytesTransferred", "transferredBytes", "bytesDownloaded", "downloadedBytes", "bytesReceived", "bytesDone")
+SIZE_KEYS = ("size", "totalBytes", "fileSize", "sizeBytes", "length", "bytesTotal")
+
+
+def _first_number(data, keys):
+    for key in keys:
+        value = data.get(key) if isinstance(data, dict) else None
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+    return None
+
+
+def transfer_stats(payload):
+    """Best-effort numbers from a Sockseek job: (bytes done, bytes total, files done, files total,
+    the file being downloaded). Whatever Sockseek does not report stays 0 / empty."""
+    songs = payload.get("tracks") if payload.get("kind") == "album" else [payload]
+    done = total = 0.0
+    files_done = 0
+    current = ""
+    songs = [s for s in songs or [] if isinstance(s, dict)]
+    for s in songs:
+        path = s.get("downloadPath")
+        size = _first_number(s, SIZE_KEYS) or 0.0
+        got = _first_number(s, DONE_KEYS)
+        if path and got is None:
+            try:
+                got = float(os.path.getsize(path))
+            except OSError:
+                got = 0.0
+            files_done += 1
+        elif path:
+            files_done += 1
+        elif not current:
+            q = s.get("query") or {}
+            current = str(q.get("title") or Path(str(s.get("filename") or s.get("file") or "")).name or "")
+        done += got or 0.0
+        total += max(size, got or 0.0) if size or got else 0.0
+    return done, total, files_done, len(songs), current
 
 
 class SoulseekError(LibraryError):
@@ -56,6 +96,7 @@ class Soulseek:
         if http is None:
             self.session.trust_env = False  # localhost: never through a proxy
         self.popen = popen or subprocess.Popen
+        self.seen = {}  # item id -> live transfer readings (v46)
         self.process = None
         atexit.register(self._kill)  # a Sockseek that Tagcast started stops with Tagcast
         self.lock = threading.RLock()
@@ -332,6 +373,38 @@ class Soulseek:
         self.manager.update_item(item["id"], persist=True, job_id=job["jobId"], step=0,
                                  step_detail="Searching Soulseek…", started=time.time())
 
+    def _live(self, item, phase, text, progress, payload):
+        """Speed, MB done, the current file and "no data for X" for one running job (v46).
+        Nothing arriving for 30 minutes cancels it so the next source (or the wishlist) takes over."""
+        now = time.time()
+        done, total, files_done, files, current = transfer_stats(payload)
+        seen = self.seen.setdefault(item["id"], {"sig": None, "at": now, "mb": 0.0, "t": now, "speed": 0.0})
+        signature = (round(done), files_done, progress, phase)
+        if signature != seen["sig"]:
+            seen["sig"], seen["at"] = signature, now
+        if now - seen["t"] >= 2:
+            seen["speed"] = max(0.0, (done - seen["mb"]) / 1048576) / (now - seen["t"]) if done else 0.0
+            seen["mb"], seen["t"] = done, now
+        idle = int(now - seen["at"])
+        parts = [text]
+        if total or done:
+            parts.append(f"{done / 1048576:.1f}" + (f" / {total / 1048576:.1f} MB" if total else " MB"))
+        if seen["speed"] > 0:
+            parts.append(f"{seen['speed']:.2f} MB/s")
+        if current and phase == "Downloading":
+            parts.append(current)
+        if phase == "Downloading" and idle >= 60:
+            parts.append(f"no data for {idle // 60} min" if idle >= 120 else f"no data for {idle} s")
+        self.manager.update_item(item["id"], step=1 if phase == "Downloading" else 0, step_detail=" · ".join(parts),
+                                 progress=progress, speed=round(seen["speed"], 2), idle=idle if phase == "Downloading" else 0)
+        if phase == "Downloading" and idle >= STUCK_CANCEL:
+            try:
+                self._call("POST", f"/api/jobs/{item['job_id']}/cancel")
+            except SoulseekError:
+                pass
+            self.seen.pop(item["id"], None)
+            self._fail(item, f"Soulseek sent nothing for {STUCK_CANCEL // 60} minutes - cancelled")
+
     def _follow(self, item):
         try:
             detail = self._call("GET", f"/api/jobs/{item['job_id']}")
@@ -355,7 +428,7 @@ class Soulseek:
         elif payload.get("progressPercent") is not None:
             progress = int(float(payload.get("progressPercent") or 0))
         if summary.get("lifecycleState") != "Terminal":
-            self.manager.update_item(item["id"], step=1 if phase == "Downloading" else 0, step_detail=text, progress=progress)
+            self._live(item, phase, text, progress, payload)
             return
         outcome = summary.get("terminalOutcome")
         if outcome in ("Succeeded", "PartialSuccess"):
@@ -364,6 +437,13 @@ class Soulseek:
                 self.manager.record({"title": f["title"], "artists": [f["artist"] or item["artist"]],
                                      "album": f["album"] or (item["title"] if item["kind"] == "album" else item.get("album", "")),
                                      "source": "soulseek", "path": f["path"]})
+            self.seen.pop(item["id"], None)
+            tagclean = getattr(self.studio, "tagclean", None)
+            if tagclean is not None and files:
+                try:
+                    tagclean.tidy_downloaded([f["path"] for f in files])
+                except Exception:
+                    log.exception("Could not queue the tag clean-up for a Soulseek download")
             first = files[0]["path"] if files else ""
             note = f"Saved {len(files)} {'file' if len(files) == 1 else 'files'}" + (" (some failed)" if outcome == "PartialSuccess" else "")
             self.manager.update_item(item["id"], persist=True, state="done", step=4, progress=100, finished=time.time(),

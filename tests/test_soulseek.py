@@ -152,6 +152,30 @@ class SoulseekTests(unittest.TestCase):
         self.assertEqual(set(history), {"Square One", "What If"})
         self.assertEqual(history["What If"]["artists"], ["Coldplay"])
 
+    def test_live_numbers_and_a_stuck_download_is_cancelled_after_thirty_minutes(self):
+        from tagcast.soulseek import transfer_stats
+        payload = {"kind": "album", "tracks": [
+            {"query": {"title": "A"}, "downloadPath": "", "bytesTransferred": 3145728, "size": 6291456},
+            {"query": {"title": "B"}, "bytesTransferred": 0, "size": 6291456}]}
+        done, total, files_done, files, current = transfer_stats(payload)
+        self.assertEqual((done, total, files_done, files, current), (3145728.0, 12582912.0, 0, 2, "A"))
+        configure(self.studio)
+        self.s.add([{"kind": "album", "artist": "Coldplay", "album": "X&Y"}])
+        self.s.tick()
+        item = self.studio.download_manager.state["queue"][0]
+        self.s._live(self.studio.download_manager.item(item["id"]), "Downloading", "0 of 2 files", 0, payload)
+        shown = self.studio.download_manager.item(item["id"])
+        self.assertIn("3.0 / 12.0 MB", shown["step_detail"])
+        self.assertEqual(shown["idle"], 0)
+        self.s.seen[item["id"]]["at"] -= 130  # nothing arrived for two minutes
+        self.s._live(self.studio.download_manager.item(item["id"]), "Downloading", "0 of 2 files", 0, payload)
+        self.assertIn("no data for 2 min", self.studio.download_manager.item(item["id"])["step_detail"])
+        self.s.seen[item["id"]]["at"] -= 31 * 60
+        self.s._live(self.studio.download_manager.item(item["id"]), "Downloading", "0 of 2 files", 0, payload)
+        failed = self.studio.download_manager.item(item["id"])
+        self.assertEqual(failed["state"], "failed")
+        self.assertIn("30 minutes", failed["note"])
+
     def test_failure_tries_the_next_source(self):
         configure(self.studio)
         tried = []

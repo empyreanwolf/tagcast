@@ -25,8 +25,11 @@ function galaxyThumb(source, picId, size, cls = "") {
 function galaxyStatusHtml() {
   const g = downloadsView.galaxy, queue = downloadsView.queue || [];
   if (!g) return "";
-  const active = queue.find(i => i.state === "active");
-  const waiting = queue.filter(i => i.state === "queued" && i.payload).length;
+  // Only Galaxy's own items (v46): Soulseek or Bandcamp items waiting in the shared queue used to
+  // make this say "the Galaxy thread stopped unexpectedly" while Galaxy simply had nothing to do.
+  const mine = queue.filter(i => (i.source || "galaxy") === "galaxy");
+  const active = mine.find(i => i.state === "active");
+  const waiting = mine.filter(i => i.state === "queued" && i.payload).length;
   const api = `API ${g.api.used}/${g.api.quota} in 5 min${g.api.wait ? ` · waiting ${g.api.wait} s for the API limit` : ""}`;
   // "running" is the backend thread's own pulse (fork v29): false here, with work still
   // waiting, means it died -- the server's watchdog restarts it within a few seconds on its
@@ -71,7 +74,7 @@ function galaxyIntroHtml() {
 
 // Instrumental / karaoke versions (fork v37): left out of "Queue all" and "Download album" but
 // still listed, tagged, and downloadable one by one or with "Download selected".
-const galaxyInstrumentalWords = /instrumental|karaoke|off[\s-]?vocal|backing[\s-]?track|伴奏|纯音乐|純音樂|无人声|無人聲|消音|卡拉\s?ok/i;
+const galaxyInstrumentalWords = /strumental|karaoke|off[\s-]?vocal|backing[\s-]?track|伴奏|纯音乐|純音樂|无人声|無人聲|消音|卡拉\s?ok/i;
 const galaxyIsInstrumental = t => galaxyInstrumentalWords.test(t?.title || "");
 const galaxyWanted = tracks => tracks.filter(t => !galaxyIsInstrumental(t));
 

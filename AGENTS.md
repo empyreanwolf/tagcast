@@ -139,6 +139,11 @@ The application consists of a Python server and a plain JavaScript frontend.
   could change without notice, which wasn't worth building on. Browse results share the same
   cache/jobs/progress dicts as the fixed tabs, keyed by a synthetic `browse:<source>:...` id
   instead of one of the six `CHARTS` keys, so `get()`/`jobs_view()` need no changes at all.
+- `tagclean.py` (v46): genre placing is `candidate_labels` / `pick_label` (MusicBrainz country + tags
+  -> YOUR genres only); `_mb_info` caches `{found,country,tags}` per artist; `tidy_downloaded` is
+  called by Galaxy/Bandcamp/Soulseek after each save (background, serial). The decision page gets
+  one row per artist (`ids`, `suggestions`, `tags`), never song rows. Soulseek `_live` computes
+  speed / idle and cancels after `STUCK_CANCEL`.
 - `src/tagcast/pagelist.py` (fork, v45; Downloads → "From a page", `static/pagelist.js`): reads a
   link (Reddit `.json`, Wikipedia API, Spotify embed via `Charts._spotify`, else generic HTML:
   JSON-LD, list items, headings, table rows) or pasted text into Artist/Album candidates, verifies

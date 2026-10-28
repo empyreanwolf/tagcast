@@ -70,16 +70,14 @@ function tagcleanGenreHtml() {
 function tagcleanDecisionHtml() {
   const v = tagcleanView, groups = v.data.needs_decision || [];
   if (!groups.length) return "";
+  // One short line per artist (v46): the name, how many songs, MusicBrainz's genres and your genres that fit as buttons.
   return `<section class="dl-card"><h3>Needs your decision (${groups.length} artist${groups.length === 1 ? "" : "s"})</h3>
-      <p class="muted">No genre yet, or MusicBrainz couldn't place the artist with confidence, so nothing was guessed. Type a genre or pick one of yours, and it's applied to every song listed for that artist at once, like select all → Genre in Mp3tag.</p>
+      <p class="muted">Tagcast couldn't place these artists with confidence. MusicBrainz's own genres are shown beside each name; click one of your genres, or type another, and it applies to every song by that artist.</p>
       <datalist id="tagclean-genres">${v.data.genres.map(gn => `<option value="${escapeHtml(gn)}"></option>`).join("")}</datalist>
-      ${groups.map(g => {
-        const ids = g.rows.map(r => r.id).join(",");
-        return `<div class="dl-card"><b>${escapeHtml(g.artist)}</b> (${g.rows.length})
-          <ul class="dl-list">${g.rows.map(r => `<li><div>${escapeHtml(r.title)}${tagcleanWhere(r)} (${r.current_genre ? `currently “${escapeHtml(r.current_genre)}”` : "no genre"})</div></li>`).join("")}</ul>
-          <div class="dl-actions"><input class="dl-path" list="tagclean-genres" maxlength="100" data-tagclean-decide="${escapeHtml(g.artist)}" value="${escapeHtml(v.genreChoice[g.artist] || "")}" placeholder="Type or choose a genre" aria-label="Genre for ${escapeHtml(g.artist)}">
-            <button type="button" class="button primary" data-tagclean-apply-decide="${escapeHtml(g.artist)}" data-ids="${ids}">Apply to ${escapeHtml(g.artist)}</button></div></div>`;
-      }).join("")}</section>`;
+      <ul class="dl-list tagclean-artists">${groups.map(g => `<li class="tagclean-artist"><div><b>${escapeHtml(g.artist)}</b> <span class="muted">${g.count} song${g.count === 1 ? "" : "s"}${g.tags?.length ? ` · MusicBrainz: ${g.tags.map(escapeHtml).join(", ")}` : g.current ? ` · now “${escapeHtml(g.current)}”` : " · not on MusicBrainz"}</span></div>
+          <div class="dl-actions">${(g.suggestions || []).map(l => `<button type="button" class="button small" data-tagclean-apply-decide="${escapeHtml(g.artist)}" data-ids="${g.ids.join(",")}" data-genre="${escapeHtml(l)}">${escapeHtml(l)}</button>`).join("")}
+            <input class="dl-path" list="tagclean-genres" maxlength="100" data-tagclean-decide="${escapeHtml(g.artist)}" value="${escapeHtml(v.genreChoice[g.artist] || "")}" placeholder="Other genre…" aria-label="Genre for ${escapeHtml(g.artist)}">
+            <button type="button" class="button" data-tagclean-apply-decide="${escapeHtml(g.artist)}" data-ids="${g.ids.join(",")}">Apply</button></div></li>`).join("")}</ul></section>`;
 }
 
 async function tagcleanLoad() {
@@ -123,7 +121,7 @@ document.addEventListener("click", event => {
   const decideButton = target.closest("[data-tagclean-apply-decide]");
   if (decideButton) {
     const artist = decideButton.dataset.tagcleanApplyDecide, ids = decideButton.dataset.ids.split(",").filter(Boolean);
-    const genre = (decideButton.closest(".dl-actions")?.querySelector("[data-tagclean-decide]")?.value || v.genreChoice[artist] || "").trim();
+    const genre = (decideButton.dataset.genre || decideButton.closest(".dl-actions")?.querySelector("[data-tagclean-decide]")?.value || v.genreChoice[artist] || "").trim();
     if (!genre) { toast("Type or choose a genre first."); return; }
     downloadsRun(async () => { v.data = await api("/api/tagclean/assign-genre", {ids, genre}); delete v.genreChoice[artist]; tagcleanRefresh(); });
     return;

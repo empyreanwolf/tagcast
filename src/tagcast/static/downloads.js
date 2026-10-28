@@ -172,7 +172,7 @@ function downloadsQueueBoxHtml() {
       ${i.payload ? galaxyThumb(i.payload.source, i.payload.pic_id, 100) : ""}
       <div>${downloadsItemLabel(i)}${i.album ? ` <span class="muted">· ${escapeHtml(i.album)}</span>` : ""}
         ${i.state === "active" ? `<div class="dl-progress"><progress max="100" value="${i.progress || 0}" aria-label="Download progress"></progress>
-          <span class="muted">${escapeHtml(i.step_detail || "")}${i.eta ? ` · ${downloadsSeconds(i.eta)} left` : ""}</span></div>` : ""}
+          <span class="${(i.idle || 0) >= 600 ? "error-text" : (i.idle || 0) >= 120 ? "dl-stuck" : "muted"}">${escapeHtml(i.step_detail || "")}${i.eta ? ` · ${downloadsSeconds(i.eta)} left` : ""}</span></div>` : ""}
         <div class="muted">${escapeHtml(downloadsSourceLabels[i.source] || i.source)}${i.state === "done" ? ` · ${escapeHtml(i.path || "")}` : ""}${i.note && i.state !== "done" ? ` · ${escapeHtml(i.note)}` : i.state === "done" && i.note && i.note !== "Saved" ? ` · ${escapeHtml(i.note)}` : ""}</div></div>
       <div class="dl-row-actions">
         ${i.state === "failed" ? `<button type="button" class="button small" data-galaxy-control="retry" data-id="${escapeHtml(i.id)}">Retry</button>` : ""}
