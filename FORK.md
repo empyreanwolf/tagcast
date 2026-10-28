@@ -64,6 +64,11 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v37** **Instrumental versions are left out of "download all".** In Downloads → Galaxy, **Queue all**
+  and **Download album** (artist, album and whole-album buttons) skip tracks whose title says
+  Instrumental, Karaoke, Off Vocal, Backing Track, 伴奏, 纯音乐 / 純音樂, 无人声 / 無人聲 or 消音.
+  They stay in the list with an **Instrumental** tag and a note ("N instrumental left out"); tick
+  them and use **Download selected** (or the single ⬇ button) when you do want one.
 - **v36** **Everything that waits now runs in the background.** Saving tags, changing a cover or
   artist image, ratings, favourites, trash, playlists and lyrics no longer hold the page:
   - The dialog closes at once and the new values show straight away; the save finishes behind

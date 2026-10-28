@@ -69,6 +69,12 @@ function galaxyIntroHtml() {
 
 // -- search results --------------------------------------------------------------------
 
+// Instrumental / karaoke versions (fork v37): left out of "Queue all" and "Download album" but
+// still listed, tagged, and downloadable one by one or with "Download selected".
+const galaxyInstrumentalWords = /instrumental|karaoke|off[\s-]?vocal|backing[\s-]?track|伴奏|纯音乐|純音樂|无人声|無人聲|消音|卡拉\s?ok/i;
+const galaxyIsInstrumental = t => galaxyInstrumentalWords.test(t?.title || "");
+const galaxyWanted = tracks => tracks.filter(t => !galaxyIsInstrumental(t));
+
 function galaxyFiltered() {
   const view = galaxyView, data = view.data;
   let tracks = data.tracks;
@@ -90,13 +96,13 @@ function galaxyResultsHtml() {
   return `${data.mode === "artist" ? galaxyCardsHtml() : ""}
     <div class="dl-actions"><strong>${tracks.length} ${tracks.length === 1 ? "song" : "songs"}${data.mode === "artist" ? ` by “${escapeHtml(data.query)}”` : ` for “${escapeHtml(data.query)}”`}</strong>
       <button type="button" class="button small" data-galaxy-dl-selected ${picked ? "" : "disabled"}>⬇ Download selected (${picked})</button>
-      <button type="button" class="button small primary" data-galaxy-dl-all ${tracks.length ? "" : "disabled"}>⬇ Queue all ${tracks.length}</button>
+      <button type="button" class="button small primary" data-galaxy-dl-all ${galaxyWanted(tracks).length ? "" : "disabled"}>⬇ Queue all ${galaxyWanted(tracks).length}</button>${galaxyWanted(tracks).length < tracks.length ? `<span class="muted">${tracks.length - galaxyWanted(tracks).length} instrumental left out</span>` : ""}
       <span class="muted">Click an album to open it, an artist to search them.</span></div>
     ${tracks.length ? `<div class="galaxy-table-wrap"><table class="dl-table galaxy-table"><thead><tr><th><input type="checkbox" data-galaxy-select-all aria-label="Select all" ${tracks.every(t => view.selected.has(galaxyKey(t))) ? "checked" : ""}></th>
       <th aria-label="Cover"></th>${head("title", "Title")}${head("artists", "Artists")}${head("album", "Album")}<th>Status</th><th></th></tr></thead><tbody>${tracks.map(t => `<tr>
       <td><input type="checkbox" data-galaxy-select="${escapeHtml(galaxyKey(t))}" aria-label="Select ${escapeHtml(t.title)}" ${view.selected.has(galaxyKey(t)) ? "checked" : ""}></td>
       <td>${galaxyThumb(t.source, t.pic_id, 100)}</td>
-      <td>${escapeHtml(t.title)}</td>
+      <td>${escapeHtml(t.title)}${galaxyIsInstrumental(t) ? ' <span class="pill">Instrumental</span>' : ""}</td>
       <td>${t.artists.map(a => `<button type="button" class="text-action" data-galaxy-artist="${escapeHtml(a)}">${escapeHtml(a)}</button>`).join(", ") || "—"}</td>
       <td>${t.album ? `<button type="button" class="text-action" data-galaxy-album="${escapeHtml(t.album)}" data-artist="${escapeHtml(t.artists[0] || "")}">${escapeHtml(t.album)}</button>${view.years[t.album] ? ` <span class="muted">(${view.years[t.album]})</span>` : ""}` : "—"}</td>
       <td>${galaxyBadge(t)}</td>
@@ -149,12 +155,12 @@ function galaxyAlbumHtml() {
   return `${back}<div class="galaxy-album-head">${galaxyThumb(a.cover?.source || a.source, a.cover?.pic_id || "", 500, "galaxy-cover")}
       <div><div class="eyebrow">ALBUM · ${escapeHtml(a.source)}</div><h2>${escapeHtml(a.album)}</h2>
       <p>${escapeHtml(a.album_artist)}${view.years[a.album] ? ` · ${view.years[a.album]}` : ""} · ${a.tracks.length} tracks${have ? ` · ✓ you have ${have}` : ""}</p>
-      <div class="dl-actions"><button type="button" class="button primary" data-galaxy-album-all>⬇ Download album (${a.tracks.length})</button>
+      <div class="dl-actions"><button type="button" class="button primary" data-galaxy-album-all ${galaxyWanted(a.tracks).length ? "" : "disabled"}>⬇ Download album (${galaxyWanted(a.tracks).length})</button>${galaxyWanted(a.tracks).length < a.tracks.length ? `<span class="muted">${a.tracks.length - galaxyWanted(a.tracks).length} instrumental left out</span>` : ""}
         <button type="button" class="button" data-galaxy-dl-selected ${picked ? "" : "disabled"}>⬇ Download selected (${picked})</button></div>
       <p class="muted">Missing songs are queued; songs you may have wait in Needs your decision. Click a song to see its tags and file name.</p></div></div>
     <table class="dl-table galaxy-table"><thead><tr><th></th><th></th><th>#</th><th>Title</th><th>Artists</th><th>Status</th></tr></thead><tbody>${a.tracks.map(t => `<tr class="${view.preview === galaxyKey(t) ? "selected" : ""}">
       <td><input type="checkbox" data-galaxy-select="${escapeHtml(galaxyKey(t))}" aria-label="Select ${escapeHtml(t.title)}" ${view.selected.has(galaxyKey(t)) ? "checked" : ""}></td>
-      <td>${galaxyThumb(t.source, t.pic_id, 100)}</td><td>${t.track_no}</td><td><button type="button" class="text-action" data-galaxy-preview="${escapeHtml(galaxyKey(t))}">${escapeHtml(t.title)}</button></td>
+      <td>${galaxyThumb(t.source, t.pic_id, 100)}</td><td>${t.track_no}</td><td><button type="button" class="text-action" data-galaxy-preview="${escapeHtml(galaxyKey(t))}">${escapeHtml(t.title)}</button>${galaxyIsInstrumental(t) ? ' <span class="pill">Instrumental</span>' : ""}</td>
       <td>${escapeHtml(t.artists.join(", "))}</td><td>${galaxyBadge(t)}</td></tr>
       ${view.preview === galaxyKey(t) ? `<tr class="galaxy-preview"><td></td><td colspan="5"><dl>${t.preview.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}
         <dt>File</dt><dd>${escapeHtml(t.on_disk ? `${t.on_disk} (exists)` : t.path.replace("{ext}", "mp3 / flac / m4a, whatever the server sends"))}</dd></dl></td></tr>` : ""}`).join("")}</tbody></table>`;
@@ -241,7 +247,7 @@ async function galaxyAdd(tracks, album) {
 async function galaxyDownloadAlbum(album, artist) {
   const data = await api("/api/galaxy/album", {album, artist, source: galaxyView.source});
   if (!data.found) { toast(data.note); return; }
-  await galaxyAdd(data.tracks, data);
+  await galaxyAdd(galaxyWanted(data.tracks), data);
 }
 
 function galaxyTrack(key) {
@@ -276,8 +282,8 @@ document.addEventListener("click", event => {
     const list = view.album ? view.album.tracks : view.data.tracks;
     downloadsRun(() => galaxyAdd(list.filter(t => view.selected.has(galaxyKey(t))), view.album)); return;
   }
-  if (target.closest("[data-galaxy-dl-all]")) { downloadsRun(() => galaxyAdd(galaxyFiltered(), null)); return; }
-  if (target.closest("[data-galaxy-album-all]")) { downloadsRun(() => galaxyAdd(view.album.tracks, view.album)); return; }
+  if (target.closest("[data-galaxy-dl-all]")) { downloadsRun(() => galaxyAdd(galaxyWanted(galaxyFiltered()), null)); return; }
+  if (target.closest("[data-galaxy-album-all]")) { downloadsRun(() => galaxyAdd(galaxyWanted(view.album.tracks), view.album)); return; }
   const albumDl = target.closest("[data-galaxy-album-dl]");
   if (albumDl) downloadsRun(() => galaxyDownloadAlbum(albumDl.dataset.galaxyAlbumDl, albumDl.dataset.artist));
 });

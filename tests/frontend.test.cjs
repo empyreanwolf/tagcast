@@ -9883,3 +9883,12 @@ test("Artist pictures: each line says whether iBroadcast has the picture", async
   assert.doesNotMatch(html("failed"), /Used a cover<\/span>/, "A failed save is not described as a cover that was used");
   assert.match(html("saved"), /A &lt;b&gt;/);
 });
+
+test("Queue all and Download album leave out instrumental versions (伴奏 included) but still list and tag them", async () => {
+  const p = livePage(); await settle();
+  const t = (title, n) => ({source: "netease", id: String(n), title, artists: ["A"], album: "Alb", track_no: n, path: "x.{ext}"});
+  const tracks = [t("Song", 1), t("Song (Instrumental)", 2), t("Song 伴奏", 3), t("Song - Karaoke Version", 4), t("Song (Off Vocal)", 5), t("Song 纯音乐", 6), t("Other", 7)];
+  assert.deepEqual(JSON.parse(JSON.stringify(p.run(`galaxyWanted(${JSON.stringify(tracks)}).map(x => x.title)`))), ["Song", "Other"]);
+  assert.equal(p.run(`galaxyIsInstrumental({title: "Instrumentalist Blues"})`), true, "a title that merely contains the word counts; it stays listed and downloadable by hand");
+  assert.equal(p.run(`galaxyIsInstrumental({title: "Hello"})`), false);
+});
