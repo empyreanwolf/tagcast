@@ -222,3 +222,19 @@ class Mp3tagStyleTests(unittest.TestCase):
             studio.tagclean.assign_genre([group["rows"][0]["id"]], "  Mandopop  ")
             from tagcast.tagclean import read_tags
             self.assertEqual(read_tags(path, "mp3")["genre"], "Mandopop")
+
+
+class SettledGenreTests(unittest.TestCase):
+    def test_a_track_already_in_one_of_the_target_genres_is_never_asked_about(self):
+        studio = LocalStudio()
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, artist, genre in (("a.mp3", "Mystery Artist", "Underground Hip Hop"),
+                                        ("b.mp3", "Unknown To MusicBrainz", "chinese hip hop")):
+                path = Path(tmp) / name
+                path.write_bytes(MP3)
+                write_tags(path, "mp3", title=name, artists=[artist], album_artist=artist, album="Demo",
+                           track_no=1, track_total=1, genre=genre)
+            studio.tagclean.scan("folder", str(tmp))
+            view = wait(studio.tagclean)
+            self.assertEqual(view["needs_decision"], [])
+            self.assertEqual(view["genre_ready"], [])

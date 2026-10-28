@@ -265,6 +265,9 @@ class TagClean:
             return None, True  # no genre at all: you pick one, the way you'd fill it in Mp3tag
         if not _is_hiphop(genre):
             return None, False
+        # Already one of your two target genres (fork v43): settled, never asked about again.
+        if text(genre).strip().casefold() in {g.casefold() for g in (underground, chinese) if g}:
+            return None, False
         if not underground and not chinese:
             return None, True  # neither bucket exists in your library yet
         is_chinese = self._mb_is_chinese(artist)

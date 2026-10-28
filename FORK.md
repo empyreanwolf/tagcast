@@ -64,6 +64,8 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v43** **Clean up no longer asks about tracks already in "Underground Hip Hop" or "Chinese Hip Hop"**
+  (it used to, whenever MusicBrainz couldn't place the artist). Scan again to clear the old list.
 - **v42** **Recently uploaded opens instantly.** Like iBroadcast's own web app, it now reads the library
   copy Tagcast already holds instead of asking iBroadcast (and possibly re-downloading the library)
   every time. The upload days are indexed once per library copy, in the background as soon as it
