@@ -1275,7 +1275,13 @@ document.addEventListener("DOMContentLoaded", boot, {once: true});
 
 async function api(path, body) {
   const options = body === undefined ? {} : {method: "POST", headers: {"Content-Type": "application/json", "X-Tagcast": "1"}, body: JSON.stringify(body)};
-  const response = await fetch(path, options);
+  let response;
+  try { response = await fetch(path, options); }
+  catch (error) {  // Tagcast itself couldn't be reached: the server can't have logged this one
+    // Browsers report an unreachable server as a TypeError ("Failed to fetch").
+    if (error?.name === "TypeError" && typeof reportPageProblem === "function" && !path.startsWith("/api/activity")) reportPageProblem("request", `Could not reach Tagcast for ${path.split("?")[0]}: ${error.message}`);
+    throw error;
+  }
   let data = {};
   try { data = await response.json(); } catch { /* empty or non-JSON body */ }
   if (!response.ok) {

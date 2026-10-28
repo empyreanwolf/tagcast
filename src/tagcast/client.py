@@ -14,6 +14,7 @@ import secrets
 import shutil
 import threading
 import time
+from collections import Counter
 from concurrent.futures import Future
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,7 +23,7 @@ import ibroadcast
 import requests
 from ibroadcast import oauth
 
-from . import __version__, artwork, auth
+from . import __version__, activity, artwork, auth
 from .album_guide import AlbumGuide
 from .album_info import AlbumInformation
 from .artist_bios import ArtistBiographies
@@ -339,6 +340,26 @@ class StudioClient(ibroadcast.iBroadcast):
             raise ApiError(f"Could not reach iBroadcast ({error.__class__.__name__}).") from None
 
 
+def _shown(value):
+    text_ = json.dumps(value, ensure_ascii=False) if not isinstance(value, str) else value
+    return text_ if len(text_) <= 80 else text_[:79] + "…"
+
+
+def _record_readback(result, ms):
+    """The Activity log entry for a save's read-back: what iBroadcast actually has now."""
+    if result.get("state") == "error":
+        activity.record("metadata", "error", "Save read-back failed", result.get("error", ""), ms=ms)
+        return
+    rows = result.get("results") or []
+    counts = Counter(r.get("status") for r in rows)
+    bad = [r for r in rows if r.get("status") not in ("saved", "confirmed", "skipped")]
+    status = "ok" if not bad else "error" if any(r.get("status") in ("failed", "not_sent", "blocked") for r in bad) else "warn"
+    title = "Save checked: " + ", ".join(f"{n} {s}" for s, n in counts.most_common()) if rows else "Save checked"
+    detail = "\n".join(f"{r.get('status')}: {r.get('kind')} “{r.get('label')}” ({', '.join(r.get('fields') or [])})"
+                       for r in bad[:50])
+    activity.record("metadata", status, title, detail, ms=ms)
+
+
 class Studio:
     """Holds the connection state for the local server. Thread safe."""
 
@@ -356,6 +377,7 @@ class Studio:
 
     def __init__(self, home=None):
         self.home = Path(home) if home else self.default_home()
+        self.activity = activity.start(self.home)  # fork v35: the Activity log
         self.lock = threading.RLock()
         self.save_lock = threading.Lock()
         self.play_lock = threading.Lock()
@@ -991,6 +1013,13 @@ class Studio:
         results = [{"kind": i["kind"], "id": str(i["id"]), "label": i["label"],
                     "fields": sorted(i["patch"]),
                     "status": failed.get((i["kind"], i["id"]), "sent")} for i in plan["items"]]
+        bad = [r for r in results if r["status"] != "sent"]
+        activity.record(
+            "metadata", "error" if bad else "ok",
+            f"Saved {len(results) - len(bad)} of {len(results)} records to iBroadcast"
+            + (f" ({', '.join(created)} created)" if created else "") + (f": {error}" if error else ""),
+            "\n".join(f"{failed.get((i['kind'], i['id']), 'sent')}: {i['kind']} “{i['label']}” "
+                      + ", ".join(f"{k} → {_shown(v)}" for k, v in i["patch"].items()) for i in plan["items"][:100]))
         job = self._check_later(client, self.downloads,
                                 lambda after: verify(after, plan, artist_ids, failed))
         return {"results": results, "job": job, "created_artists": created, "error": error}
@@ -1012,6 +1041,7 @@ class Studio:
                 del self.jobs[old]
 
         def run():
+            started = time.monotonic()
             try:
                 after, _ = self._current(client, after=written)
                 result = {"state": "done", "results": check(after)}
@@ -1026,6 +1056,7 @@ class Studio:
                 result = {"state": "error", "error": "Saved, but the read-back failed. Reload the library."}
             with self.lock:
                 self.jobs[job_id] = result
+            _record_readback(result, (time.monotonic() - started) * 1000)
 
         threading.Thread(target=run, daemon=True).start()
         return job_id

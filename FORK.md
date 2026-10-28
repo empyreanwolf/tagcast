@@ -64,6 +64,31 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v35** **Activity log: see what's working and what isn't, under the hood.** Overview →
+  **Activity log** (or **Problems only**), and an **Activity log** button in the Downloads queue.
+  Everything Tagcast does is recorded, newest first:
+  - **The download queue, item by item**: queued (and on which source), held for your
+    decision (and where Tagcast thinks you already have it), your Skip / Download anyway,
+    started, saved (where, how long it took), failed (why, and at which step), retried,
+    removed. Galaxy, Bandcamp, Soulseek and Telegram alike.
+  - **Tags and metadata**: every save to iBroadcast with each field's new value, which records
+    iBroadcast refused, and the read-back afterwards (what iBroadcast actually has); every file
+    or track Tag clean-up wrote, or failed to.
+  - **Background runs**: how each Clean up metadata / Artist cleanup / Duplicate cleanup run
+    ended (with its items counted by outcome), and every Artist pictures artist (picked a face,
+    a photo, a cover, or skipped and why).
+  - **Every button that reaches Tagcast**, with what was sent, what came back and how long it
+    took; any failure with its message, and for a crash the full technical details to send me.
+  - **Warnings and errors from inside Tagcast** that used to sit only in `tagcast.log`, or
+    nowhere at all (lookups that failed quietly, cover fetches, MusicBrainz misses).
+  - **The page's own errors**: a script error or Tagcast being unreachable is reported too.
+  The top of the page shows, for the last 24 hours, each area's OK / error / warning counts and
+  its last problem; click one to see only that area. Search, filter by outcome, and it refreshes
+  itself every 3 seconds while open (untick **Live** to stop). **Download log file** saves the
+  whole log as readable text, the thing to send along when something breaks. It's kept in
+  `activity.log` in your settings folder (`%USERPROFILE%\.tagcast`), at most about 6 MB, so it
+  never grows without limit. Passwords, tokens and API keys are never written to it. Your
+  terminal window stays as quiet as before.
 - **v34** **Soulseek: SoulseekQt is no longer accepted as "the Sockseek program".** Tagcast
   runs a separate background downloader called Sockseek; pointing that setting at SoulseekQt
   (the normal Soulseek app) made a SoulseekQt window pop up on every job ("already running"),

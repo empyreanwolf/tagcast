@@ -29,6 +29,7 @@ import threading
 import time
 from pathlib import Path
 
+from . import activity
 from . import artist_match as match
 from .galaxy import AUDIO_EXTS, detect_audio_format, to_int, write_tags
 from .library import LibraryError, number, text
@@ -309,6 +310,23 @@ class TagClean:
                     break
         self._persist()
 
+    @staticmethod
+    def _report(what, rows, results):
+        """One Activity log entry per file or track this clean-up wrote, or failed to (v35)."""
+        by_id = {r["id"]: r for r in rows}
+        for result in results:
+            row = by_id.get(result["id"], {})
+            name = row.get("title") or Path(str(row.get("ref", ""))).name or result["id"]
+            change = (f"artists → {'; '.join(row.get('new_artists') or [])}" if what == "artists"
+                      else f"genre → {row.get('new_genre') or ''}")
+            where = "file" if row.get("scope") == "folder" else "iBroadcast"
+            if result["status"] == "saved":
+                activity.record("metadata", "ok", f"Tag clean-up ({where}): “{name}” {change}", str(row.get("ref", "")),
+                                source="tagclean")
+            else:
+                activity.record("metadata", "error", f"Tag clean-up ({where}) failed: “{name}” {change}",
+                                f"{row.get('ref', '')}\n{result.get('error', '')}", source="tagclean")
+
     def apply_artists(self, ids):
         wanted = set(map(str, ids or []))
         with self.lock:
@@ -322,6 +340,7 @@ class TagClean:
             except Exception as error:
                 log.info("Tag clean-up could not save artists for %s: %s", row["ref"], error)
                 results.append({"id": row["id"], "status": "failed", "error": str(error)})
+        self._report("artists", rows, results)
         return {"results": results, **self.view()}
 
     def apply_genre(self, ids):
@@ -348,12 +367,14 @@ class TagClean:
             except LibraryError as error:
                 for r in library_rows:
                     results.append({"id": r["id"], "status": "failed", "error": str(error)})
+                self._report("genre", rows, results)
                 return {"results": results, **self.view()}
             for r in library_rows:
                 status = "saved" if r["ref"] in sent else "failed"
                 results.append({"id": r["id"], "status": status})
                 if status == "saved":
                     self._mark_done(r["id"], ["new_genre", "needs_genre"])
+        self._report("genre", rows, results)
         return {"results": results, **self.view()}
 
     def assign_genre(self, ids, genre):

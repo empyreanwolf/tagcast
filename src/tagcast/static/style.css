@@ -279,7 +279,18 @@ body.has-player main{padding-bottom:80px}
 .artist-rating .album-rating-choice{font-size:23px}
 #artist-favourite-status{font-size:12px;margin:-18px 0 22px}
 .artist-biography{margin:0 0 24px;font-size:12px;line-height:1.7}
-.album-card[draggable="true"]{cursor:grab}.album-card.merge-target{outline:3px dashed var(--green);outline-offset:3px}
+.album-card[draggable="true"]{cursor:grab}
+.act-summary{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin:0 0 18px}
+.act-card{display:flex;flex-direction:column;gap:4px;text-align:left;border:1px solid var(--line);border-radius:9px;padding:12px 14px;background:var(--white);color:var(--ink);font:inherit;cursor:pointer}
+.act-card.active{outline:2px solid var(--green);outline-offset:1px}.act-card.has-errors{border-color:#d9877b}.act-card.has-warnings{border-color:#e3c27d}
+.act-card small{line-height:1.4}.act-error-text{color:#b33a2a}
+.act-toolbar{flex-wrap:wrap}.act-live{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.act-list .act-entry{display:block}.act-row,.act-entry summary{display:flex;gap:10px;align-items:flex-start}
+.act-entry summary{cursor:pointer;list-style:none}.act-entry summary::-webkit-details-marker{display:none}
+.act-entry summary::after{content:"▸";margin-left:auto;color:var(--muted)}.act-entry details[open] summary::after{content:"▾"}
+.act-main{min-width:0;flex:1}.act-title{overflow-wrap:anywhere}.act-meta{font-size:12px}
+.act-detail{margin:8px 0 0;padding:10px 12px;border-radius:7px;background:var(--palette-soft,#f0f3ed);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto}
+.dl-badge.act-error{background:#f6d5cf;color:#8a2316}.album-card.merge-target{outline:3px dashed var(--green);outline-offset:3px}
 .artist-tabs{width:max-content;margin:0 0 18px}.artist-tabs button{min-height:36px;font-weight:600}
 .artist-tracks .artist-tracks-toolbar{margin-bottom:6px}.artist-track-table td small.muted{font-size:11px}
 .artist-biography details{border:1px solid var(--line);border-radius:9px;padding:14px 18px}

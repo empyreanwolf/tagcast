@@ -10,6 +10,7 @@ import secrets
 import threading
 from collections import Counter
 
+from . import activity
 from .library import TITLE_QUOTES, LibraryError, number
 
 log = logging.getLogger("tagcast")
@@ -291,6 +292,7 @@ class DuplicateCleanup:
             with self.lock:
                 if self.task["state"] == "running":
                     self.task["state"] = "stopped"
+                activity.record_run("cleanup", "Duplicate cleanup", self.task)
                 try:
                     self._persist()
                 finally:

@@ -52,6 +52,7 @@
   <script src="recommendations.js" defer></script>
   <script src="digest.js" defer></script>
   <script src="artist-pictures.js" defer></script>
+  <script src="activity.js" defer></script>
   <script src="collections.js" defer></script>
   <script src="playlist-tools.js" defer></script>
   <script src="playlist-order.js" defer></script>
@@ -141,6 +142,11 @@
       <div class="page-intro"><div><div class="eyebrow">WHAT'S NEW, IN ONE PLACE</div><h1>Daily Digest<span>.</span></h1><p>New releases, what the wishlist just found, chart movement since you last looked, and the top of each Recommendations list -- pulled together to read first. Nothing downloads from here; each section links back to its own page for that.</p></div></div>
       <p id="digest-status" class="error-text" role="status"></p>
       <div id="digest-content"></div>
+    </section>
+    <section id="activity-page" hidden aria-label="Activity log">
+      <button type="button" class="button small page-back" data-activity-back>← Overview</button>
+      <div class="page-intro"><div><div class="eyebrow">WHAT HAPPENED UNDER THE HOOD</div><h1>Activity log<span>.</span></h1><p>Everything Tagcast does, newest first: each download and why it failed, tag fixes and saves (and what iBroadcast confirmed afterwards), cleanups, Artist pictures, every button that reached Tagcast, and any error, including the page's own. The cards show what worked and what didn't in the last day; click one to see only that area. Download the log file to send it along when something breaks.</p></div></div>
+      <div id="activity-content"></div>
     </section>
     <section id="artist-pictures-page" hidden aria-label="Artist pictures">
       <button type="button" class="button small page-back" data-artist-pictures-back>← Overview</button>

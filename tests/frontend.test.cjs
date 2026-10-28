@@ -9594,3 +9594,51 @@ test('fork v33: two albums by one artist merge through the review dialog, by dra
   assert.equal(p.run('pending'), null);
   assert.match(p.nodes.get('#toast').textContent, /same album artist/);
 });
+
+test('fork v35: the Activity log shows what worked and what failed, filters on the server and refreshes live', async () => {
+  const p = livePage(); await settle();
+  const asked = [];
+  const entries = [
+    {id: 3, t: Date.now() / 1000, cat: "downloads", status: "error", title: "Failed Song “Ink”: No download link", source: "galaxy", detail: "Step 0: Requesting link…"},
+    {id: 2, t: Date.now() / 1000, cat: "metadata", status: "ok", title: "Saved 3 of 3 records to iBroadcast", ms: 1200},
+  ];
+  p.setFetch(url => {
+    asked.push(url);
+    const after = Number(new URL(url, "http://x").searchParams.get("after"));
+    const fresh = after ? [{id: 4, t: Date.now() / 1000, cat: "page", status: "error", title: "script: <b>boom</b>"}] : entries;
+    return {ok: true, json: async () => ({entries: fresh, latest: after ? 4 : 3, file: "C:\\Users\\me\\.tagcast\\activity.log",
+      categories: {downloads: "Downloads", metadata: "Tags & metadata", page: "Page errors"},
+      summary: [{cat: "downloads", label: "Downloads", ok: 5, error: 1, warn: 0, info: 2, last_problem: {t: Date.now() / 1000, title: "Failed Song “Ink”"}}]})};
+  });
+  p.run('showActivity("", "problems")'); await settle(); await settle();
+  assert.equal(p.nodes.get('#activity-page').hidden, false);
+  assert.match(asked[0], /^\/api\/activity\?cat=&status=problems&q=&after=0/);
+  const html = p.nodes.get('#activity-content').innerHTML;
+  assert.match(html, /Failed Song “Ink”: No download link/);
+  assert.match(html, /5 OK · <b class="act-error-text">1 error<\/b>/);
+  assert.match(html, /Step 0: Requesting link…/);  // details stay available
+  assert.match(html, /1\.2 s/);
+  assert.match(html, /href="\/api\/activity\/export"/);
+  // The live refresh only asks for newer entries and puts them on top, escaped.
+  const timer = p.run('activityView.timer');
+  assert.ok(timer);
+  await p.run('loadActivity()'); await settle();
+  assert.match(asked.at(-1), /after=3/);
+  const live = p.nodes.get('#activity-content').innerHTML, list = live.slice(live.indexOf('<ul'));
+  assert.ok(list.indexOf("script: &lt;b&gt;boom&lt;/b&gt;") >= 0);
+  assert.ok(list.indexOf("script: &lt;b&gt;boom&lt;/b&gt;") < list.indexOf("Failed Song"));
+  // Leaving the page stops the refresh.
+  p.run('showScreen("overview")');
+  assert.equal(p.nodes.get('#activity-page').hidden, true);
+});
+
+test('fork v35: page script errors are sent to the Activity log, at most 20 a minute', async () => {
+  const p = livePage(); await settle();
+  const sent = [];
+  p.setFetch((url, options) => { sent.push([url, JSON.parse(options.body)]); return {ok: true, json: async () => ({ok: true})}; });
+  for (let i = 0; i < 25; i += 1) p.run(`reportPageProblem("script", "x is undefined ${i}", "album-merge.js:42")`);
+  await settle(); await settle();
+  assert.equal(sent.length, 20);
+  assert.equal(sent[0][0], '/api/activity/client');
+  assert.deepEqual([sent[0][1].kind, sent[0][1].where], ['script', 'album-merge.js:42']);
+});

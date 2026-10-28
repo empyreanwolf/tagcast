@@ -48,6 +48,8 @@ function showScreen(name) {
   $("#digest-page").hidden = name !== "digest";
   $("#show-digest").classList.toggle("active", name === "digest");
   $("#artist-pictures-page").hidden = name !== "artist-pictures";
+  $("#activity-page").hidden = name !== "activity";
+  if (name !== "activity" && typeof activityView !== "undefined") clearTimeout(activityView.timer);
   $("#charts-page").hidden = name !== "charts";
   $("#show-charts").classList.toggle("active", name === "charts");
   $("#gemini-page").hidden = name !== "gemini";
@@ -74,11 +76,11 @@ function showScreen(name) {
   $("#tracks-page").hidden = name !== "tracks";
   $("#browse-page").hidden = name !== "browse";
   for (const kind of Object.keys(browseKinds)) $("#show-" + kind).classList.toggle("active", name === "browse" && browseView.kind === kind);
-  $("#show-overview").classList.toggle("active", ["overview", "artist-pictures"].includes(name));
+  $("#show-overview").classList.toggle("active", ["overview", "artist-pictures", "activity"].includes(name));
   $("#all-albums").classList.toggle("active", name === "albums" && !state.artist);
   $("#show-artists").classList.toggle("active", name === "artists");
   $("#show-tracks").classList.toggle("active", name === "tracks");
-  $("#breadcrumb").textContent = name === "album-guide" ? "1001 Albums" : name === "browse" ? browseKinds[browseView.kind].label : name === "settings" ? "Settings" : name === "overview" ? "Overview" : name === "downloads" ? "Downloads" : name === "charts" ? "Charts" : name === "gemini" ? "Ask Gemini" : name === "recommendations" ? "Recommendations" : name === "digest" ? "Daily Digest" : name === "artist-pictures" ? "Artist pictures" : name === "artists" ? "Artist" : name === "tracks" ? "Tracks" : name === "favourites" ? "Favourites" : name === "recently-played" ? "Recently played"
+  $("#breadcrumb").textContent = name === "album-guide" ? "1001 Albums" : name === "browse" ? browseKinds[browseView.kind].label : name === "settings" ? "Settings" : name === "overview" ? "Overview" : name === "downloads" ? "Downloads" : name === "charts" ? "Charts" : name === "gemini" ? "Ask Gemini" : name === "recommendations" ? "Recommendations" : name === "digest" ? "Daily Digest" : name === "artist-pictures" ? "Artist pictures" : name === "activity" ? "Activity log" : name === "artists" ? "Artist" : name === "tracks" ? "Tracks" : name === "favourites" ? "Favourites" : name === "recently-played" ? "Recently played"
     : name === "album" ? state.albums.find(a => String(a.id) === albumView.id)?.name || "Album" : state.artist || "Albums";
   if (["playlists", "album-favourites"].includes(name) && typeof renderCollections === "function") renderCollections();
   renderFavouriteHub();
@@ -110,7 +112,8 @@ async function loadOverview() {
 }
 
 function intro(subtitle) {
-  return `<section class="page-intro"><div><div class="eyebrow">YOUR iBROADCAST</div><h1>Overview<span>.</span></h1><p>${subtitle}</p></div></section>`;
+  return `<section class="page-intro"><div><div class="eyebrow">YOUR iBROADCAST</div><h1>Overview<span>.</span></h1><p>${subtitle}</p>
+    <div class="dl-actions"><button type="button" class="button" data-activity-open>Activity log</button><button type="button" class="button" data-activity-open data-activity-status="problems">Problems only</button></div></div></section>`;
 }
 
 function statTile(label, value, note = "") {

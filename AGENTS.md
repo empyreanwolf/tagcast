@@ -58,6 +58,13 @@ The application consists of a Python server and a plain JavaScript frontend.
 - `src/tagcast/galaxy.py` (fork): GD Studio search and the Galaxy download thread over the Downloads
   queue (ported from empyreanwolf/gd-music-downloader); `artist_cards.py` tells same-name artists
   apart (MusicBrainz, Deezer, library). `static/galaxy.js` is the Galaxy tab. Tags need `mutagen`.
+  Fork v35: `activity.py` (Activity log): `activity.start(home)` in `Studio.__init__`, `activity.record(cat, status,
+  title, detail, source, ms)` anywhere (no-op without a started log). Hooks: `Handler._run` → `_record_request`
+  (POSTs, and failed GETs; `QUIET_ROUTES` skip routine successes; `activity.summarize` drops secret keys),
+  `downloads.py` (`submit`/`decide`/`next_queued`/`update_item` state changes/`requeue`/`remove`), `client._save` and
+  `_record_readback`, cleanups' `activity.record_run`, Artist pictures, Tag clean-up `_report`, and a logging handler
+  on the `tagcast` logger (INFO+; root handlers stay at WARNING). Page: `static/activity.js` (GET /api/activity,
+  /api/activity/export; POST /api/activity/client for script errors, rate-limited, one sender at a time).
   Fork v33: `static/artist-tracks.js` (album artist page Albums | Tracks tabs, one cross-album queue);
   `static/album-merge.js` (drag or select two → album name/year change via the Review dialog; iBroadcast joins
   same title + album artist; `library._joined()` lets `verify()` follow the moved tracks). `DEFAULT_PAGE_SIZE`

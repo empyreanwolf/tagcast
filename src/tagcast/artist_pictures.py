@@ -14,6 +14,7 @@ is fine here: a missed face just falls through to the next, still-reasonable sou
 
 import threading
 
+from . import activity
 from .artwork import ArtworkError, from_url
 from .library import LibraryError, number
 from .sources import SourceError, TheAudioDB
@@ -113,14 +114,18 @@ class ArtistPictures:
                     source, note = self._pick(artist_id, name)
                 except Exception as error:
                     source, note = "", str(error)
+                activity.record("pictures", "ok" if source else "warn" if note != "Stopped." else "info",
+                                f"{name}: {note}", source=source or "skipped")
                 with self.lock:
                     self.jobs.insert(0, {"artist": name, "artist_id": str(artist_id), "source": source, "note": note})
                     del self.jobs[200:]
                     self.progress["done"] += 1
         finally:
             with self.lock:
+                done = (self.progress or {}).get("done", 0)
                 self.running = False
                 self.progress = None
+            activity.record("pictures", "info", f"Artist pictures run ended after {done} artists")
             self.stop_flag.clear()
 
     # -- one artist -----------------------------------------------------------------

@@ -30,6 +30,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
+from . import activity
 from . import artist_match as match
 from .library import LibraryError, fold, number, text, title_key
 
@@ -188,6 +189,45 @@ def check_item(item, library_index, history_index):
 def _history_hit(entry):
     return {"where": "history", "title": entry.get("title", ""), "artist": ", ".join(entry.get("artists", [])),
             "album": entry.get("album", ""), "source": entry.get("source", ""), "when": entry.get("when")}
+
+
+# -- Activity log (fork v35) ------------------------------------------------------------------
+
+def _name(item):
+    """How one queue item reads in the Activity log: Song “Title” · Artist (Album)."""
+    kind = "Album" if item.get("kind") == "album" else "Song"
+    album = item.get("album") if item.get("kind") != "album" else ""
+    return (f"{kind} “{item.get('title', '?')}”" + (f" · {item['artist']}" if item.get("artist") else "")
+            + (f" ({album})" if album else ""))
+
+
+def _names(items, shown=3):
+    names = [_name(i) for i in items[:shown]]
+    return "; ".join(names) + (f" and {len(items) - shown} more" if len(items) > shown else "")
+
+
+def _have(item):
+    places = []
+    for hit in item.get("you_have") or []:
+        if isinstance(hit, dict):
+            places.append(f"{hit.get('where', '?')}: {hit.get('title', '')} {hit.get('album') or ''}".strip())
+    return "; ".join(places[:3]) or "a likely match"
+
+
+def _record_state(item):
+    """A queue item changed state: saved, failed, skipped, queued again."""
+    state, source = item.get("state"), item.get("source", "")
+    took = ""
+    if item.get("started_at") and state in ("done", "failed"):
+        took = f" in {max(0, time.time() - item['started_at']):.0f} s"
+    if state == "done":
+        activity.record("downloads", "ok", f"Saved {_name(item)}{took}",
+                        "\n".join(x for x in (item.get("path", ""), item.get("note", "")) if x and x != "Saved"), source=source)
+    elif state == "failed":
+        activity.record("downloads", "error", f"Failed {_name(item)}{took}: {item.get('note', '')}",
+                        f"Step {item.get('step', '?')}: {item.get('step_detail', '')}", source=source)
+    elif state == "skipped":
+        activity.record("downloads", "info", f"Skipped {_name(item)}", item.get("note", ""), source=source)
 
 
 def clean_item(raw, source="manual"):
@@ -505,9 +545,17 @@ class Downloads:
                     self.state["held"].append(row)
                     held.append(row)
             self._persist()
+        skipped = len(cleaned) - len(queued) - len(held)
+        if queued:  # recorded before waking the workers, so "Queued" precedes "Started"
+            activity.record("downloads", "info", f"Queued {len(queued)} on {source}: {_names(queued)}", source=source)
+        if held:
+            activity.record("downloads", "info", f"{len(held)} held for your decision (you may have them): {_names(held)}",
+                            "\n".join(f"{_name(i)} - {i.get('status')}: {_have(i)}" for i in held[:50]), source=source)
+        if skipped:
+            activity.record("downloads", "info", f"{skipped} already queued or waiting, not added again", source=source)
         if queued:
             self.wake_workers()
-        return {"queued": len(queued), "held": len(held), "skipped": len(cleaned) - len(queued) - len(held)}
+        return {"queued": len(queued), "held": len(held), "skipped": skipped}
 
     @staticmethod
     def _same(item):
@@ -536,6 +584,9 @@ class Downloads:
                     item["state"] = "skipped"
                 self.state["queue"].append(item)
             self._persist()
+        if chosen:
+            activity.record("downloads", "info", f"{'Download anyway' if action == 'download' else 'Skip'}: {_names(chosen)}",
+                            source=chosen[0].get("source", ""))
         if action == "download":
             self.wake_workers()
         return {"decided": len(chosen), "action": action, "missing": len(wanted) - len(chosen)}
@@ -544,6 +595,9 @@ class Downloads:
         """Take items off the queue list (never touches files or the history)."""
         wanted = set(map(str, ids or []))
         with self.lock:
+            gone = [i for i in self.state["queue"] if i["id"] in wanted]
+            if gone:
+                activity.record("downloads", "info", f"Removed from the queue: {_names(gone)}", source=gone[0].get("source", ""))
             before = len(self.state["queue"])
             self.state["queue"] = [i for i in self.state["queue"] if i["id"] not in wanted]
             self._persist()
@@ -624,7 +678,10 @@ class Downloads:
         with self.lock:
             for item in self.state["queue"]:
                 if item["id"] == item_id:
+                    before = item.get("state")
                     item.update(fields)
+                    if "state" in fields and fields["state"] != before:
+                        _record_state(item)
                     break
             else:
                 return
@@ -636,7 +693,9 @@ class Downloads:
         with self.lock:
             for item in self.state["queue"]:
                 if item.get("state") == "queued" and item.get("source") == source and item.get("payload"):
-                    item.update(state="active", step=0, step_detail="Requesting link…", progress=0, note="")
+                    item.update(state="active", step=0, step_detail="Requesting link…", progress=0, note="",
+                                started_at=time.time())
+                    activity.record("downloads", "info", f"Started {_name(item)}", source=source)
                     self._persist()
                     return dict(item)
         return None
@@ -652,6 +711,8 @@ class Downloads:
         with self.lock:
             for item in self.state["queue"]:
                 if item.get("state") == "failed" and (wanted is None or item["id"] in wanted):
+                    activity.record("downloads", "info", f"Retry {_name(item)}" + (" (keep it, short track)" if allow_short else ""),
+                                    f"It had failed with: {item.get('note', '')}", source=item.get("source", ""))
                     item.update(state="queued", note="", step=-1, step_detail="", progress=0)
                     item.pop("short_seconds", None)
                     if allow_short and isinstance(item.get("payload"), dict):

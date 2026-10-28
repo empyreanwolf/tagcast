@@ -10,6 +10,7 @@ import secrets
 import threading
 from collections import Counter
 
+from . import activity
 from .library import (
     MAX_GENRE_LENGTH,
     MAX_GENRES,
@@ -511,6 +512,7 @@ class Cleanup:
             with self.lock:
                 if self.task["state"] == "running":
                     self.task["state"] = "stopped"
+                activity.record_run("cleanup", "Clean up metadata", self.task)
                 try:
                     self._persist()
                 finally:

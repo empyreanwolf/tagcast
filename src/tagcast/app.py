@@ -16,6 +16,8 @@ import logging
 import logging.handlers
 import os
 import sys
+import time
+import traceback
 import webbrowser
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -24,7 +26,7 @@ from socketserver import TCPServer
 from urllib.parse import parse_qs, quote, urlparse
 from urllib.request import urlopen
 
-from . import __version__, artist_match
+from . import __version__, activity, artist_match
 from .album_info import AlbumInformationRetryError
 from .artist_bios import BiographyRetryError
 from .artwork import ArtworkError
@@ -96,19 +98,52 @@ class Handler(SimpleHTTPRequestHandler):
         return f"http://127.0.0.1:{self.port}/callback"
 
     def _run(self, action):
+        started, crash = time.monotonic(), ""
         try:
-            self._json(200, action())
+            status, payload = 200, action()
         except ConflictError as error:
-            self._json(409, {"error": str(error), "conflict": True})
+            status, payload = 409, {"error": str(error), "conflict": True}
         except NotConnected as error:
-            self._json(401, {"error": str(error), "connected": False})
+            status, payload = 401, {"error": str(error), "connected": False}
         except (BiographyRetryError, AlbumInformationRetryError) as error:
-            self._json(429, {"error": str(error), "retry_after": error.retry_after})
+            status, payload = 429, {"error": str(error), "retry_after": error.retry_after}
         except (ApiError, LibraryError, ArtworkError, SourceError) as error:
-            self._json(400, {"error": str(error)})
+            status, payload = 400, {"error": str(error)}
         except Exception:  # never leak a traceback to the page
             logging.exception("Request failed")
-            self._json(500, {"error": "Something went wrong in Tagcast. See the terminal."})
+            crash = traceback.format_exc()
+            status, payload = 500, {"error": "Something went wrong in Tagcast. See Overview → Activity log."}
+        self._json(status, payload)
+        self._record_request(status, payload, (time.monotonic() - started) * 1000, crash)
+
+    def _record_request(self, status, payload, ms, crash=""):
+        """One Activity log entry per action (fork v35); see activity.py."""
+        info = getattr(self, "_activity", None)
+        if not info:
+            return
+        path, method = info["path"], info["method"]
+        if method == "GET" and status in (200, 401):
+            return  # reading pages and polls succeed constantly; only failures are worth a line
+        if status == 200 and path in QUIET_ROUTES:
+            return
+        name = path[len("/api/"):]
+        body = getattr(self, "_activity_body", None)
+        action = body.get("action") if isinstance(body, dict) and isinstance(body.get("action"), str) else ""
+        title = name.replace("/", " › ") + (f" · {action}" if action else "")
+        lines = []
+        if body:
+            lines.append("Sent: " + (activity.summarize(body) or "(nothing)"))
+        if status == 200:
+            if isinstance(payload, dict) and activity.summarize(payload):
+                lines.append("Answer: " + activity.summarize(payload))
+        else:
+            lines.append(f"HTTP {status}: {payload.get('error', '') if isinstance(payload, dict) else payload}")
+        if crash:
+            lines.append(crash)
+        level = "ok" if status == 200 else "warn" if status in (401, 429) else "error"
+        if status != 200:
+            title += f" failed: {payload.get('error', '') if isinstance(payload, dict) else ''}"
+        activity.record(route_category(path), level, title, "\n".join(lines), source=name.split("/", 1)[0], ms=ms)
 
     def end_headers(self):
         if self._frontend_asset():
@@ -147,6 +182,27 @@ class Handler(SimpleHTTPRequestHandler):
         query = {k: v[0] for k, v in parse_qs(url.query).items()}
         if url.path.startswith("/api/") and not self._same_site():
             self._json(403, {"error": "Forbidden."})
+            return
+        self._activity, self._activity_body = {"path": url.path, "method": "GET"}, None
+        if url.path == "/api/activity":
+            log = activity.current()
+            self._activity = None  # reading the log is not itself logged
+            self._run(lambda: log.view(query.get("cat", ""), query.get("status", ""), query.get("q", ""),
+                                       int(query.get("after") or 0), int(query.get("limit") or 300))
+                      if log else {"entries": [], "latest": 0, "summary": [], "categories": activity.CATEGORIES})
+            return
+        if url.path == "/api/activity/export":
+            self._activity = None
+            log = activity.current()
+            body = (log.export_text() if log else "No activity recorded yet.\n").encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            stamp = time.strftime("%Y%m%d-%H%M")
+            self.send_header("Content-Disposition", f'attachment; filename="tagcast-activity-{stamp}.txt"')
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
             return
         if url.path.startswith("/api/stream/"):
             self._stream(url.path.rsplit("/", 1)[1], query.get("quality"))
@@ -431,12 +487,21 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/playlist-import/resume": self.studio.playlist_import.resume,
             "/api/playlist-import/remove-paused": self.studio.playlist_import.remove_paused,
             "/api/queue-tracks": self.studio.collections.queue_tracks,
+            "/api/activity/client": record_page_event,
             "/api/queue-sync": self.studio.queue_sync.action,
         }
         if path not in routes:
             self._json(404, {"error": "Unknown endpoint."})
             return
-        self._run(lambda: routes[path](self._body()))
+        self._activity, self._activity_body = {"path": path, "method": "POST"}, None
+        if path == "/api/activity/client":
+            self._activity = None  # recorded by the route itself, as a page error
+
+        def call():
+            body = self._body()
+            self._activity_body = body
+            return routes[path](body)
+        self._run(call)
 
     def _cover(self, query):
         """A Galaxy cover picture for <img>; 404 when there is none (the page shows ♪)."""
@@ -527,6 +592,43 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
 
 
+# Successful requests that happen on their own (lookups while browsing, queue sync) are not
+# worth a line each; their failures still are.
+QUIET_ROUTES = {"/api/queue-sync", "/api/galaxy/cards", "/api/galaxy/album-years", "/api/artist-biography",
+                "/api/album-information", "/api/playlist-import/view", "/api/lyrics/review"}
+_ROUTE_CATEGORIES = [
+    (("/api/galaxy", "/api/bandcamp", "/api/soulseek", "/api/downloads", "/api/discography", "/api/wishlist",
+      "/api/complete", "/api/charts", "/api/recommendations", "/api/releases", "/api/digest", "/api/gemini"), "downloads"),
+    (("/api/save", "/api/artwork", "/api/tags", "/api/lyrics", "/api/tagclean", "/api/trash", "/api/album-rating",
+      "/api/artist-rating", "/api/favourite", "/api/album-favourite", "/api/artist-favourite", "/api/playlist",
+      "/api/metadata-export"), "metadata"),
+    (("/api/cleanup", "/api/artist-cleanup", "/api/duplicate-cleanup"), "cleanup"),
+    (("/api/artist-pictures",), "pictures"),
+    (("/api/play", "/api/queue-tracks", "/api/queue-sync", "/api/stream"), "playback"),
+    (("/api/config", "/api/settings", "/api/auth", "/api/updates"), "settings"),
+    (("/api/library", "/api/albums", "/api/overview", "/api/status", "/api/browse", "/api/tracks"), "library"),
+]
+
+
+def route_category(path):
+    for prefixes, cat in _ROUTE_CATEGORIES:
+        if any(path == p or path.startswith(p + "/") or path.startswith(p + "-") or path.startswith(p + "?")
+               for p in prefixes):
+            return cat
+    return "app"
+
+
+def record_page_event(body):
+    """A problem the page itself ran into (a script error, a failed request): POSTed by
+    the browser so it lands in the same Activity log as everything else."""
+    kind = str(body.get("kind") or "error")[:40]
+    message = str(body.get("message") or "")[:500]
+    detail = "\n".join(str(body.get(k))[:2000] for k in ("where", "stack") if body.get(k))
+    activity.record("page", "warn" if kind == "request" else "error", f"{kind}: {message}", detail,
+                    source=f"{str(body.get('screen'))[:30]} page" if body.get("screen") else "")
+    return {"ok": True}
+
+
 def _log_to_file(home):
     """Problems also go to <settings folder>/tagcast.log (kept small)."""
     try:
@@ -540,6 +642,7 @@ def _log_to_file(home):
     except OSError:
         pass
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    handler.setLevel(logging.WARNING)  # INFO lines go to the Activity log only (fork v35)
     logging.getLogger().addHandler(handler)
 
 
@@ -593,6 +696,8 @@ def main(argv=None):
     parser.add_argument("--open", action="store_true", help="open the browser after starting")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
+    for handler in logging.getLogger().handlers:  # the terminal keeps showing warnings only
+        handler.setLevel(logging.WARNING)
     url = f"http://127.0.0.1:{args.port}"
 
     try:

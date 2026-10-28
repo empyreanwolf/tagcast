@@ -164,7 +164,8 @@ function downloadsQueueBoxHtml() {
       <button type="button" class="button small" data-galaxy-control="clear_done" ${doneTotal ? "" : "disabled"}>Clear done</button>
       <button type="button" class="button small" data-galaxy-control="clear_waiting" ${count("queued") ? "" : "disabled"}>Clear waiting</button>
       <button type="button" class="button small" data-galaxy-control="clear_failed" ${count("failed") ? "" : "disabled"}>Clear failed</button>
-      <button type="button" class="button small" data-galaxy-control="clear_skipped" ${count("skipped") ? "" : "disabled"}>Clear skipped</button></div>
+      <button type="button" class="button small" data-galaxy-control="clear_skipped" ${count("skipped") ? "" : "disabled"}>Clear skipped</button>
+      <button type="button" class="button small" data-activity-open data-activity-cat="downloads" title="Every queue step, with why it failed">Activity log</button></div>
     <p class="muted" role="status">${galaxyStatusHtml()}</p>
     ${queuedTotal + doneTotal ? `<div class="dl-overall"><span>Overall: ${doneTotal} of ${queuedTotal + doneTotal} saved</span><progress max="100" value="${overall}" aria-label="Overall progress"></progress></div>` : ""}
     ${rows.length ? `<ul class="dl-list">${rows.map(i => `<li class="dl-job ${escapeHtml(i.state)}"><span class="dl-badge ${badge(i)}">${escapeHtml(label(i))}</span>

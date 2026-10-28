@@ -25,6 +25,7 @@ import secrets
 import threading
 from collections import Counter
 
+from . import activity
 from . import artist_match as match
 from .cleanup import album_context, credit_state
 from .library import LibraryError, fold, number, stored_genres, text
@@ -793,6 +794,7 @@ class ArtistCleanup:
             with self.lock:
                 if self.task["state"] == "running":
                     self.task["state"] = "stopped"
+                activity.record_run("cleanup", "Artist cleanup", self.task)
                 try:
                     self._persist()
                 finally:
