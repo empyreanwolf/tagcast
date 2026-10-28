@@ -95,3 +95,15 @@ class StudioMarkTests(unittest.TestCase):
         for bad in ({"day": "yesterday", "checked": True}, {"day": "2026-10-02", "checked": "yes"}):
             with self.assertRaises(ApiError):
                 studio.uploads_checked(bad)
+
+
+class SpeedTests(unittest.TestCase):
+    def test_the_index_is_built_once_per_library_copy(self):
+        from unittest import mock
+        library = uploaded()
+        with mock.patch.object(Library, "upload_problems", wraps=library.upload_problems) as problems:
+            library.upload_days()
+            library.upload_day("2026-10-02")
+            library.upload_recent()
+            library.upload_days()
+        self.assertEqual(problems.call_count, 4)  # once per uploaded track, never again

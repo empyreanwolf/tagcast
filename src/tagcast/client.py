@@ -713,9 +713,16 @@ class Studio:
     @staticmethod
     def _warm(library):
         """Prepare the browse pages for a newly arrived library in the background (fork v33)."""
-        warm = getattr(library, "warm_browse", None)
-        if warm:
-            threading.Thread(target=warm, name="warm-browse", daemon=True).start()
+        jobs = [getattr(library, name, None) for name in ("warm_browse", "_upload_index")]  # uploads: fork v42
+
+        def warm():
+            for job in jobs:
+                if job:
+                    try:
+                        job()
+                    except Exception:  # a page builds it itself on first use instead
+                        log.debug("Warming the library failed", exc_info=True)
+        threading.Thread(target=warm, name="warm-browse", daemon=True).start()
 
     def _current(self, client, refresh=False, after=None):
         """The library as iBroadcast has it now. Downloads only when it changed since our copy.
@@ -820,9 +827,13 @@ class Studio:
         library, _ = self._current(self._require_client())
         return library.favourites(query, offset, limit)
 
-    def uploads(self, view="days", day=""):
-        """Recently uploaded (fork v38): upload days, one day's albums and tracks, or the flat newest list."""
-        library, _ = self._current(self._require_client())
+    def uploads(self, view="days", day="", refresh=False):
+        """Recently uploaded (fork v38): upload days, one day's albums and tracks, or the flat newest list.
+
+        Served from the library copy already in memory (fork v42), the way iBroadcast's web app
+        does it; only Refresh asks iBroadcast whether something changed (which may download it)."""
+        client = self._require_client()
+        library, _ = self._current(client) if refresh else self._library()
         checked = sorted(self.config.get("uploads_checked") or [], reverse=True)
         if view == "day":
             if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(day or "")):

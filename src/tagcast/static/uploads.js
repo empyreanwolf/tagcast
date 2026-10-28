@@ -85,13 +85,13 @@ function uploadsTableHtml(tracks, withAlbum) {
       ${withAlbum ? `<td><button type="button" class="button small" data-uploads-edit="${escapeHtml(t.album_id)}">Edit album</button></td>` : ""}</tr>`).join("")}</tbody></table></div>`;
 }
 
-async function uploadsLoad(force = false) {
+async function uploadsLoad(force = false, refresh = false) {
   const v = uploadsView, request = ++v.request;
   if (v.loading && !force) return;
   v.loading = true; v.error = "";
   try {
     const wanted = v.day ? "day" : v.mode;
-    const data = await api(`/api/uploads?view=${wanted}${v.day ? `&day=${encodeURIComponent(v.day)}` : ""}`);
+    const data = await api(`/api/uploads?view=${wanted}${v.day ? `&day=${encodeURIComponent(v.day)}` : ""}${refresh ? "&refresh=1" : ""}`);
     if (request !== v.request) return;
     if (wanted === "days") { v.days = data.days; v.checked = new Set(data.checked); }
     else if (wanted === "day") { v.dayData = data; if (data.checked) v.checked.add(v.day); else v.checked.delete(v.day); }
@@ -123,7 +123,7 @@ document.addEventListener("click", event => {
   if (day) { v.day = day.dataset.uploadsDay; v.dayData = null; uploadsLoad(true); uploadsRefresh(); return; }
   const action = target.closest("[data-uploads]")?.dataset.uploads;
   if (action === "back") { v.day = ""; v.dayData = null; uploadsLoad(true); uploadsRefresh(); return; }
-  if (action === "refresh") { uploadsLoad(true); uploadsRefresh(); return; }
+  if (action === "refresh") { uploadsLoad(true, true); uploadsRefresh(); return; }
   const edit = target.closest("[data-uploads-edit]");
   if (edit) openEditor([edit.dataset.uploadsEdit]);
 });

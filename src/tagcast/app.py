@@ -258,7 +258,7 @@ class Handler(SimpleHTTPRequestHandler):
             self._run(lambda: self.studio.tags.selection((query.get("albums") or "").split(","), query.get("track"),
                                                         {"0": False, "1": True}.get(query.get("multiple", "0"))))
         elif url.path == "/api/uploads":
-            self._run(lambda: self.studio.uploads(query.get("view", "days"), query.get("day", "")))
+            self._run(lambda: self.studio.uploads(query.get("view", "days"), query.get("day", ""), query.get("refresh") == "1"))
         elif url.path == "/api/favourites":
             self._run(lambda: self.studio.favourites(query.get("q"), query.get("offset", "0"),
                                                    query.get("limit", "50")))

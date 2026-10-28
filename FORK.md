@@ -64,6 +64,11 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v42** **Recently uploaded opens instantly.** Like iBroadcast's own web app, it now reads the library
+  copy Tagcast already holds instead of asking iBroadcast (and possibly re-downloading the library)
+  every time. The upload days are indexed once per library copy, in the background as soon as it
+  arrives; days, a day's albums and Most recent are then lookups in memory. **Refresh** still asks
+  iBroadcast for anything new.
 - **v41** **Clean up tags the way Mp3tag does.**
   - Several artists are written into ONE artist field, joined with "; " ("Artist A; Artist B"),
     never as separate values (which Mp3tag shows as "\\\\" and some players as "/" or "//").

@@ -9940,3 +9940,13 @@ test("Recently uploaded: the Most recent view is one flat list with upload time 
   assert.match(html, /data-uploads-edit="5"/);
   assert.match(html, /No year/);
 });
+
+test("Recently uploaded: views come from memory; only Refresh asks iBroadcast for changes", async () => {
+  const p = livePage(); await settle();
+  p.setFetch(() => ({ok: true, json: async () => ({days: [], checked: []})}));
+  p.run('state.screen = "downloads"; downloadsView.tab = "tagclean"; uploadsView.sub = "uploads"; uploadsView.days = null');
+  await p.run("uploadsLoad(true)");
+  await p.run("uploadsLoad(true, true)");
+  const urls = p.requests.map(r => r.url).filter(u => u.startsWith("/api/uploads"));
+  assert.deepEqual(urls, ["/api/uploads?view=days", "/api/uploads?view=days&refresh=1"]);
+});

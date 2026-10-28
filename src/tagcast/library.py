@@ -475,38 +475,46 @@ class Library:
             problems.append("no_cover")
         return problems
 
-    def _uploaded_tracks(self):
-        """(track_id, track, album_id, album) for every active track with a stored upload date."""
+    def _upload_index(self):
+        """Built once per library copy (a new copy arrives whenever iBroadcast changes): every
+        uploaded track as one row, newest first, plus each day's rows and totals. Like
+        iBroadcast's own web app, every view after that is a lookup in memory."""
+        cached = getattr(self, "_uploads_cache", None)
+        if cached is not None:
+            return cached
+        rows = []
         for album_id in self.album_ids():
             album = self.albums[album_id]
             for track_id in self.active_track_ids(album_id):
                 track = self.tracks[track_id]
-                if uploaded_at(track):
-                    yield track_id, track, album_id, album
+                stamp = uploaded_at(track)
+                if stamp:
+                    rows.append(self._upload_row(track_id, track, album_id, album, stamp))
+        rows.sort(key=lambda r: (r["uploaded_at"], int(r["id"])), reverse=True)
+        days = {}
+        for row in rows:
+            day = row["uploaded_at"][:10]
+            entry = days.get(day)
+            if entry is None:
+                entry = days[day] = {"date": day, "albums": set(), "tracks": 0, "seconds": 0, "problems": 0,
+                                     "covers": [], "latest": row["uploaded_at"], "_rows": []}
+            entry["albums"].add(row["album_id"])
+            entry["tracks"] += 1
+            entry["seconds"] += row["seconds"]
+            entry["problems"] += bool(row["problems"])
+            entry["_rows"].append(row)
+            if row["cover"] and row["cover"] not in entry["covers"] and len(entry["covers"]) < 4:
+                entry["covers"].append(row["cover"])
+        self._uploads_cache = (rows, days)
+        return self._uploads_cache
 
     def upload_days(self):
         """One entry per upload day, newest first, as iBroadcast's Date Uploaded page lists them."""
-        days = {}
-        for track_id, track, album_id, album in self._uploaded_tracks():
-            day = uploaded_at(track)[:10]
-            entry = days.setdefault(day, {"date": day, "albums": set(), "tracks": 0, "seconds": 0, "problems": 0,
-                                          "covers": [], "latest": ""})
-            entry["albums"].add(album_id)
-            entry["tracks"] += 1
-            entry["seconds"] += number(track.get("length"))
-            entry["problems"] += bool(self.upload_problems(track, album))
-            entry["latest"] = max(entry["latest"], uploaded_at(track))
-            art = number(track.get("artwork_id"))
-            if art and art not in entry["covers"] and len(entry["covers"]) < 4:
-                entry["covers"].append(art)
-        out = []
-        for entry in sorted(days.values(), key=lambda e: e["date"], reverse=True):
-            entry["albums"] = len(entry["albums"])
-            entry["covers"] = [self.art_url(a, 150) for a in entry["covers"]]
-            out.append(entry)
-        return out
+        _, days = self._upload_index()
+        return [{k: (len(v) if k == "albums" else v) for k, v in entry.items() if k != "_rows"}
+                for entry in sorted(days.values(), key=lambda e: e["date"], reverse=True)]
 
-    def _upload_row(self, track_id, track, album_id, album):
+    def _upload_row(self, track_id, track, album_id, album, stamp=None):
         problems = self.upload_problems(track, album)
         return {"id": str(track_id), "album_id": str(album_id), "title": text(track.get("title")) or "Untitled track",
                 "track": number(track.get("track")), "artist": self.artist_name(track.get("artist_id")),
@@ -514,20 +522,18 @@ class Library:
                 "album": text(album.get("name")) or "Untitled album",
                 "year": number(track.get("year")) or number(album.get("year")),
                 "genres": stored_genres(track), "seconds": number(track.get("length")),
-                "uploaded_at": uploaded_at(track), "cover": self.art_url(track.get("artwork_id"), 150),
+                "uploaded_at": stamp or uploaded_at(track), "cover": self.art_url(track.get("artwork_id"), 150),
                 "problems": problems}
 
     def upload_day(self, day):
         """Everything uploaded on one day, grouped by album."""
+        _, days = self._upload_index()
         albums = {}
-        for track_id, track, album_id, album in self._uploaded_tracks():
-            if uploaded_at(track)[:10] != day:
-                continue
-            group = albums.setdefault(album_id, {"id": str(album_id), "tracks": []})
-            group["tracks"].append(self._upload_row(track_id, track, album_id, album))
+        for row in (days.get(day) or {}).get("_rows", []):
+            albums.setdefault(row["album_id"], {"id": row["album_id"], "tracks": []})["tracks"].append(row)
         out = []
         for group in albums.values():
-            group["tracks"].sort(key=lambda r: (r["track"], r["title"].casefold()))
+            group["tracks"] = sorted(group["tracks"], key=lambda r: (r["track"], r["title"].casefold()))
             first = group["tracks"][0]
             group.update({"album": first["album"], "album_artist": first["album_artist"],
                           "year": first["year"], "cover": next((r["cover"] for r in group["tracks"] if r["cover"]), ""),
@@ -541,10 +547,8 @@ class Library:
 
     def upload_recent(self, limit=200):
         """The newest uploaded tracks first, like iBroadcast's Most Recent Uploads playlist."""
-        rows = [(uploaded_at(track), track_id, track, album_id, album)
-                for track_id, track, album_id, album in self._uploaded_tracks()]
-        rows.sort(key=lambda r: (r[0], r[1]), reverse=True)
-        tracks = [self._upload_row(t, tr, a, al) for _, t, tr, a, al in rows[:limit]]
+        rows, _ = self._upload_index()
+        tracks = rows[:limit]
         return {"tracks": tracks, "total": len(rows), "problems": sum(bool(r["problems"]) for r in tracks)}
 
     def albums_view(self):
