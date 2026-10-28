@@ -10047,3 +10047,16 @@ test("v46: Soulseek items waiting in the queue never make the Galaxy line say it
   assert.equal(p.run(`discographyIsInstrumental({title: "Petestrumentals 4"})`), true);
   assert.equal(p.run(`discographyIsInstrumental({title: "Soul Survivor II"})`), false);
 });
+
+test("v46: albums being looked up show on the Downloads queue page with what is happening now, and clear when done", async () => {
+  const p = page();
+  p.run(`downloadsView.queue = []; downloadsView.finding = [{id: "j", name: "Wu-Tang Clan", state: "running", done: 0, total: 1, current: "36 Chambers: searching Galaxy…", log: []}]`);
+  assert.equal(p.run("downloadsBusy()"), true);
+  let html = p.run("downloadsQueueBoxHtml()");
+  assert.match(html, /Finding sources/);
+  assert.match(html, /36 Chambers: searching Galaxy…/);
+  p.run(`downloadsView.finding = [{id: "j", name: "Wu-Tang Clan", state: "done", done: 1, total: 1, current: "", log: [{title: "36 Chambers", source: null, note: "Not found on Bandcamp, Galaxy or Soulseek · on your wishlist"}]}]`);
+  html = p.run("downloadsQueueBoxHtml()");
+  assert.match(html, /Not found/); assert.match(html, /data-downloads-finding-dismiss/);
+  assert.equal(p.run("downloadsBusy()"), false);
+});

@@ -23,7 +23,6 @@ function pagelistHtml() {
     ${job ? `<p class="dl-summary" role="status">${job.state === "running" ? `Checking ${job.done} of ${job.total} online… ` : ""}
       <span class="dl-badge new">${counts.new} New</span> <span class="dl-badge partly">${counts.partly} Partly</span> <span class="dl-badge have">${counts.have + counts.other} Have</span>
       ${counts.unsure ? `<span class="dl-badge">${counts.unsure} Not sure</span>` : ""}</p>
-      ${pagelistGetHtml()}
       <div class="dl-actions"><button type="button" class="button" data-pagelist-tick-new>Tick all New</button>
         <button type="button" class="button primary" data-pagelist-get ${v.picked.size && !v.busy ? "" : "disabled"}>Download chosen albums (${v.picked.size})</button></div>
       <ul class="dl-list">${items.map(pagelistRowHtml).join("")}</ul>` : ""}`;
@@ -41,14 +40,6 @@ function pagelistRowHtml(i) {
       ${i.status && i.status !== "new" ? `<div class="dl-have">${downloadsYouHave(i.you_have)}</div>` : ""}
       ${edit ? `<div class="dl-actions" data-pagelist-edit-row><input data-pagelist-artist maxlength="200" value="${escapeHtml(i.artist)}" aria-label="Artist"> <input data-pagelist-album maxlength="200" value="${escapeHtml(i.album)}" aria-label="Album">
         <button type="button" class="button" data-pagelist-recheck="${escapeHtml(i.id)}">Check again</button></div>` : ""}</div></li>`;
-}
-
-function pagelistGetHtml() {
-  const jobs = pagelistView.getJobs, v = pagelistView;
-  if (!jobs.length) return v.getIds.length ? `<div id="pagelist-progress" class="dl-card" role="status"><b>Getting ${v.getCount} ${v.getCount === 1 ? "album" : "albums"}…</b> checking Bandcamp, then Galaxy, then Soulseek.</div>` : "";
-  return `<div id="pagelist-progress" class="dl-card"><h3>Getting your albums</h3><ul class="dl-list">${jobs.map(j => j.log.map(e => `<li><span class="dl-badge ${e.source ? "have" : "partly"}">${escapeHtml(e.source || "Not found")}</span>
-    <div><b>${escapeHtml(e.title)}</b> · ${escapeHtml(j.name)}<div class="dl-have">${escapeHtml(e.note || "")}</div></div></li>`).join("") +
-    (j.state !== "done" ? `<li class="muted">${escapeHtml(j.name)}: ${j.done} of ${j.total}…</li>` : "")).join("")}</ul></div>`;
 }
 
 function pagelistRender(scroll = false) {
@@ -71,17 +62,6 @@ function pagelistPoll() {
     if (!document.activeElement?.closest?.("[data-pagelist-edit-row]")) pagelistRender();
     if (v.job.state !== "done") pagelistPoll();
   }, 1200);
-}
-
-function pagelistGetPoll() {
-  clearTimeout(pagelistView.getTimer);
-  pagelistView.getTimer = setTimeout(async () => {
-    const v = pagelistView;
-    try { v.getJobs = (await api(`/api/pagelist/get-status?ids=${encodeURIComponent(v.getIds.join(","))}`)).jobs; } catch { return; }
-    pagelistRender();
-    if (v.getJobs.some(j => j.state !== "done")) pagelistGetPoll();
-    else { loadDownloads(); if (v.getJobs.some(j => j.log.some(e => !e.source))) toast("Some albums weren't found anywhere; they are on your wishlist."); }
-  }, 1500);
 }
 
 document.addEventListener("click", async event => {
@@ -118,7 +98,8 @@ document.addEventListener("click", async event => {
     v.busy = true; pagelistRender();
     try {
       const data = await api("/api/pagelist/get", {id: v.job.id, ids: [...v.picked]});
-      v.getIds = data.jobs; v.getCount = data.queued; v.getJobs = []; toast(`Getting ${data.queued} ${data.queued === 1 ? "album" : "albums"}…`); pagelistGetPoll();
+      toast(`Getting ${data.queued} ${data.queued === 1 ? "album" : "albums"}: follow it in Queue & history.`);
+      v.busy = false; downloadsView.tab = "queue"; showDownloads("queue"); return;
     } catch (error) { toast(error.message); }
     v.busy = false; pagelistRender(true);
   }

@@ -83,8 +83,10 @@ A short alert sound plays when a run stops with an error or an action fails.
   - **Galaxy line**: no more false "Galaxy thread stopped unexpectedly" when only Soulseek/Bandcamp
     items were waiting.
   - **Discography**: instrumental albums (incl. "Petestrumentals") are tagged and start unticked.
-  - **From a page**: the "Getting your albums" progress now sits above the list and scrolls into view
-    (it used to be at the bottom of a long list, so Download looked like it did nothing).
+  - **Finding sources** card at the top of Downloads → Queue & history: every album Tagcast is looking
+    for (From a page, Discography, Missing, Charts) shows what it is doing right now ("searching Galaxy…",
+    "asking Soulseek…") and the result, then the album moves into the queue below. From a page jumps
+    straight there after you click Download.
 - **v45** **Downloads → From a page, and Galaxy now comes before Soulseek.**
   - **From a page** (new Downloads tab, next to Check): paste the link of a page with a list of
     albums (a "best of 2024" article, a Reddit thread, a Wikipedia list, a public Spotify

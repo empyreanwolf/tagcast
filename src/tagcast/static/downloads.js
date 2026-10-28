@@ -39,7 +39,8 @@ function showDownloads(tab) {
 
 async function loadDownloads() {
   try {
-    const [info, queue, galaxy] = await Promise.all([api("/api/downloads"), api("/api/downloads/queue"), api("/api/galaxy/status")]);
+    const [info, queue, galaxy, finding] = await Promise.all([api("/api/downloads"), api("/api/downloads/queue"), api("/api/galaxy/status"), api("/api/discography/active")]);
+    downloadsView.finding = finding.jobs;
     downloadsView.info = info; downloadsView.queue = queue.queue; downloadsView.held = queue.held; downloadsView.galaxy = galaxy;
     downloadsView.persistError = queue.persist_error || ""; downloadsView.stalled = queue.stalled || [];
     for (const id of [...downloadsView.picked]) if (!queue.held.some(h => h.id === id)) downloadsView.picked.delete(id);
@@ -52,7 +53,8 @@ async function loadDownloads() {
 // While songs download, refresh only the queue box and the Galaxy status line (never the
 // fields you are typing in), every 1.5 s, and only while the Downloads page is open.
 function downloadsBusy() {
-  return (downloadsView.queue || []).some(i => i.state === "active" || (i.state === "queued" && i.payload));
+  return (downloadsView.queue || []).some(i => i.state === "active" || (i.state === "queued" && i.payload))
+    || (downloadsView.finding || []).some(f => f.state === "running");
 }
 
 function downloadsPoll() {
@@ -62,7 +64,8 @@ function downloadsPoll() {
     if (state.screen !== "downloads") return;
     try {
       const before = downloadsView.held?.length || 0;
-      const [queue, galaxy] = await Promise.all([api("/api/downloads/queue"), api("/api/galaxy/status")]);
+      const [queue, galaxy, finding] = await Promise.all([api("/api/downloads/queue"), api("/api/galaxy/status"), api("/api/discography/active")]);
+      downloadsView.finding = finding.jobs;
       const failed = (downloadsView.queue || []).filter(i => i.state === "failed").length;
       downloadsView.queue = queue.queue; downloadsView.held = queue.held; downloadsView.galaxy = galaxy;
       downloadsView.persistError = queue.persist_error || ""; downloadsView.stalled = queue.stalled || [];
@@ -145,6 +148,19 @@ function downloadsSeconds(s) {
   return s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`;
 }
 
+// Albums being looked up on Bandcamp → Galaxy → Soulseek (v46), from Discography, Missing, From a page...
+// Once a source has them they move into the queue below.
+function downloadsFindingHtml() {
+  const jobs = downloadsView.finding || [];
+  if (!jobs.length) return "";
+  const running = jobs.some(j => j.state === "running");
+  return `<div class="dl-card" role="status"><h3>Finding sources ${running ? "" : "· done"}</h3>
+    <ul class="dl-list">${jobs.map(j => `${j.log.map(e => `<li><span class="dl-badge ${e.source ? "have" : "partly"}">${escapeHtml(e.source || "Not found")}</span>
+      <div><b>${escapeHtml(e.title)}</b> · ${escapeHtml(j.name)}<div class="dl-have">${escapeHtml(e.note || "")}</div></div></li>`).join("")}
+      ${j.state === "running" ? `<li><span class="dl-badge downloaded">Looking…</span><div>${escapeHtml(j.current || j.name)}<div class="muted">${escapeHtml(j.name)} · ${j.done} of ${j.total} done</div></div></li>` : ""}`).join("")}</ul>
+    ${running ? "" : `<button type="button" class="button small" data-downloads-finding-dismiss>Clear</button>`}</div>`;
+}
+
 function downloadsQueueBoxHtml() {
   const queue = downloadsView.queue || [], g = downloadsView.galaxy;
   const count = st => queue.filter(i => i.state === st).length;
@@ -157,7 +173,7 @@ function downloadsQueueBoxHtml() {
     : i.state === "queued" ? (i.payload ? (i.allow_duplicate ? "Waiting (you chose Download anyway)" : "Waiting") : "Waits for a source")
     : {done: "Saved", failed: "Failed", skipped: "Skipped"}[i.state] || i.state;
   const badge = i => ({active: "downloaded", queued: "new", done: "have", failed: "partly", skipped: "partly"}[i.state] || "new");
-  return `<div class="dl-actions dl-queue-controls">
+  return `${downloadsFindingHtml()}<div class="dl-actions dl-queue-controls">
       <button type="button" class="button small" data-galaxy-control="${g?.paused ? "resume" : "pause"}">${g?.paused ? "▶ Resume" : "⏸ Pause"}</button>
       <button type="button" class="button small" data-galaxy-control="cancel" ${g?.active ? "" : "disabled"}>⏹ Cancel current</button>
       <button type="button" class="button small" data-galaxy-control="retry" ${count("failed") ? "" : "disabled"}>Retry failed (${count("failed")})</button>
@@ -243,6 +259,10 @@ document.addEventListener("click", event => {
     downloadsView.tab = tab.dataset.downloadsTab; setActionStatus("#downloads-status", "");
     renderDownloads(); loadDownloads();
     $(`[data-downloads-tab="${downloadsView.tab}"]`)?.focus();
+    return;
+  }
+  if (target.closest("[data-downloads-finding-dismiss]")) {
+    api("/api/discography/dismiss", {}).then(data => { downloadsView.finding = data.jobs; if ($("#dl-queue-box")) $("#dl-queue-box").innerHTML = downloadsQueueBoxHtml(); });
     return;
   }
   if (target.closest("[data-downloads-check]")) {

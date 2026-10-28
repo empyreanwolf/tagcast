@@ -262,10 +262,25 @@ class Discography:
             raise DiscographyError("That request is no longer running.")
         return job
 
+    def active(self):
+        """Every "get" in flight or just finished, for the Downloads queue page (v46)."""
+        return {"jobs": [{k: j.get(k) for k in ("id", "name", "state", "done", "total", "current", "log")} for j in self.jobs.values()]}
+
+    def dismiss(self):
+        self.jobs = {k: v for k, v in self.jobs.items() if v["state"] == "running"}
+        return self.active()
+
+    @staticmethod
+    def _step(ctx, text):
+        job = (ctx or {}).get("job")
+        if job is not None:
+            job["current"] = text
+
     def _run(self, job, albums, songs):
-        ctx = {"bandcamp": None, "bandcamp_checked": False}
+        ctx = {"bandcamp": None, "bandcamp_checked": False, "job": job}
         for a in albums:
             title = match.clean((a or {}).get("title"))
+            self._step(ctx, f"{title}: looking on Bandcamp…")
             try:
                 source, note = self._album(job["name"], title, a.get("status"), a.get("deezer_id"), ctx)
             except Exception as error:  # one album never stops the rest
@@ -287,6 +302,7 @@ class Discography:
             job["log"].append({"kind": "song", "title": title, "source": source, "note": note})
             job["done"] += 1
         job["state"] = "done"
+        job["current"] = ""
 
     @staticmethod
     def _summary(result):
@@ -331,12 +347,14 @@ class Discography:
         if isinstance(why, tuple):
             return why
         # 2. Galaxy
+        self._step(ctx, f"{title}: searching Galaxy…")
         source, note = self._galaxy_album(name, title)
         if source:
             return source, f"{note} (Bandcamp: {why})"
         # 3. Soulseek (whole albums only; a partly owned album would be fetched again)
         soulseek = getattr(self.studio, "soulseek", None)
         if soulseek is not None and soulseek.configured() and status != "partly":
+            self._step(ctx, f"{title}: asking Soulseek…")
             result = soulseek.add([{"kind": "album", "artist": name, "album": title, "fallback": True}])
             return "Soulseek", self._summary(result) + " (wishlist if Soulseek has nothing)"
         return None, NOT_FOUND

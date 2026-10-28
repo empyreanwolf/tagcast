@@ -321,6 +321,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._run(self.studio.new_releases.summary)
         elif url.path == "/api/discography/get-status":
             self._run(lambda: self.studio.discography.status(query.get("id")))
+        elif url.path == "/api/discography/active":
+            self._run(self.studio.discography.active)
         elif url.path == "/api/pagelist/status":
             self._run(lambda: self.studio.pagelist.view(query.get("id")))
         elif url.path == "/api/pagelist/get-status":
@@ -412,6 +414,7 @@ class Handler(SimpleHTTPRequestHandler):
                 b.get("name"), b.get("deezer_id"), b.get("musicbrainz") is True, b.get("refresh") is True),
             "/api/discography/top": lambda b: self.studio.discography.top(b.get("name"), b.get("deezer_id")),
             "/api/discography/get": lambda b: self.studio.discography.get(b.get("name"), b.get("albums"), b.get("songs")),
+            "/api/discography/dismiss": lambda b: self.studio.discography.dismiss(),
             "/api/pagelist/read": lambda b: self.studio.pagelist.read(str(b.get("link") or "")[:2000], str(b.get("text") or "")),
             "/api/pagelist/recheck": lambda b: self.studio.pagelist.recheck(b.get("id"), b.get("item"), b.get("artist"), b.get("album")),
             "/api/pagelist/get": lambda b: self.studio.pagelist.get(b.get("id"), b.get("ids")),

@@ -154,6 +154,10 @@ class DiscographyTests(unittest.TestCase):
         studio.discography.fallback(studio.download_manager.item(item["id"]))
         self.assertIn("on your wishlist", studio.download_manager.item(item["id"])["note"])
         self.assertEqual([c[2] for c in wished], ["Viva"])
+        shown = studio.discography.active()["jobs"][0]
+        self.assertEqual((shown["state"], shown["current"]), ("done", ""))
+        self.assertEqual(len(shown["log"]), 4)
+        self.assertEqual(studio.discography.dismiss(), {"jobs": []})
 
 
 if __name__ == "__main__":
