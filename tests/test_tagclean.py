@@ -117,11 +117,11 @@ class LibraryScanTests(unittest.TestCase):
         wait(studio.tagclean)
         group = next(d for d in studio.tagclean.view()["needs_decision"] if d["artist"] == "Mystery Artist")
         with self.assertRaises(LibraryError):
-            studio.tagclean.assign_genre([group["rows"][0]["id"]], "Not A Real Genre")
+            studio.tagclean.assign_genre([group["rows"][0]["id"]], "   ")
         result = studio.tagclean.assign_genre([group["rows"][0]["id"]], "underground hip hop")
         self.assertEqual(result["results"], [{"id": group["rows"][0]["id"], "status": "saved"}])
         self.assertEqual(studio.library.tracks[111]["genre"], "Underground Hip Hop")
-        self.assertEqual(studio.tagclean.view()["needs_decision"], [])
+        self.assertNotIn("Mystery Artist", [d["artist"] for d in studio.tagclean.view()["needs_decision"]])
 
     def test_cached_musicbrainz_lookup_is_not_repeated(self):
         studio = LocalStudio()
@@ -155,7 +155,7 @@ class FolderScanTests(unittest.TestCase):
             fmt = detect_audio_format(path)
             from tagcast.tagclean import read_tags
             after = read_tags(path, fmt)
-            self.assertEqual(after["artists"], ["Artist A", "Artist B"])
+            self.assertEqual(after["artists"], ["Artist A; Artist B"])  # one field, as typed in Mp3tag
             self.assertEqual(after["album_artist"], "Artist A")
             self.assertEqual(after["genre"], "Underground Hip Hop")
             self.assertEqual(after["title"], "Track One")  # untouched fields survive the rewrite
@@ -181,3 +181,44 @@ class SettingsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Mp3tagStyleTests(unittest.TestCase):
+    """Fork v41: the artist field is written the way it is typed in Mp3tag, and any genre can be set."""
+
+    def scan(self, studio, tmp, **tags):
+        path = Path(tmp) / "song.mp3"
+        path.write_bytes(MP3)
+        write_tags(path, "mp3", **{"title": "T", "album_artist": "Artist A", "album": "Demo", "track_no": 1,
+                                   "track_total": 1, "genre": "Pop", **tags})
+        studio.tagclean.scan("folder", str(tmp))
+        return path, wait(studio.tagclean)
+
+    def test_a_multi_value_artist_field_becomes_one_field_joined_with_semicolons(self):
+        studio = LocalStudio()
+        with tempfile.TemporaryDirectory() as tmp:
+            path, view = self.scan(studio, tmp, artists=["Artist A", "Artist B"])  # Mp3tag shows "Artist A\\Artist B"
+            row = view["artist_ready"][0]
+            self.assertEqual(row["new_artists"], ["Artist A", "Artist B"])
+            studio.tagclean.apply_artists([row["id"]])
+            from tagcast.tagclean import read_tags
+            self.assertEqual(read_tags(path, "mp3")["artists"], ["Artist A; Artist B"])
+
+    def test_an_artist_field_already_written_like_mp3tag_is_left_alone(self):
+        studio = LocalStudio()
+        with tempfile.TemporaryDirectory() as tmp:
+            _, view = self.scan(studio, tmp, artists=["Artist A; Artist B"])
+            self.assertEqual(view["artist_ready"], [])
+
+    def test_slashes_and_backslashes_become_semicolons(self):
+        self.assertEqual(split_artists(["A // B \\ C / D;E"], ["/", "//", "\\"]), ["A", "B", "C", "D", "E"])
+        self.assertEqual(split_artists(["A;B"], []), ["A", "B"])
+
+    def test_a_file_with_no_genre_asks_for_one_and_a_new_genre_can_be_typed(self):
+        studio = LocalStudio()
+        with tempfile.TemporaryDirectory() as tmp:
+            path, view = self.scan(studio, tmp, artists=["Artist A"], genre="")
+            group = next(d for d in view["needs_decision"] if d["artist"] == "Artist A")
+            studio.tagclean.assign_genre([group["rows"][0]["id"]], "  Mandopop  ")
+            from tagcast.tagclean import read_tags
+            self.assertEqual(read_tags(path, "mp3")["genre"], "Mandopop")

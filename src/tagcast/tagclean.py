@@ -44,6 +44,10 @@ HIPHOP_WORDS = ("hip hop", "hip-hop", "rap", "trap", "grime")
 CHINESE_CODES = ("CN", "TW", "HK", "MO")
 CHINESE_WORDS = ("china", "hong kong", "taiwan", "macau", "macao")
 DEFAULT_SEPARATORS = ["feat.", "feat", "ft.", "ft", "featuring", "&", ",", "/", "//", "\\"]
+# Written like Mp3tag users type it (fork v41): ONE artist field, artists joined by "; ".
+# Never a multi-value field, which Mp3tag shows as "\\" and older players show as "/" or "//".
+ARTIST_JOIN = "; "
+MAX_GENRE = 100
 
 
 def _is_hiphop(genre):
@@ -62,7 +66,7 @@ def pick_genre(labels, *words):
 
 def split_artists(raw, separators):
     """Raw artist value(s) from a tag -> a clean, ordered, de-duplicated list."""
-    wanted = sorted({s for s in (separators or []) if s}, key=len, reverse=True)
+    wanted = sorted({s for s in (separators or []) if s} | {";"}, key=len, reverse=True)
     pattern = "|".join(re.escape(s) for s in wanted)
     out, seen = [], set()
     for value in raw or []:
@@ -221,7 +225,7 @@ class TagClean:
             self.progress["done"] += 1
             track = library.tracks[track_id]
             genre = text(track.get("genre"))
-            if not _is_hiphop(genre):
+            if genre.strip() and not _is_hiphop(genre):
                 continue
             artist = library.artist_name(number(track.get("artist_id")))
             if not artist:
@@ -240,7 +244,10 @@ class TagClean:
     def _build_folder_row(self, path, tags, separators, labels, underground, chinese):
         current = [a.strip() for a in tags["artists"] if text(a).strip()]
         new_artists = split_artists(tags["artists"], separators)
-        changed = bool(new_artists) and (new_artists != current or tags["album_artist"].strip() != new_artists[0])
+        joined = ARTIST_JOIN.join(new_artists)
+        # A multi-value field ("A\\B" in Mp3tag) or anything not exactly "A; B" is rewritten.
+        changed = bool(new_artists) and (len(current) != 1 or current[0] != joined
+                                         or tags["album_artist"].strip() != new_artists[0])
         artist = tags["album_artist"].strip() or (new_artists[0] if new_artists else "") or (current[0] if current else "")
         new_genre, needs_genre = self._resolve_genre(artist, tags["genre"], labels, underground, chinese)
         if not (changed or new_genre or needs_genre):
@@ -252,7 +259,11 @@ class TagClean:
 
     def _resolve_genre(self, artist, genre, labels, underground, chinese):
         """-> (new genre or None, needs a manual decision) for a hip-hop / rap genre."""
-        if not _is_hiphop(genre) or not artist:
+        if not artist:
+            return None, False
+        if not text(genre).strip():
+            return None, True  # no genre at all: you pick one, the way you'd fill it in Mp3tag
+        if not _is_hiphop(genre):
             return None, False
         if not underground and not chinese:
             return None, True  # neither bucket exists in your library yet
@@ -292,6 +303,8 @@ class TagClean:
         path = Path(row["ref"])
         fmt = detect_audio_format(path)
         current = read_tags(path, fmt)
+        if artists is not None:
+            artists = [ARTIST_JOIN.join(artists)] if artists else []
         write_tags(path, fmt, title=current["title"], artists=artists if artists is not None else current["artists"],
                    album_artist=album_artist if album_artist is not None else current["album_artist"],
                    album=current["album"], track_no=current["track_no"], track_total=current["track_total"],
@@ -378,10 +391,12 @@ class TagClean:
         return {"results": results, **self.view()}
 
     def assign_genre(self, ids, genre):
-        genre = text(genre)
+        genre = " ".join(text(genre).split())
+        if not genre or len(genre) > MAX_GENRE:
+            raise LibraryError("Type or choose a genre (at most 100 characters).")
+        # An existing iBroadcast genre keeps its exact spelling; anything else is used as typed.
         allowed = {g.casefold(): g for g in self.genres()}
-        if not genre or genre.casefold() not in allowed:
-            raise LibraryError("Choose one of your existing iBroadcast genres.")
+        allowed.setdefault(genre.casefold(), genre)
         wanted = set(map(str, ids or []))
         with self.lock:
             for r in self.state["rows"]:

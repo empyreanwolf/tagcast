@@ -50,7 +50,7 @@ function tagcleanArtistHtml() {
   return `<section class="dl-card"><h3>Artist fixes (${rows.length})</h3><ul class="dl-list">
       ${rows.map(r => `<li><input type="checkbox" data-tagclean-pick-artist="${r.id}" aria-label="Select ${escapeHtml(r.title || r.ref)}" ${v.pickedArtists.has(r.id) ? "checked" : ""}>
           <div><b>${escapeHtml(r.title || "(untitled)")}</b>${tagcleanWhere(r)}<br>
-          “${escapeHtml((r.current_artists || []).join(" / ") || r.current_album_artist || "")}” → <b>${escapeHtml((r.new_artists || []).join("; "))}</b>
+          ${(r.current_artists || []).length > 1 ? `<span class="pill missing">${r.current_artists.length} separate values</span> ` : ""}“${escapeHtml((r.current_artists || []).join("; ") || r.current_album_artist || "")}” → <b>${escapeHtml((r.new_artists || []).join("; "))}</b>
           (album artist: ${escapeHtml(r.new_album_artist || "")})</div></li>`).join("")}</ul>
       <div class="dl-actions"><label><input type="checkbox" data-tagclean-all="artist" ${rows.every(r => v.pickedArtists.has(r.id)) ? "checked" : ""}> Select all</label>
         <button type="button" class="button primary" data-tagclean="apply-artists" ${v.pickedArtists.size ? "" : "disabled"}>Fix selected (${v.pickedArtists.size})</button></div></section>`;
@@ -71,14 +71,14 @@ function tagcleanDecisionHtml() {
   const v = tagcleanView, groups = v.data.needs_decision || [];
   if (!groups.length) return "";
   return `<section class="dl-card"><h3>Needs your decision (${groups.length} artist${groups.length === 1 ? "" : "s"})</h3>
-      <p class="muted">MusicBrainz couldn't place these artists with confidence, so nothing was guessed. Pick one of your genres below and it's applied to every song listed for that artist at once.</p>
+      <p class="muted">No genre yet, or MusicBrainz couldn't place the artist with confidence, so nothing was guessed. Type a genre or pick one of yours, and it's applied to every song listed for that artist at once, like select all → Genre in Mp3tag.</p>
+      <datalist id="tagclean-genres">${v.data.genres.map(gn => `<option value="${escapeHtml(gn)}"></option>`).join("")}</datalist>
       ${groups.map(g => {
         const ids = g.rows.map(r => r.id).join(",");
         return `<div class="dl-card"><b>${escapeHtml(g.artist)}</b> (${g.rows.length})
-          <ul class="dl-list">${g.rows.map(r => `<li><div>${escapeHtml(r.title)}${tagcleanWhere(r)} (currently “${escapeHtml(r.current_genre || "")}”)</div></li>`).join("")}</ul>
-          <div class="dl-actions"><select data-tagclean-decide="${escapeHtml(g.artist)}" aria-label="Genre for ${escapeHtml(g.artist)}">
-              <option value="">Choose a genre…</option>${v.data.genres.map(gn => `<option value="${escapeHtml(gn)}" ${v.genreChoice[g.artist] === gn ? "selected" : ""}>${escapeHtml(gn)}</option>`).join("")}</select>
-            <button type="button" class="button primary" data-tagclean-apply-decide="${escapeHtml(g.artist)}" data-ids="${ids}" ${v.genreChoice[g.artist] ? "" : "disabled"}>Apply to ${escapeHtml(g.artist)}</button></div></div>`;
+          <ul class="dl-list">${g.rows.map(r => `<li><div>${escapeHtml(r.title)}${tagcleanWhere(r)} (${r.current_genre ? `currently “${escapeHtml(r.current_genre)}”` : "no genre"})</div></li>`).join("")}</ul>
+          <div class="dl-actions"><input class="dl-path" list="tagclean-genres" maxlength="100" data-tagclean-decide="${escapeHtml(g.artist)}" value="${escapeHtml(v.genreChoice[g.artist] || "")}" placeholder="Type or choose a genre" aria-label="Genre for ${escapeHtml(g.artist)}">
+            <button type="button" class="button primary" data-tagclean-apply-decide="${escapeHtml(g.artist)}" data-ids="${ids}">Apply to ${escapeHtml(g.artist)}</button></div></div>`;
       }).join("")}</section>`;
 }
 
@@ -123,8 +123,8 @@ document.addEventListener("click", event => {
   const decideButton = target.closest("[data-tagclean-apply-decide]");
   if (decideButton) {
     const artist = decideButton.dataset.tagcleanApplyDecide, ids = decideButton.dataset.ids.split(",").filter(Boolean);
-    const genre = v.genreChoice[artist];
-    if (!genre) return;
+    const genre = (decideButton.closest(".dl-actions")?.querySelector("[data-tagclean-decide]")?.value || v.genreChoice[artist] || "").trim();
+    if (!genre) { toast("Type or choose a genre first."); return; }
     downloadsRun(async () => { v.data = await api("/api/tagclean/assign-genre", {ids, genre}); delete v.genreChoice[artist]; tagcleanRefresh(); });
     return;
   }
@@ -147,7 +147,7 @@ document.addEventListener("change", event => {
   const pickGenre = target.closest("[data-tagclean-pick-genre]");
   if (pickGenre) { const id = pickGenre.dataset.tagcleanPickGenre; target.checked ? v.pickedGenre.add(id) : v.pickedGenre.delete(id); tagcleanRefresh(); return; }
   const decide = target.closest("[data-tagclean-decide]");
-  if (decide) { v.genreChoice[decide.dataset.tagcleanDecide] = target.value; tagcleanRefresh(); }
+  if (decide) { v.genreChoice[decide.dataset.tagcleanDecide] = target.value; }
 });
 
 document.addEventListener("input", event => {

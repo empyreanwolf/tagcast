@@ -64,6 +64,12 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v41** **Clean up tags the way Mp3tag does.**
+  - Several artists are written into ONE artist field, joined with "; " ("Artist A; Artist B"),
+    never as separate values (which Mp3tag shows as "\\\\" and some players as "/" or "//").
+    Files with separate values or "/", "//", "\\" are rewritten; a field already like "A; B" is left alone.
+  - Genre fixing covers every genre: a track with no genre now shows under **Needs your decision**,
+    and you can type any genre (not only ones already in iBroadcast), with yours suggested as you type.
 - **v40** **Ask Gemini waits up to 2 minutes** for an answer (was 30 seconds) and says plainly when it times out.
 - **v39** **Ask Gemini / Tavily keys: pasted spaces are removed.** A key copied with a space, line break
   or invisible character inside is cleaned instead of refused with "That Gemini API key doesn't look right."
