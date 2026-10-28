@@ -37,6 +37,7 @@ from .sources import SourceError
 
 STATIC = Path(__file__).parent / "static"
 MAX_BODY = 24 * 1024 * 1024  # an uploaded image arrives base64-encoded
+MAX_QUEUED = 100             # changes that may wait in the background queue at once (fork v36)
 # Extra hostnames this server answers to, beyond 127.0.0.1/localhost -- e.g. a Tailscale
 # MagicDNS name, once you're reaching it through `tailscale serve` (fork v25). Off by
 # default: a wrong guess here just means another device on your tailnet can reach your
@@ -101,18 +102,8 @@ class Handler(SimpleHTTPRequestHandler):
         started, crash = time.monotonic(), ""
         try:
             status, payload = 200, action()
-        except ConflictError as error:
-            status, payload = 409, {"error": str(error), "conflict": True}
-        except NotConnected as error:
-            status, payload = 401, {"error": str(error), "connected": False}
-        except (BiographyRetryError, AlbumInformationRetryError) as error:
-            status, payload = 429, {"error": str(error), "retry_after": error.retry_after}
-        except (ApiError, LibraryError, ArtworkError, SourceError) as error:
-            status, payload = 400, {"error": str(error)}
-        except Exception:  # never leak a traceback to the page
-            logging.exception("Request failed")
-            crash = traceback.format_exc()
-            status, payload = 500, {"error": "Something went wrong in Tagcast. See Overview → Activity log."}
+        except Exception as error:
+            status, payload, crash = classify_error(error)
         self._json(status, payload)
         self._record_request(status, payload, (time.monotonic() - started) * 1000, crash)
 
@@ -121,29 +112,7 @@ class Handler(SimpleHTTPRequestHandler):
         info = getattr(self, "_activity", None)
         if not info:
             return
-        path, method = info["path"], info["method"]
-        if method == "GET" and status in (200, 401):
-            return  # reading pages and polls succeed constantly; only failures are worth a line
-        if status == 200 and path in QUIET_ROUTES:
-            return
-        name = path[len("/api/"):]
-        body = getattr(self, "_activity_body", None)
-        action = body.get("action") if isinstance(body, dict) and isinstance(body.get("action"), str) else ""
-        title = name.replace("/", " › ") + (f" · {action}" if action else "")
-        lines = []
-        if body:
-            lines.append("Sent: " + (activity.summarize(body) or "(nothing)"))
-        if status == 200:
-            if isinstance(payload, dict) and activity.summarize(payload):
-                lines.append("Answer: " + activity.summarize(payload))
-        else:
-            lines.append(f"HTTP {status}: {payload.get('error', '') if isinstance(payload, dict) else payload}")
-        if crash:
-            lines.append(crash)
-        level = "ok" if status == 200 else "warn" if status in (401, 429) else "error"
-        if status != 200:
-            title += f" failed: {payload.get('error', '') if isinstance(payload, dict) else ''}"
-        activity.record(route_category(path), level, title, "\n".join(lines), source=name.split("/", 1)[0], ms=ms)
+        record_route(info["path"], info["method"], getattr(self, "_activity_body", None), status, payload, ms, crash)
 
     def end_headers(self):
         if self._frontend_asset():
@@ -203,6 +172,20 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
+            return
+        if url.path == "/api/tasks":
+            self._activity = None  # polled every second or so while something is queued
+            self._run(self.studio.tasks.view)
+            return
+        if url.path.startswith("/api/tasks/"):
+            self._activity = None
+
+            def task_state():
+                try:
+                    return self.studio.tasks.result(url.path.rsplit("/", 1)[1])
+                except KeyError:
+                    raise ApiError("This task is no longer available. Reload the library to see where things stand.") from None
+            self._run(task_state)
             return
         if url.path.startswith("/api/stream/"):
             self._stream(url.path.rsplit("/", 1)[1], query.get("quality"))
@@ -490,12 +473,23 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/activity/client": record_page_event,
             "/api/queue-sync": self.studio.queue_sync.action,
         }
+        def enqueue(b):
+            target, inner = b.get("path"), b.get("body")
+            if target not in QUEUED_PATHS or target not in routes or not isinstance(inner, dict):
+                raise ApiError("This action can't be queued.")
+            if self.studio.tasks.active() >= MAX_QUEUED:
+                raise ApiError(f"{MAX_QUEUED} changes are already waiting. Wait for some of them to finish.")
+            action = routes[target]
+            task = self.studio.tasks.submit(target, b.get("label") or target, lambda: action(inner),
+                                            classify_error, inner)
+            return {"task": task}
+        routes["/api/queue"] = enqueue
         if path not in routes:
             self._json(404, {"error": "Unknown endpoint."})
             return
         self._activity, self._activity_body = {"path": path, "method": "POST"}, None
-        if path == "/api/activity/client":
-            self._activity = None  # recorded by the route itself, as a page error
+        if path in ("/api/activity/client", "/api/queue"):
+            self._activity = None  # the first records itself as a page error; a queued task is recorded when it finishes
 
         def call():
             body = self._body()
@@ -592,6 +586,74 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
 
 
+def classify_error(error):
+    """How a failed action is reported to the page: (HTTP status, payload, crash details).
+
+    Call it from inside the ``except`` block: an unexpected failure is logged with its
+    traceback. Used for direct requests and for queued tasks alike, so a task fails with
+    exactly the message and status the same request would have had.
+    """
+    if isinstance(error, ConflictError):
+        return 409, {"error": str(error), "conflict": True}, ""
+    if isinstance(error, NotConnected):
+        return 401, {"error": str(error), "connected": False}, ""
+    if isinstance(error, (BiographyRetryError, AlbumInformationRetryError)):
+        return 429, {"error": str(error), "retry_after": error.retry_after}, ""
+    if isinstance(error, (ApiError, LibraryError, ArtworkError, SourceError)):
+        return 400, {"error": str(error)}, ""
+    try:
+        raise error  # so the log call below sees it as the exception being handled
+    except Exception:
+        logging.exception("Request failed")
+    return 500, {"error": "Something went wrong in Tagcast. See Overview → Activity log."}, \
+        "".join(traceback.format_exception(type(error), error, error.__traceback__))
+
+
+def record_route(path, method, body, status, payload, ms, crash=""):
+    """One Activity log entry per action (fork v35); see activity.py."""
+    if method == "GET" and status in (200, 401):
+        return  # reading pages and polls succeed constantly; only failures are worth a line
+    if status == 200 and path in QUIET_ROUTES:
+        return
+    name = path[len("/api/"):]
+    action = body.get("action") if isinstance(body, dict) and isinstance(body.get("action"), str) else ""
+    title = name.replace("/", " › ") + (f" · {action}" if action else "")
+    lines = []
+    if body:
+        lines.append("Sent: " + (activity.summarize(body) or "(nothing)"))
+    if status == 200:
+        if isinstance(payload, dict) and activity.summarize(payload):
+            lines.append("Answer: " + activity.summarize(payload))
+    else:
+        lines.append(f"HTTP {status}: {payload.get('error', '') if isinstance(payload, dict) else payload}")
+    if crash:
+        lines.append(crash)
+    level = "ok" if status == 200 else "warn" if status in (401, 429) else "error"
+    if status != 200:
+        title += f" failed: {payload.get('error', '') if isinstance(payload, dict) else ''}"
+    activity.record(route_category(path), level, title, "\n".join(lines), source=name.split("/", 1)[0], ms=ms)
+
+
+def record_task(task):
+    """A finished queued task goes in the Activity log like the direct request it replaces,
+    with how long it waited in the queue and how long it ran."""
+    waited = (task["started"] or task["created"]) - task["created"]
+    payload = task["result"] if task["state"] == "done" else task["payload"]
+    record_route(task["path"], "POST", task.get("body"), task["status"] or 500, payload,
+                 ((task["ended"] or time.time()) - (task["started"] or task["created"])) * 1000, task["crash"])
+    if waited >= 5:
+        activity.record(route_category(task["path"]), "info",
+                        f"{task['label']}: waited {waited:.0f} s in the queue", source="queue")
+
+
+# Writes to iBroadcast that run through the background queue (fork v36): one at a time, in
+# order, so each one starts from the library the previous one left behind. Quick actions
+# that don't write to iBroadcast, and everything that reads, never wait in it.
+QUEUED_PATHS = {"/api/save", "/api/artwork", "/api/artwork/undo", "/api/trash", "/api/trash/albums",
+                "/api/tags/save", "/api/favourite", "/api/album-rating", "/api/artist-rating",
+                "/api/album-favourite", "/api/artist-favourite", "/api/playlist", "/api/playlist/artwork",
+                "/api/lyrics/save"}
+
 # Successful requests that happen on their own (lookups while browsing, queue sync) are not
 # worth a line each; their failures still are.
 QUIET_ROUTES = {"/api/queue-sync", "/api/galaxy/cards", "/api/galaxy/album-years", "/api/artist-biography",
@@ -683,6 +745,7 @@ def open_server(port):
     try:
         _log_to_file(Studio.default_home())
         handler.studio = Studio()
+        handler.studio.tasks.on_finish = record_task  # queued saves land in the Activity log
     except Exception:
         server.server_close()
         raise

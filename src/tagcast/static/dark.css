@@ -219,6 +219,14 @@
 :root[data-theme="dark"] #gemini-input{background:var(--palette-surface,#1b2520)}
 :root[data-theme="dark"] #gemini-key-input,:root[data-theme="dark"] #gemini-tavily-input{background:var(--palette-surface,#1b2520)}
 :root[data-theme="dark"] .gemini-sources a{color:var(--palette-link,#97a68d)}
+:root[data-theme="dark"] .tasks-pill{box-shadow:0 6px 24px #0002}
+:root[data-theme="dark"] .tasks-pill[data-state="busy"]{border-color:#ae7b00}
+:root[data-theme="dark"] .tasks-pill[data-state="busy"]::before{background:#ae7b00}
+:root[data-theme="dark"] .tasks-pill[data-state="error"]{border-color:#e68166}
+:root[data-theme="dark"] .tasks-pill[data-state="error"]::before{background:#e68166}
+:root[data-theme="dark"] .tasks-panel{box-shadow:0 10px 36px #0003}
+:root[data-theme="dark"] .tasks-note{background:#2c2922;border:1px solid #453d28;color:#ceb276}
+:root[data-theme="dark"] .tasks-list li[data-state="error"] .muted{color:#fb957a}
 
 /* set by hand */
 :root[data-theme="dark"]{color-scheme:dark}
@@ -453,6 +461,14 @@
 :root:not([data-theme="light"]) #gemini-input{background:var(--palette-surface,#1b2520)}
 :root:not([data-theme="light"]) #gemini-key-input,:root:not([data-theme="light"]) #gemini-tavily-input{background:var(--palette-surface,#1b2520)}
 :root:not([data-theme="light"]) .gemini-sources a{color:var(--palette-link,#97a68d)}
+:root:not([data-theme="light"]) .tasks-pill{box-shadow:0 6px 24px #0002}
+:root:not([data-theme="light"]) .tasks-pill[data-state="busy"]{border-color:#ae7b00}
+:root:not([data-theme="light"]) .tasks-pill[data-state="busy"]::before{background:#ae7b00}
+:root:not([data-theme="light"]) .tasks-pill[data-state="error"]{border-color:#e68166}
+:root:not([data-theme="light"]) .tasks-pill[data-state="error"]::before{background:#e68166}
+:root:not([data-theme="light"]) .tasks-panel{box-shadow:0 10px 36px #0003}
+:root:not([data-theme="light"]) .tasks-note{background:#2c2922;border:1px solid #453d28;color:#ceb276}
+:root:not([data-theme="light"]) .tasks-list li[data-state="error"] .muted{color:#fb957a}
 
 /* set by hand */
 :root:not([data-theme="light"]){color-scheme:dark}

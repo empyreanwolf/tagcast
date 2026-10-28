@@ -13,6 +13,7 @@ is fine here: a missed face just falls through to the next, still-reasonable sou
 """
 
 import threading
+import time
 
 from . import activity
 from .artwork import ArtworkError, from_url
@@ -22,6 +23,8 @@ from .sources import SourceError, TheAudioDB
 MAX_COVERS_CHECKED = 8
 MIN_FACE_FRACTION = 0.12  # a detected face must be at least this fraction of the image's shorter side
 ANALYSIS_SIZE = 500       # fetched once per candidate cover, purely to look for a face in it
+BATCH = 10                # artists saved before iBroadcast is asked once whether they all took (fork v36)
+CONFIRM_TIMEOUT = 300     # seconds to wait for that read-back
 
 _cascade = None
 _cascade_lock = threading.Lock()
@@ -64,6 +67,7 @@ class ArtistPictures:
         self.progress = None   # {"done", "total", "name"} while a run is in progress
         self.jobs = []          # recent per-artist outcomes, most recent first
         self._song_index = None  # (library, {artist_id: [artwork ids of songs they're on]}) for one run
+        self._applied = None     # what the last save answered ({"artwork_id", "image"}), for the run to record
 
     # -- reading ----------------------------------------------------------------
 
@@ -99,6 +103,7 @@ class ArtistPictures:
         return {"stopping": True}
 
     def _run(self):
+        pending = []  # saved but not yet confirmed by iBroadcast: this batch's job entries
         try:
             library, _ = self.studio._library()
             missing = self._missing(library)
@@ -110,23 +115,78 @@ class ArtistPictures:
                 name = library.artist_name(artist_id)
                 with self.lock:
                     self.progress["name"] = name
+                self._applied = None
+                failed = False
                 try:
                     source, note = self._pick(artist_id, name)
                 except Exception as error:
-                    source, note = "", str(error)
+                    source, note, failed = "", str(error), True
                 activity.record("pictures", "ok" if source else "warn" if note != "Stopped." else "info",
                                 f"{name}: {note}", source=source or "skipped")
+                applied = self._applied if source else None
+                job = {"artist": name, "artist_id": str(artist_id), "source": source, "note": note,
+                       "status": "saving" if applied else "failed" if failed else "skipped",
+                       "artwork_id": applied.get("artwork_id") if applied else None,
+                       "image": applied.get("image") if applied else None}
                 with self.lock:
-                    self.jobs.insert(0, {"artist": name, "artist_id": str(artist_id), "source": source, "note": note})
+                    self.jobs.insert(0, job)
                     del self.jobs[200:]
                     self.progress["done"] += 1
+                if applied:
+                    pending.append(job)
+                if len(pending) >= BATCH:
+                    self._confirm(pending)
+                    pending = []
         finally:
-            with self.lock:
-                done = (self.progress or {}).get("done", 0)
-                self.running = False
-                self.progress = None
-            activity.record("pictures", "info", f"Artist pictures run ended after {done} artists")
-            self.stop_flag.clear()
+            try:
+                if pending:
+                    self._confirm(pending)  # also after Stop and after a crash: what was saved gets checked
+            finally:
+                with self.lock:
+                    done = (self.progress or {}).get("done", 0)
+                    self.running = False
+                    self.progress = None
+                activity.record("pictures", "info", f"Artist pictures run ended after {done} artists")
+                self.stop_flag.clear()
+
+    def _confirm(self, jobs):
+        """Ask iBroadcast, once for the whole batch, whether the images really are there.
+
+        Each artist's line then says Saved (confirmed) or Not showing yet, instead of only
+        saying that a request was sent. This is also the library download the next batch
+        starts from, so it costs nothing extra.
+        """
+        with self.lock:
+            if self.progress is not None:
+                self.progress["confirming"] = True
+        statuses, problem = {}, ""
+        try:
+            job_id = self.studio.check_artist_images({j["artist_id"]: j["artwork_id"] for j in jobs})
+            end = time.monotonic() + CONFIRM_TIMEOUT
+            while True:
+                state = self.studio.job(job_id)
+                if state.get("state") != "checking":
+                    break
+                if time.monotonic() > end:
+                    state = {"state": "error", "error": "iBroadcast took too long to answer."}
+                    break
+                time.sleep(.5)
+            if state.get("state") == "done":
+                statuses = {r["id"]: r["status"] for r in state.get("results") or []}
+            else:
+                problem = state.get("error") or "The result could not be read back."
+        except Exception as error:
+            problem = str(error)
+        with self.lock:
+            for job in jobs:
+                job["status"] = statuses.get(job["artist_id"], "unverified")
+            if self.progress is not None:
+                self.progress["confirming"] = False
+        saved = sum(1 for j in jobs if j["status"] == "saved")
+        activity.record("pictures", "ok" if saved == len(jobs) else "warn",
+                        f"iBroadcast confirmed {saved} of {len(jobs)} artist pictures"
+                        + (f" ({problem})" if problem else ""),
+                        "\n".join(f"{j['status']}: {j['artist']}" for j in jobs), source="confirm")
 
     # -- one artist -----------------------------------------------------------------
 
@@ -206,5 +266,6 @@ class ArtistPictures:
         # caller, logged against this one artist, and the run moves on to the next.
         library, _ = self.studio._library()
         before = number(library.artists.get(artist_id, {}).get("artwork_id"))
-        self.studio.change_artwork({"target": "artist", "id": str(artist_id), "label": name,
-                                    "before": {"artwork_id": before}, "source": source})
+        self._applied = self.studio.apply_artist_image(
+            {"target": "artist", "id": str(artist_id), "label": name,
+             "before": {"artwork_id": before}, "source": source})

@@ -33,7 +33,9 @@ class LocalStudio:
         self._disabled = list(disabled or [])
         self.lookup = type("Lookup", (), {"http": object()})()
         self.calls = []
-        self.change_artwork = Mock(side_effect=change_artwork or self._default_change)
+        self.checked = []   # the {artist_id: artwork_id} of each read-back asked for
+        self.drop = set()   # artists whose image iBroadcast "didn't take"
+        self.apply_artist_image = Mock(side_effect=change_artwork or self._default_change)
         self.artist_pictures = ArtistPictures(self)
 
     def _require_client(self):
@@ -50,7 +52,16 @@ class LocalStudio:
         artist_id, source = int(body["id"]), body["source"]
         new_id = source.get("artwork_id") or 9000 + artist_id
         self.library.artists.rows[artist_id]["artwork_id"] = new_id
-        return {"artwork_id": new_id}
+        return {"artwork_id": new_id, "image": f"https://art.test/{new_id}-300"}
+
+    def check_artist_images(self, expected):
+        self.checked.append(dict(expected))
+        self._results = [{"kind": "artist", "id": str(i), "status": "unverified" if int(i) in self.drop else "saved"}
+                         for i in expected]
+        return "job1"
+
+    def job(self, job_id):
+        return {"state": "done", "results": self._results}
 
 
 def finished(pictures):
@@ -205,7 +216,7 @@ class RunTests(unittest.TestCase):
                 time.sleep(.01)
             return studio._default_change(body)
 
-        studio.change_artwork = Mock(side_effect=slow_change)
+        studio.apply_artist_image = Mock(side_effect=slow_change)
         with patch("tagcast.artist_pictures.from_url", return_value=(b"data", "n", "image/jpeg")), \
              patch("tagcast.artist_pictures.detect_face", return_value=True):
             studio.artist_pictures.start()
@@ -225,7 +236,7 @@ class RunTests(unittest.TestCase):
                 raise ConflictError("changed elsewhere")
             return studio._default_change(body)
 
-        studio.change_artwork = Mock(side_effect=change)
+        studio.apply_artist_image = Mock(side_effect=change)
         with patch("tagcast.artist_pictures.from_url", return_value=(b"data", "n", "image/jpeg")), \
              patch("tagcast.artist_pictures.detect_face", return_value=True):
             studio.artist_pictures.start()
@@ -234,3 +245,81 @@ class RunTests(unittest.TestCase):
         self.assertEqual(by_name["Two Covers"]["source"], "")
         self.assertIn("changed", by_name["Two Covers"]["note"])
         self.assertEqual(by_name["One Cover"]["source"], "face")  # other artists still get processed
+
+
+class ConfirmationTests(unittest.TestCase):
+    """Fork v36: a saved picture is only called Saved once iBroadcast has been asked, once per batch."""
+
+    def _run(self, studio):
+        with patch("tagcast.artist_pictures.from_url", return_value=(b"data", "n", "image/jpeg")), \
+             patch("tagcast.artist_pictures.detect_face", return_value=True), \
+             patch.object(TheAudioDB, "artist_image", return_value={"status": "missing", "image": ""}):
+            studio.artist_pictures.start()
+            finished(studio.artist_pictures)
+
+    def test_each_artist_is_confirmed_and_carries_the_image_the_page_needs(self):
+        studio = LocalStudio()
+        self._run(studio)
+        by_name = {job["artist"]: job for job in studio.artist_pictures.jobs}
+        self.assertEqual({j["status"] for j in by_name.values()} - {"saved", "skipped"}, set())
+        self.assertEqual(by_name["Two Covers"]["status"], "saved")
+        self.assertEqual(by_name["Two Covers"]["artwork_id"], 500)
+        self.assertEqual(by_name["Two Covers"]["image"], "https://art.test/500-300")
+        self.assertEqual(by_name["No Cover At All"]["status"], "skipped")
+
+    def test_the_whole_run_is_confirmed_in_one_readback_when_it_fits_one_batch(self):
+        studio = LocalStudio()
+        self._run(studio)
+        self.assertEqual(len(studio.checked), 1)
+        self.assertEqual(set(studio.checked[0]), {"1", "2"})
+
+    def test_a_picture_iBroadcast_did_not_take_says_so(self):
+        studio = LocalStudio()
+        studio.drop = {2}
+        self._run(studio)
+        by_name = {job["artist"]: job for job in studio.artist_pictures.jobs}
+        self.assertEqual(by_name["One Cover"]["status"], "unverified")
+        self.assertEqual(by_name["Two Covers"]["status"], "saved")
+
+    def test_a_failed_readback_leaves_the_pictures_unconfirmed_rather_than_saved(self):
+        studio = LocalStudio()
+        studio.job = Mock(return_value={"state": "error", "error": "no answer"})
+        self._run(studio)
+        statuses = {job["status"] for job in studio.artist_pictures.jobs if job["artwork_id"]}
+        self.assertEqual(statuses, {"unverified"})
+
+    def test_a_save_that_failed_is_marked_failed_not_skipped(self):
+        studio = LocalStudio()
+
+        def change(body):
+            if body["id"] == "1":
+                raise ConflictError("changed elsewhere")
+            return studio._default_change(body)
+
+        studio.apply_artist_image = Mock(side_effect=change)
+        self._run(studio)
+        by_name = {job["artist"]: job for job in studio.artist_pictures.jobs}
+        self.assertEqual(by_name["Two Covers"]["status"], "failed")
+        self.assertEqual(by_name["One Cover"]["status"], "saved")
+        self.assertNotIn("1", studio.checked[0])  # nothing was claimed for the artist that failed
+
+    def test_large_runs_are_confirmed_a_batch_at_a_time(self):
+        import tagcast.artist_pictures as module
+        studio = LocalStudio()
+        with patch.object(module, "BATCH", 1):
+            self._run(studio)
+        self.assertEqual([set(c) for c in studio.checked], [{"1"}, {"2"}])  # artists run in id order
+
+    def test_stopping_still_confirms_what_was_saved(self):
+        studio = LocalStudio()
+        original = studio._default_change
+
+        def change(body):
+            result = original(body)
+            studio.artist_pictures.stop_flag.set()  # Stop pressed right after the first save
+            return result
+
+        studio.apply_artist_image = Mock(side_effect=change)
+        self._run(studio)
+        self.assertEqual(len(studio.checked), 1)
+        self.assertEqual(len(studio.checked[0]), 1)

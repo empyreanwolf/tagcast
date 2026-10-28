@@ -5,7 +5,7 @@
 // photo from TheAudioDB, else just one of their own covers (better than the blank default).
 // Only artists with no image yet are touched; the existing "Change artwork" dialog still
 // overrides anything this picks, any time.
-const artistPicturesView = {data: null, loading: false, timer: null};
+const artistPicturesView = {data: null, loading: false, timer: null, applied: new Set()};
 
 function showArtistPictures() {
   showScreen("artist-pictures");
@@ -19,6 +19,7 @@ async function loadArtistPictures() {
   artistPicturesView.loading = true;
   try {
     artistPicturesView.data = await api("/api/artist-pictures");
+    applyArtistPictures(artistPicturesView.data.jobs || []);
   } catch (error) {
     setActionStatus("#artist-pictures-status", error.message);
   } finally {
@@ -33,11 +34,27 @@ function scheduleArtistPicturesPoll() {
   if (artistPicturesView.data?.running) artistPicturesView.timer = setTimeout(loadArtistPictures, 1500);
 }
 
+// Fork v36: a picture counts as Saved only once iBroadcast has confirmed it (the server asks once per
+// batch of ten), and a confirmed picture shows here straight away, without reloading the library.
+function applyArtistPictures(jobs) {
+  let changed = false;
+  for (const job of jobs) {
+    const key = `${job.artist_id}:${job.artwork_id}`;
+    if (job.status !== "saved" || !job.artwork_id || !job.image || artistPicturesView.applied.has(key)) continue;
+    artistPicturesView.applied.add(key);
+    showNewArt({target: "artist", id: String(job.artist_id)}, {image: job.image, artwork_id: job.artwork_id});
+    changed = true;
+  }
+  if (changed) render();
+}
+
 const artistPicturesSourceLabel = {face: "Face found", theaudiodb: "TheAudioDB photo", cover: "Used a cover", "": "Skipped"};
+const artistPicturesStatusLabel = {saving: "Saving…", saved: "Saved", unverified: "Not showing yet", failed: "Failed"};
 
 function artistPicturesJobHtml(job) {
-  const label = artistPicturesSourceLabel[job.source] ?? job.source;
-  return `<li><div><strong>${escapeHtml(job.artist)}</strong> <span class="pill">${escapeHtml(label)}</span><br><span class="muted">${escapeHtml(job.note || "")}</span></div></li>`;
+  const label = job.status === "failed" ? "" : artistPicturesSourceLabel[job.source] ?? job.source;
+  const status = artistPicturesStatusLabel[job.status];
+  return `<li><div><strong>${escapeHtml(job.artist)}</strong>${label ? ` <span class="pill">${escapeHtml(label)}</span>` : ""}${status ? ` <span class="status ${escapeHtml(job.status)}">${escapeHtml(status)}</span>` : ""}<br><span class="muted">${escapeHtml(job.status === "unverified" ? `${job.note || ""} iBroadcast has not shown this picture yet; check again after reloading the library.`.trim() : job.note || "")}</span></div></li>`;
 }
 
 function renderArtistPictures() {
@@ -48,7 +65,7 @@ function renderArtistPictures() {
   if (!d) { content.innerHTML = `<p class="muted">Loading…</p>`; return; }
   const running = d.running, progress = d.progress;
   const statusLine = running
-    ? `<p role="status" class="operation-status" data-working="true">Running: ${progress ? `${fmt(progress.done)} of ${fmt(progress.total)}${progress.name ? ` · now checking ${escapeHtml(progress.name)}` : ""}` : "starting…"}</p>`
+    ? `<p role="status" class="operation-status" data-working="true">Running: ${progress ? `${fmt(progress.done)} of ${fmt(progress.total)}${progress.confirming ? " · confirming with iBroadcast" : progress.name ? ` · now checking ${escapeHtml(progress.name)}` : ""}` : "starting…"}</p>`
     : `<p class="muted">${d.missing ? `${fmt(d.missing)} album ${d.missing === 1 ? "artist" : "artists"} currently ${d.missing === 1 ? "has" : "have"} no image.` : "Every album artist already has an image."}</p>`;
   content.innerHTML = `${statusLine}
     <div class="dl-actions">

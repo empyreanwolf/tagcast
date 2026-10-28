@@ -75,6 +75,31 @@ function page({hash = "", storage = {}, server = true, browserNavigator = {}, me
       getAttribute(name) { return name === "src" ? this.src : attributes.get(name); },
       removeAttribute(name) { attributes.delete(name); if (name === "src") delete this.src; }};
   }
+  // Fork v36: saves wait in a background queue on the server. The queue's plumbing (/api/queue and
+  // /api/tasks) is answered here; the request itself runs through the usual handlers and is recorded
+  // as the direct request it stands for, so tests keep describing what is sent to iBroadcast.
+  const queuedTasks = new Map();
+  let nextQueuedTask = 1;
+  async function queueFetch(url, options) {
+    if (url === "/api/queue") {
+      const body = JSON.parse(options.body);
+      const id = `task-${nextQueuedTask++}`;
+      const innerRequest = context.fetch(body.path, {...options, body: JSON.stringify(body.body)});  // starts at once, like a direct request
+      queuedTasks.set(id, {label: body.label, done: false, promise: innerRequest.then(async response => {
+        const data = await response.json();
+        return response.ok ? {state: "done", result: data} : {state: "error", status: response.status, data};
+      }, error => ({state: "error", status: 500, data: {error: error.message}})).then(state => { queuedTasks.get(id).done = true; return state; })});
+      return {ok: true, json: async () => ({task: {id, label: body.label, state: "queued"}})};
+    }
+    if (url === "/api/tasks") {
+      const tasks = [...queuedTasks].map(([id, t]) => ({id, label: t.label, state: t.done ? "done" : "running"}));
+      return {ok: true, json: async () => ({active: tasks.filter(t => t.state === "running").length, waiting: 0, congested: false, message: "", tasks})};
+    }
+    const task = queuedTasks.get(decodeURIComponent(url.slice("/api/tasks/".length)));
+    if (!task) return {ok: false, status: 400, json: async () => ({error: "This task is no longer available."})};
+    const state = await task.promise;
+    return {ok: true, json: async () => state};
+  }
   let respondServiceStatus = null;
   const document = {body: element(), documentElement: element(),
     getElementById(id) { return this.querySelector(`#${id}`); },
@@ -99,6 +124,7 @@ function page({hash = "", storage = {}, server = true, browserNavigator = {}, me
     setTimeout(callback, delay) { const id = nextTimer++; timers.set(id, {callback, delay}); return id; },
     clearTimeout(id) { timers.delete(id); }, setInterval() { return 1; }, clearInterval() {},
     fetch: async (url, options) => {
+      if (url === "/api/queue" || url.startsWith("/api/tasks")) return queueFetch(url, options);
       requests.push({url, options});
       if (url === "/1001-album-notes.json") return respondNotes ? respondNotes(url, options)
         : {ok: true, json: async () => ({schema: 1, entries: []})};
@@ -121,7 +147,12 @@ function page({hash = "", storage = {}, server = true, browserNavigator = {}, me
   const scripts = [...pageHTML.matchAll(/<script src="([^"]+)"/g)];
   for (const [, file] of scripts) vm.runInContext(readFileSync(path.join(staticDir, file), "utf8"), context, {filename: file});
   if (!deferReady) for (const handler of documentEvents.get("DOMContentLoaded") || []) handler();
-  return {run: source => vm.runInContext(source, context), nodes, requests, downloads, history, location,
+  return {run: source => vm.runInContext(source, context), context, nodes, requests, downloads, history, location,
+    async emitWindow(type, event = {}) {
+      const dispatched = {preventDefault() { this.prevented = true; }, ...event};
+      await Promise.all((windowEvents.get(type) || []).map(handler => handler(dispatched)));
+      return dispatched;
+    },
     setPlaybackClock(value) { playbackClock = value; },
     setFetch(handler) { respond = handler; },
     setStatusFetch(handler) { respondStatus = handler; },
@@ -2889,7 +2920,7 @@ test("Next album goes from the album before a set to the whole set, and on past 
   assert.deepEqual(p.json("editing.ids"), ["71", "72", "73"]);
 });
 
-test("a set gets one cover: uploaded once, then put on every disc, each with its own History entry", async () => {
+test("a set gets one cover: uploaded once, then put on every disc in the background, each with its own History entry", async () => {
   const p = setPage();
   const posts = [];
   let fail = 0;
@@ -2911,16 +2942,20 @@ test("a set gets one cover: uploaded once, then put on every disc, each with its
   p.run("openArtwork(albumArtTarget()); choose(addOption({url: 'https://example.test/wall.jpg', thumb: 'x', source: 'Your address'}))");
   assert.match(p.nodes.get("#artwork-content").innerHTML, /on all 3 discs/);
   fail = 2;
-  await p.run("saveArtwork()");
-  assert.match(p.nodes.get("#art-status").innerHTML, /1 of 3 discs have the new cover/);
-  assert.equal(p.nodes.get("#art-save").textContent, "Save the other discs");
+  const saving = p.run("saveArtwork()");
+  assert.equal(p.nodes.get("#artwork").open, false, "The dialog closes at once; the work goes on in the background");
+  assert.match(p.nodes.get("#toast").textContent, /in the background/);
+  await saving;
+  assert.match(p.nodes.get("#toast").textContent, /1 of 3 discs have the new cover[^]*Already in iBroadcast/);
   fail = 0;
+  p.run("openArtwork(albumArtTarget()); choose(addOption({artwork_id: 555, url: 'https://example.test/555-1000', thumb: 'x', source: 'iBroadcast'}))");
   await p.run("saveArtwork()");
   assert.deepEqual(posts.map(b => [b.id, b.source]), [
-    ["71", {url: "https://example.test/wall.jpg"}], ["72", {artwork_id: 555}], ["72", {artwork_id: 555}], ["73", {artwork_id: 555}]]);
-  assert.deepEqual(p.json("state.history.map(h => h.artwork.label)"), ["The Wall · Disc 3", "The Wall · Disc 2", "The Wall · Disc 1"]);
+    ["71", {url: "https://example.test/wall.jpg"}], ["72", {artwork_id: 555}],
+    ["71", {artwork_id: 555}], ["72", {artwork_id: 555}], ["73", {artwork_id: 555}]]);
+  assert.deepEqual(p.json("state.history.map(h => h.artwork.label)"), ["The Wall · Disc 3", "The Wall · Disc 2", "The Wall · Disc 1", "The Wall · Disc 1"]);
   assert.deepEqual(p.json('["71", "72", "73"].map(id => state.details.get(id).artwork)'), Array(3).fill("https://example.test/555-300"));
-  assert.match(p.nodes.get("#toast").textContent, /Cover saved on all 3 discs/);
+  assert.match(p.nodes.get("#toast").textContent, /saved on all 3 discs/);
 });
 
 test("you choose how many albums and album artists a page shows, and Tagcast remembers it", async () => {
@@ -9641,4 +9676,210 @@ test('fork v35: page script errors are sent to the Activity log, at most 20 a mi
   assert.equal(sent.length, 20);
   assert.equal(sent[0][0], '/api/activity/client');
   assert.deepEqual([sent[0][1].kind, sent[0][1].where], ['script', 'album-merge.js:42']);
+});
+
+
+// ---- Background queue (fork v36) --------------------------------------------------------------
+
+function queueFetchStub(calls, tasks) {
+  // The server side of the queue, for tests that follow a task that is still going.
+  return async (url, options) => {
+    calls.push([url, options?.body ? JSON.parse(options.body) : null]);
+    if (url === "/api/queue") return {ok: true, json: async () => ({task: {id: "t1", label: JSON.parse(options.body).label, state: "queued"}})};
+    if (url === "/api/tasks/t1") return {ok: true, json: async () => tasks.answer()};
+    if (url === "/api/tasks") return {ok: true, json: async () => tasks.view()};
+    throw Error(`Unexpected request ${url}`);
+  };
+}
+
+test("saves go through the queue; callers still get the answer, or the same error as a direct request", async () => {
+  const p = livePage(); await settle();
+  p.setFetch(url => url === "/api/save"
+    ? {ok: false, status: 409, json: async () => ({error: "Changed in iBroadcast.", conflict: true})}
+    : {ok: true, json: async () => ({results: []})});
+  await assert.rejects(p.run('api("/api/save", {changes: []})'), error => error.status === 409 && error.data.conflict === true && error.message === "Changed in iBroadcast.");
+  p.setFetch(() => ({ok: true, json: async () => ({job: "rating"})}));
+  assert.deepEqual(p.json('api("/api/album-rating", {albums: ["1"]})') && await p.run('api("/api/album-rating", {albums: ["1"]})'), {job: "rating"});
+  const paths = p.requests.map(r => r.url);
+  assert.ok(paths.includes("/api/save") && paths.includes("/api/album-rating"));
+  assert.ok(!paths.includes("/api/queue"), "the harness answers the queue itself and records the request it stands for");
+});
+
+test("reads and quick lookups never wait in the queue", async () => {
+  const p = livePage(); await settle();
+  assert.equal(p.run('QUEUED_PATHS.has("/api/library")'), false);
+  assert.equal(p.run('QUEUED_PATHS.has("/api/galaxy/add")'), false);
+  assert.equal(p.run('QUEUED_PATHS.has("/api/play")'), false);
+  for (const path of ["/api/save", "/api/artwork", "/api/artwork/undo", "/api/trash", "/api/tags/save", "/api/playlist"]) assert.equal(p.run(`QUEUED_PATHS.has("${path}")`), true, path);
+});
+
+test("a queued task that is still waiting is followed until it finishes, and shown in the Tasks indicator", async () => {
+  const p = livePage(); await settle();
+  let state = "queued", result = {artwork_id: 7};
+  const calls = [];
+  p.context.fetch = queueFetchStub(calls, {
+    answer: () => state === "done" ? {state, result} : {state},
+    view: () => ({active: state === "done" ? 0 : 1, waiting: 0, congested: false, message: "",
+      tasks: [{id: "t1", label: "Change cover: X", state: state === "done" ? "done" : "running", running_for: 3, took: 4}]})});
+  let answer;
+  const running = p.run('runQueued("/api/artwork", {target: "album", id: "1", label: "X"})').then(r => { answer = r; });
+  await settle();
+  assert.equal(answer, undefined, "Still going");
+  assert.deepEqual(calls[0], ["/api/queue", {path: "/api/artwork", body: {target: "album", id: "1", label: "X"}, label: "Change cover: X"}]);
+  p.flushTimers(0); await settle();
+  assert.equal(p.nodes.get("#tasks").hidden, false);
+  assert.match(p.nodes.get("#tasks-pill").textContent, /Saving 1 change/);
+  state = "done";
+  p.flushTimers(800); await settle();
+  await running;
+  assert.deepEqual(answer, result);
+});
+
+test("a task that fails reaches its caller with the status the direct request would have had", async () => {
+  const p = livePage(); await settle();
+  p.context.fetch = queueFetchStub([], {
+    answer: () => ({state: "error", status: 409, data: {error: "The cover changed in iBroadcast since you loaded it.", conflict: true}}),
+    view: () => ({active: 0, tasks: []})});
+  await assert.rejects(p.run('runQueued("/api/artwork", {label: "X"})'), error => error.status === 409 && error.data.conflict === true && /cover changed/.test(error.message));
+});
+
+test("when Tagcast stops answering, waiting callers are told instead of waiting for ever", async () => {
+  const p = livePage(); await settle();
+  p.context.fetch = async url => {
+    if (url === "/api/queue") return {ok: true, json: async () => ({task: {id: "t1", label: "X"}})};
+    if (url === "/api/tasks/t1") return {ok: true, json: async () => ({state: "running"})};
+    throw Error("Failed to fetch");
+  };
+  const waiting = p.run('runQueued("/api/save", {changes: []})').catch(error => error.message);
+  await settle();
+  for (let i = 0; i < 6; i++) { p.flushTimers(0); p.flushTimers(800); p.flushTimers(2500); await settle(); }
+  assert.equal(await waiting, "Failed to fetch");
+});
+
+test("a congested queue says so once, turns the indicator amber and lists what is waiting", async () => {
+  const p = livePage(); await settle();
+  const view = {active: 8, waiting: 7, congested: true, eta_seconds: 150,
+    message: "8 changes are waiting to be saved to iBroadcast, one after the other. That will take about 3 minutes. You can keep using Tagcast; please keep it open until this is done.",
+    tasks: [{id: "t1", label: "Save 3 records", state: "running", running_for: 5},
+      ...Array.from({length: 7}, (_, i) => ({id: `w${i}`, label: `Change cover: Album ${i}`, state: "queued", waited: 12}))]};
+  p.context.fetch = queueFetchStub([], {answer: () => ({state: "running"}), view: () => view});
+  p.run('runQueued("/api/save", {changes: []})').catch(() => {});
+  await settle();
+  p.flushTimers(0); await settle();
+  assert.match(p.nodes.get("#toast").textContent, /8 changes are waiting[^]*keep using Tagcast/);
+  assert.equal(p.nodes.get("#tasks-pill").dataset.state, "busy");
+  assert.match(p.nodes.get("#tasks-pill").textContent, /Saving 8 changes · 7 waiting/);
+  await p.click({"#tasks-pill": {}});
+  const panel = p.nodes.get("#tasks-panel");
+  assert.equal(panel.hidden, false);
+  assert.match(panel.innerHTML, /about 3 minutes/);
+  assert.match(panel.innerHTML, /Change cover: Album 6/);
+  assert.match(panel.innerHTML, /Waiting · 12 s/);
+  p.run('document.querySelector("#toast").textContent = ""');
+  p.flushTimers(800); await settle();
+  assert.equal(p.nodes.get("#toast").textContent, "", "The warning is not repeated on every refresh");
+});
+
+test("a change that was not saved stays in the indicator until you dismiss it", async () => {
+  const p = livePage(); await settle();
+  p.run(`bgTasks.view = {active: 0, tasks: [{id: "e1", label: "Change cover: X", state: "error", error: "iBroadcast did not answer."}]}; renderTasks()`);
+  assert.equal(p.nodes.get("#tasks").hidden, false);
+  assert.equal(p.nodes.get("#tasks-pill").dataset.state, "error");
+  assert.match(p.nodes.get("#tasks-pill").textContent, /1 not saved/);
+  await p.click({"#tasks-pill": {}});
+  assert.match(p.nodes.get("#tasks-panel").innerHTML, /Change cover: X[^]*iBroadcast did not answer\./);
+  await p.click({"[data-task-dismiss]": {dataset: {taskDismiss: "e1"}}});
+  assert.equal(p.nodes.get("#tasks").hidden, true);
+});
+
+test("closing Tagcast while changes are still waiting asks first; otherwise it does not", async () => {
+  const p = livePage(); await settle();
+  assert.equal((await p.emitWindow("beforeunload")).prevented, undefined);
+  p.run('bgTasks.view = {active: 2, tasks: []}');
+  assert.equal((await p.emitWindow("beforeunload")).prevented, true);
+});
+
+function reviewedSave(p, genre = "Jazz") {
+  return p.run(`const track = state.details.get("1").tracks[0].id;
+    editing.trackPatches[String(track)] = {genres: [${JSON.stringify(genre)}]}; buildReview(); applyDraft()`);
+}
+
+test("Save closes the review at once and shows the reviewed values while the save waits in the background", async () => {
+  const p = livePage(); await settle();
+  await p.run('openEditor(["1"])');
+  const sent = []; let finish;
+  p.setFetch((url, options) => {
+    if (url === "/api/save") { sent.push(JSON.parse(options.body)); return new Promise(resolve => { finish = resolve; }); }
+    return {ok: true, json: async () => ({state: "checking"})};
+  });
+  await reviewedSave(p);
+  assert.equal(p.nodes.get("#review").open, false);
+  assert.equal(p.nodes.get("#editor").open, false);
+  assert.equal(p.run('state.details.get("1").tracks[0].genres[0]'), "Jazz", "The reviewed value shows before iBroadcast has answered");
+  assert.match(p.nodes.get("#toast").textContent, /in the background/);
+  assert.equal(sent.length, 1);
+  finish({ok: true, json: async () => ({results: sent[0].changes.map(c => ({kind: c.kind, id: c.id, label: c.label, fields: Object.keys(c.fields), status: "sent"})), job: "j1"})});
+  await settle();
+  assert.equal(p.run("state.history[0].status"), "sent");
+  assert.match(p.nodes.get("#toast").textContent, /saved/);
+  assert.equal(p.run('state.details.get("1").tracks[0].genres[0]'), "Jazz");
+});
+
+test("a refused save puts the old values back and offers to review the changes again", async () => {
+  const p = livePage(); await settle();
+  await p.run('openEditor(["1"])');
+  const before = p.run('state.details.get("1").tracks[0].genres[0]');
+  p.setFetch(url => url === "/api/save" ? {ok: false, status: 409, json: async () => ({error: "Changed in iBroadcast.", conflict: true})} : {ok: true, json: async () => ({})});
+  await reviewedSave(p); await settle();
+  assert.equal(p.run('state.details.get("1").tracks[0].genres[0]'), before, "The old value is back");
+  assert.equal(p.nodes.get("#results").open, true);
+  assert.equal(p.nodes.get("#results-title").textContent, "Not saved");
+  const html = p.nodes.get("#results-content").innerHTML;
+  assert.match(html, /Nothing was saved: Changed in iBroadcast\./);
+  assert.match(html, /id="results-reload"/);
+  assert.match(html, /data-review-rest/);
+  assert.equal(p.run("state.history[0].status"), "failed");
+  assert.equal(p.run("state.history[0].changes.every(c => c.status === 'failed')"), true);
+  p.run("reviewRest(state.history[0])");
+  assert.equal(p.nodes.get("#review").open, true, "The same changes are back in review");
+});
+
+test("a refused save does not interrupt the album you moved on to; History keeps it", async () => {
+  const p = livePage(); await settle();
+  await p.run('openEditor(["1"])');
+  let fail;
+  p.setFetch(url => url === "/api/save" ? new Promise(resolve => { fail = resolve; }) : {ok: true, json: async () => ({})});
+  await reviewedSave(p);
+  await p.run('openEditor(["2"])');
+  fail({ok: false, status: 502, json: async () => ({error: "iBroadcast did not answer."})});
+  await settle();
+  assert.ok(!p.nodes.get("#results")?.open, "No results dialog interrupts you");
+  assert.equal(p.nodes.get("#editor").open, true, "The album you are editing stays open");
+  assert.match(p.nodes.get("#toast").textContent, /Nothing was saved: iBroadcast did not answer\.[^]*History/);
+  assert.equal(p.run("state.history[0].status"), "failed");
+});
+
+// ---- Artist pictures (fork v36) ----------------------------------------------------------------
+
+test("Artist pictures: a picture shows in the library as soon as iBroadcast has confirmed it, not before", async () => {
+  const p = page();
+  p.run(`state.mode = "live";
+    state.albums = state.albums.map(a => a.artist === "Pink Floyd" ? {...a, artist_id: 42, artist_artwork_id: 0, artist_image: ""} : a)`);
+  const job = status => ({artist: "Pink Floyd", artist_id: "42", status, artwork_id: 77, image: "https://example.test/artwork/77-300"});
+  p.run(`applyArtistPictures([${JSON.stringify(job("saving"))}, ${JSON.stringify({...job("failed"), artist_id: "43"})}])`);
+  assert.equal(p.run("state.albums.find(a => a.artist_id === 42).artist_artwork_id"), 0, "Not before iBroadcast has confirmed it");
+  p.run(`applyArtistPictures([${JSON.stringify(job("saved"))}])`);
+  assert.equal(p.run("state.albums.find(a => a.artist_id === 42).artist_artwork_id"), 77);
+  assert.equal(p.run("state.albums.find(a => a.artist_id === 42).artist_image"), "https://example.test/artwork/77-150");
+});
+
+test("Artist pictures: each line says whether iBroadcast has the picture", async () => {
+  const p = page();
+  const html = status => p.run(`artistPicturesJobHtml(${JSON.stringify({artist: "A <b>", source: "cover", note: "Used a cover.", status})})`);
+  assert.match(html("saved"), /Saved/);
+  assert.match(html("saving"), /Saving…/);
+  assert.match(html("unverified"), /Not showing yet[^]*has not shown this picture yet/);
+  assert.match(html("failed"), /Failed/);
+  assert.doesNotMatch(html("failed"), /Used a cover<\/span>/, "A failed save is not described as a cover that was used");
+  assert.match(html("saved"), /A &lt;b&gt;/);
 });

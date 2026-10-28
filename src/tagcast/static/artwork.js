@@ -126,34 +126,41 @@ function readFile(file) {
   reader.readAsDataURL(file);
 }
 
-async function saveArtwork() {
+// The dialog closes at once and the change waits its turn in the background queue (fork v36),
+// so you can carry on; the new image appears here when iBroadcast has taken it, and a problem
+// is reported where you are.
+function saveArtwork() {
   const t = art.target, o = art.options[art.choice];
   if (!t || !o) return;
   if (t.target === "playlist") return savePlaylistCover(t, o);
-  const save = $("#art-save"), status = $("#art-status"), discs = t.discs || [t];
-  save.disabled = true; save.textContent = "Saving…";
+  const discs = t.discs || [t];
+  $("#artwork").close();
+  toast(`Changing the ${t.target === "album" ? "cover" : "artist image"} of “${t.label}” in the background…`);
+  return runArtworkSave(t, discs, o);
+}
+
+async function runArtworkSave(t, discs, o) {
+  const noun = t.target === "album" ? "cover" : "artist image";
+  let artworkId = 0, saved = 0;
   try {
-    for (const d of discs.filter(d => !art.saved.includes(d.id))) {
-      setActionStatus("#art-status", discs.length > 1 ? `Saving disc ${art.saved.length + 1} of ${discs.length}…` : "Checking iBroadcast and saving…", true);
+    for (const d of discs) {
       // After the first disc, the others reuse the image that is now in iBroadcast.
-      const source = art.artworkId ? {artwork_id: art.artworkId} : o.artwork_id ? {artwork_id: o.artwork_id} : o.data ? {data: o.data, name: o.name} : {url: o.url};
-      const result = await api("/api/artwork", {target: d.target, id: d.id, label: d.label, before: d.before, source});
-      art.saved.push(d.id); art.artworkId = result.artwork_id;
+      const source = artworkId ? {artwork_id: artworkId} : o.artwork_id ? {artwork_id: o.artwork_id} : o.data ? {data: o.data, name: o.name} : {url: o.url};
+      const result = await runQueued("/api/artwork", {target: d.target, id: d.id, label: d.label, before: d.before, source});
+      artworkId = result.artwork_id; saved += 1;
       const entry = artworkEntry(d, result, o.source, d.current);
       state.history.unshift(entry);
       pendingAlbums = null;
       showNewArt(d, result);
       followJob(result.job, entry);
     }
-    $("#artwork").close(); render();
-    toast(`${t.target === "album" ? "Cover" : "Artist image"} saved${discs.length > 1 ? ` on all ${discs.length} discs` : ""}. Checking the result with iBroadcast in the background…`);
+    render();
+    toast(`${noun === "cover" ? "Cover" : "Artist image"} of “${t.label}” saved${discs.length > 1 ? ` on all ${discs.length} discs` : ""}. Checking the result with iBroadcast in the background…`);
   } catch (error) {
-    if (art.saved.length) render();
-    save.disabled = false; save.textContent = art.saved.length ? "Save the other discs" : "Try again";
-    const part = art.saved.length ? `${art.saved.length} of ${discs.length} discs have the new cover. ` : "";
-    $("#art-status").innerHTML = `<span class="error-text">${escapeHtml(part + error.message)}</span>`;
-    if (error.status === 409) { save.textContent = "Reload library"; save.onclick = () => { $("#artwork").close(); $("#editor").close(); loadLive(); }; }
-  } finally { if ($("#art-status") === status) setActionStatus("#art-status", undefined); }
+    if (saved) render();
+    const part = saved ? `${saved} of ${discs.length} discs have the new cover; to finish the others, open the cover again and choose the same image under “Already in iBroadcast”. ` : "";
+    toast(`The ${noun} of “${t.label}” was not changed. ${part}${error.message}${error.status === 409 ? " Reload the library, then try again." : ""}`);
+  }
 }
 
 function artworkEntry(t, result, from, beforeImage) {

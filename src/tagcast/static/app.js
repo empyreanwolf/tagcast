@@ -1273,7 +1273,18 @@ document.addEventListener("DOMContentLoaded", boot, {once: true});
 
 // ---- iBroadcast connection --------------------------------------------------
 
+// Writes to iBroadcast wait their turn in a background queue on the server (fork v36, tasks.js);
+// callers still just await the answer, or the same error the direct request would have thrown.
+const QUEUED_PATHS = new Set(["/api/save", "/api/artwork", "/api/artwork/undo", "/api/trash", "/api/trash/albums",
+  "/api/tags/save", "/api/favourite", "/api/album-rating", "/api/artist-rating", "/api/album-favourite",
+  "/api/artist-favourite", "/api/playlist", "/api/playlist/artwork", "/api/lyrics/save"]);
+
 async function api(path, body) {
+  if (body !== undefined && QUEUED_PATHS.has(path) && typeof runQueued === "function") return runQueued(path, body);
+  return rawApi(path, body);
+}
+
+async function rawApi(path, body) {
   const options = body === undefined ? {} : {method: "POST", headers: {"Content-Type": "application/json", "X-Tagcast": "1"}, body: JSON.stringify(body)};
   let response;
   try { response = await fetch(path, options); }
@@ -1523,8 +1534,11 @@ function overallStatus(statuses) {
   return statuses.some(s => s === "failed" || s === "not_sent" || s === "blocked") ? "failed" : statuses.some(s => s === "sent") ? "sent" : statuses.some(s => s === "unverified") ? "unverified" : "saved";
 }
 
-async function saveDraft() {
-  if (saving || !pending) return;
+// Save closes the review at once: the reviewed values show straight away and the save itself
+// waits its turn in the background queue (fork v36). If iBroadcast refuses, the old values come
+// back and the failure is reported with a way to review the changes again.
+function saveDraft() {
+  if (!pending) return;
   // While an artist cleanup runs, iBroadcast saves are paused: hold this one until it ends.
   if (typeof artistCleanupBusy === "function" && artistCleanupBusy()) {
     holdSaveForArtistCleanup(pending);
@@ -1532,50 +1546,55 @@ async function saveDraft() {
     $("#review").close(); $("#editor").close();
     return;
   }
-  saving = true;
-  const apply = $("#apply-draft");
-  apply.disabled = true; $("#review-cancel").disabled = true; apply.textContent = "Saving…";
-  setActionStatus("#review-status", "Checking iBroadcast and saving…", true);
+  const draft = pending, next = thenNext();
+  const newArtist = draft.scope === "artist" ? draft.changes.find(c => c.kind === "album" && c.fields.artist)?.fields.artist.after : null;
+  applyLocally(draft.changes);
+  pending = null; editing = null; state.selected.clear();
+  if (newArtist) state.artist = newArtist;
+  if (state.artist && !state.albums.some(a => albumHasArtist(a, state.artist))) state.artist = null;
+  $("#review").close(); $("#editor").close(); render();
+  toast(`Saving ${draft.changes.length} ${draft.changes.length === 1 ? "record" : "records"} to iBroadcast in the background…`);
+  if (next) openEditor(shelfIds(next));
+  return runSave(draft);
+}
+
+// The reviewed values, put back: what applyLocally does, with each field's old value.
+function revertLocally(changes) {
+  applyLocally(changes.map(c => ({...c, fields: Object.fromEntries(Object.entries(c.fields).map(([key, v]) => [key, {...v, after: v.before}]))})));
+}
+
+async function runSave(draft) {
+  let result;
   try {
-    const result = await api("/api/save", {changes: pending.changes});
-    const byId = new Map((result.results || []).map(r => [`${r.kind}:${r.id}`, r.status]));
-    const statuses = [...byId.values()];
-    const overall = statuses.length ? overallStatus(statuses) : "saved";
-    const next = thenNext();
-    const newArtist = pending.scope === "artist" ? pending.changes.find(c => c.kind === "album" && c.fields.artist)?.fields.artist.after : null;
-    const entry = {...structuredClone(pending), created: new Date().toISOString(), status: overall, source: "ibroadcast", error: result.error || "",
-      created_artists: result.created_artists || [], changes: pending.changes.map(c => ({...c, status: byId.get(`${c.kind}:${c.id}`) || "saved"}))};
-    state.history.unshift(entry);
-    pendingAlbums = null; // an older read-back; this save's own read-back follows
-    if (result.albums) { state.albums = colorize(result.albums); state.details = new Map(); applyEditorNames(result.editor_names); }
-    else applyLocally(pending.changes.filter(c => byId.get(`${c.kind}:${c.id}`) === "sent"));
-    pending = null; editing = null; state.selected.clear();
-    if (newArtist) state.artist = newArtist;
-    if (state.artist && !state.albums.some(a => albumHasArtist(a, state.artist))) state.artist = null;
-    $("#review").close(); $("#editor").close(); render();
-    if (overall === "failed" || !statuses.length || result.error) showResults(result, overall, entry);
-    else toast(`${statuses.length} ${statuses.length === 1 ? "record" : "records"} saved. Checking the result with iBroadcast in the background…`);
-    if (result.job) followJob(result.job, entry);
-    if (next && overall !== "failed") openEditor(shelfIds(next));
-  } catch (error) {
-    apply.disabled = false; $("#review-cancel").disabled = false;
-    apply.textContent = "Try again";
-    if (error.status === 401) {
-      state.connection.connected = false; updateChrome();
-      $("#review-status").innerHTML = `<span class="error-text">${escapeHtml(error.message)}</span>`;
-      apply.disabled = true;
-    } else if (error.status === 409) {
-      $("#review-status").innerHTML = `<span class="error-text">${escapeHtml(error.message)}</span>`;
-      apply.textContent = "Reload library"; reloadOnApply = true;
-      apply.disabled = false;
-      return;
-    } else {
-      $("#review-status").innerHTML = `<span class="error-text">Nothing was confirmed: ${escapeHtml(error.message)}</span>`;
-    }
-  } finally {
-    saving = false;
-    setActionStatus("#review-status", undefined);
-  }
+    result = await api("/api/save", {changes: draft.changes});
+  } catch (error) { saveFailed(draft, error); return; }
+  const byId = new Map((result.results || []).map(r => [`${r.kind}:${r.id}`, r.status]));
+  const statuses = [...byId.values()];
+  const overall = statuses.length ? overallStatus(statuses) : "saved";
+  const entry = {...structuredClone(draft), created: new Date().toISOString(), status: overall, source: "ibroadcast", error: result.error || "",
+    created_artists: result.created_artists || [], changes: draft.changes.map(c => ({...c, status: byId.get(`${c.kind}:${c.id}`) || "saved"}))};
+  state.history.unshift(entry);
+  pendingAlbums = null; // an older read-back; this save's own read-back follows
+  if (result.albums) { state.albums = colorize(result.albums); state.details = new Map(); applyEditorNames(result.editor_names); }
+  else revertLocally(draft.changes.filter(c => ["failed", "not_sent", "blocked"].includes(byId.get(`${c.kind}:${c.id}`))));
+  if (state.artist && !state.albums.some(a => albumHasArtist(a, state.artist))) state.artist = null;
+  render();
+  if (overall === "failed" || !statuses.length || result.error) showResults(result, overall, entry);
+  else toast(`${statuses.length} ${statuses.length === 1 ? "record" : "records"} saved. Checking the result with iBroadcast in the background…`);
+  if (result.job) followJob(result.job, entry);
+}
+
+function saveFailed(draft, error) {
+  revertLocally(draft.changes);
+  if (error.status === 401) { state.connection.connected = false; updateChrome(); }
+  const entry = {...structuredClone(draft), created: new Date().toISOString(), status: "failed", source: "ibroadcast", error: error.message,
+    created_artists: [], changes: draft.changes.map(c => ({...c, status: "failed"}))};
+  state.history.unshift(entry);
+  rememberHistory();
+  render();
+  const message = `Nothing was saved: ${error.message}`;
+  if ($("#editor").open || $("#review").open) toast(`${message} Open History to review the changes again.`);
+  else showResults({results: [], error: message, conflict: error.status === 409}, "failed", entry);
 }
 
 // Poll the background read-back of a save and update its history entry.
@@ -1624,10 +1643,11 @@ async function followJob(jobId, entry, onDone, stillCurrent = () => true) {
 function showResults(result, overall, entry) {
   const rows = result.results || [];
   const saved = rows.filter(r => r.status === "saved").length;
-  $("#results-title").textContent = !rows.length ? "Already up to date" : overall === "saved" ? `${saved} ${saved === 1 ? "record" : "records"} saved` : overall === "unverified" ? "Saved, partly not confirmed" : "Save incomplete";
+  $("#results-title").textContent = !rows.length && result.error ? "Not saved" : !rows.length ? "Already up to date" : overall === "saved" ? `${saved} ${saved === 1 ? "record" : "records"} saved` : overall === "unverified" ? "Saved, partly not confirmed" : "Save incomplete";
   const notes = [];
   if (result.message) notes.push(`<p class="muted">${escapeHtml(result.message)}</p>`);
   if (result.error) notes.push(`<div class="error-box">${escapeHtml(result.error)}</div>`);
+  if (result.conflict) notes.push('<p><button class="button small" id="results-reload">Reload library ↻</button> <span class="muted">Then make the change again.</span></p>');
   if (result.created_artists?.length) notes.push(`<p class="muted">New artists created: ${result.created_artists.map(n => `“${escapeHtml(n)}”`).join(", ")}.</p>`);
   if (overall === "unverified") notes.push('<div class="warn-box">iBroadcast accepted the request, but the library it returned does not show every new value yet. Reload the library in a minute to check.</div>');
   if (result.readBackFailed) notes.push('<div class="warn-box">The library could not be read back. Reload it before editing further.</div>');
@@ -1640,6 +1660,7 @@ function showResults(result, overall, entry) {
 }
 
 document.addEventListener("click", event => {
+  if (event.target.closest("#results-reload")) { $("#results").close(); loadLive(true); return; }
   const target = event.target.closest("#client-default, #device-start, #device-cancel, #browser-start, #connect-reload, #connect-redownload, #connect-logout, #reload-button, #logout-button");
   if (target) connectAction(target);
 });

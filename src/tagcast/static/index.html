@@ -15,6 +15,7 @@
   <script src="genres.js" defer></script>
   <script src="credits.js" defer></script>
   <script src="app.js" defer></script>
+  <script src="tasks.js" defer></script>
   <script src="metadata-export.js" defer></script>
   <script src="lookup.js" defer></script>
   <script src="updates.js" defer></script>
@@ -322,5 +323,9 @@
     <button type="button" id="queue-action-playlist" role="menuitem" hidden><strong>Add to playlist…</strong><small>Choose a playlist for this track</small></button>
   </div>
   <div id="toast" role="status" class="toast" hidden></div>
+  <div id="tasks" class="tasks" hidden>
+    <div id="tasks-panel" class="tasks-panel" hidden role="region" aria-label="Background tasks"></div>
+    <button type="button" id="tasks-pill" class="tasks-pill" aria-expanded="false" aria-controls="tasks-panel"></button>
+  </div>
 </body>
 </html>

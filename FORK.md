@@ -64,6 +64,18 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v36** **Everything that waits now runs in the background.** Saving tags, changing a cover or
+  artist image, ratings, favourites, trash, playlists and lyrics no longer hold the page:
+  - The dialog closes at once and the new values show straight away; the save finishes behind
+    the scenes. If iBroadcast refuses it, the old values come back and a "Not saved" box (and
+    History) lets you review the same changes again.
+  - Saves wait in one queue, in the order you made them, on the server. No more "Another save is
+    still running". A **Tasks** pill (bottom right) shows what is running, waiting or failed.
+  - If the queue is congested (6+ waiting, or one waited 45 s+) Tagcast tells you, with a rough
+    time, and asks you to keep it open (closing the tab warns while tasks are active).
+  - **Artist pictures**: saved in batches of 10 with one confirmation per batch (before: one
+    full library download per artist). Each line says Saving / Saved / Not showing yet / Failed,
+    and a picture appears in Tagcast as soon as iBroadcast confirms it.
 - **v35** **Activity log: see what's working and what isn't, under the hood.** Overview →
   **Activity log** (or **Problems only**), and an **Activity log** button in the Downloads queue.
   Everything Tagcast does is recorded, newest first:

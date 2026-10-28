@@ -220,6 +220,14 @@ The application consists of a Python server and a plain JavaScript frontend.
   album artist and held in a separate bounded local SQLite cache.
 - `src/tagcast/album_info.py`: opt-in TheAudioDB album background text for a visited
   album, with strict artist/full-title matching and a separate bounded SQLite cache.
+- `src/tagcast/tasks.py` (fork, v36): `TaskQueue`, one ordered worker for everything that
+  writes to iBroadcast. `POST /api/queue` (only `QUEUED_PATHS` in `app.py`) answers with a task
+  id; `GET /api/tasks` and `/api/tasks/<id>` report progress. Failures keep the status and
+  message the direct request would have had (`classify_error`). Busy save lock is retried up to
+  120 s. Frontend: `static/tasks.js` (`runQueued`, Tasks pill); `api()` in `app.js` routes
+  `QUEUED_PATHS` through the queue transparently. `saveDraft()` is optimistic and non-blocking
+  (`runSave`, `saveFailed`, `revertLocally`). Artist pictures apply in batches of 10 via
+  `apply_artist_image` and are confirmed with `check_artist_images`.
 - `src/tagcast/artist_pictures.py` (fork, v27): "Artist pictures", a one-time "Run now"
   job on its own top-level sidebar page, gap-filling only -- `_missing()` reuses the same
   "album artist with no `artwork_id`" definition the Overview health stats already use,

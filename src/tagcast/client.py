@@ -64,6 +64,7 @@ from .sources import KEYS as SOURCE_KEYS
 from .sources import Lookup
 from .tagclean import TagClean
 from .tags import Tags
+from .tasks import TaskQueue
 from .updates import UpdateChecker
 from .wishlist import Wishlist
 
@@ -400,6 +401,7 @@ class Studio:
         self.cache_lock = threading.Lock()
         self.download_lock = threading.Lock()  # one full library download at a time
         self.jobs = {}  # background read-backs after a save, by job ID
+        self.tasks = TaskQueue()  # fork v36: writes to iBroadcast wait here, one at a time
         self.device = None
         self._device_gen = 0
         self._pkce = {}
@@ -1234,11 +1236,36 @@ class Studio:
         """
         return self._artwork(body, body.get("source") or {})
 
+    def apply_artist_image(self, body):
+        """change_artwork for a run over many artists (Artist pictures, fork v36): checks against
+        the library already in memory and leaves the read-back to check_artist_images(), once
+        per batch. Otherwise every artist costs a full library download (up to half a minute)."""
+        return self._artwork(body, body.get("source") or {}, batch=True)
+
+    def check_artist_images(self, expected):
+        """Read the library back once and say, per artist, whether iBroadcast now has the image
+        we set: expected = {artist_id: artwork_id}. Returns a job id, as saves do."""
+        client = self._require_client()
+        wanted = {number(i): number(a) for i, a in expected.items()}
+
+        def check(after):
+            results = []
+            for artist_id, artwork_id in wanted.items():
+                try:
+                    status = "saved" if after.artist_art(artist_id) == artwork_id else "unverified"
+                except LibraryError:
+                    status = "unverified"
+                results.append({"kind": "artist", "id": str(artist_id), "label": "", "fields": ["image"],
+                                "status": status})
+            return results
+
+        return self._check_later(client, self.downloads, check, include_albums=False)
+
     def undo_artwork(self, body):
         """Put back the previous cover or image: body as change_artwork, plus "previous"."""
         return self._artwork(body, None, body.get("previous"))
 
-    def _artwork(self, body, source, previous=None):
+    def _artwork(self, body, source, previous=None, batch=False):
         target, item_id = body.get("target"), number(body.get("id"))
         if target not in ("album", "artist") or not item_id:
             raise ApiError("Choose an album or an artist.")
@@ -1246,7 +1273,7 @@ class Studio:
         if not self.save_lock.acquire(blocking=False):
             raise ApiError("Another save is still running.")
         try:
-            fresh, _ = self._current(client)
+            fresh, _ = self._library() if batch else self._current(client)
             with self.lock:
                 user_id = self.library_user
             before = body.get("before") if isinstance(body.get("before"), dict) else {}
@@ -1310,7 +1337,7 @@ class Studio:
                 return [{"kind": target, "id": str(item_id), "label": label, "fields": [field],
                          "status": status}]
 
-            job = self._check_later(client, self.downloads, check)
+            job = None if batch else self._check_later(client, self.downloads, check)
             return {"artwork_id": new_id, "image": fresh.art_url(new_id, 300), "job": job, "note": note,
                     "previous": {"tracks": {str(k): v for k, v in now.items()}} if target == "album"
                     else {"artwork_id": now},
