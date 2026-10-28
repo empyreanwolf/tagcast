@@ -64,6 +64,19 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v45** **Downloads → From a page, and Galaxy now comes before Soulseek.**
+  - **From a page** (new Downloads tab, next to Check): paste the link of a page with a list of
+    albums (a "best of 2024" article, a Reddit thread, a Wikipedia list, a public Spotify
+    playlist) and Tagcast lists every artist and album on it with year and cover, checked online
+    (MusicBrainz first, then Deezer). Each one says Have / Partly / New against iBroadcast and your
+    download history. The sure New ones start ticked; **Download chosen albums** fetches them.
+    Lines no source knows are kept as **Not sure**: Edit, then Check again. If a site blocks
+    Tagcast, use **Paste the text instead**. Not found anywhere goes on the wishlist.
+    Untested live (sandbox has no internet): Reddit, Wikipedia and Spotify readers; they are
+    covered by saved-page tests only.
+  - **Source order everywhere is now Bandcamp → Galaxy → Soulseek** (Charts, Discography,
+    Recommendations, Wishlist, Missing, From a page). Soulseek is only tried when Galaxy has
+    nothing, and a failed Soulseek job goes straight to the wishlist.
 - **v44** **Charts: Spotify in, Shazam and Billboard out; Ask Gemini gone; Daily Digest cleaned up.**
   - **Charts**: the Shazam (US) and Billboard Hot Rap tabs are removed (their pages no longer
     carry readable chart data), and so is Shazam in Browse. New **Spotify RapCaviar** tab, and

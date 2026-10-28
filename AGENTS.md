@@ -95,7 +95,7 @@ The application consists of a Python server and a plain JavaScript frontend.
 - `src/tagcast/soulseek.py` (fork): starts `sockseek daemon` and drives its HTTP API (port 5030);
   the Soulseek password stays in `soulseek.json` / `sockseek.conf`, never in API responses. `static/soulseek.js`.
 - `src/tagcast/discography.py` (fork): Deezer + Apple discography and Deezer top 30 (7-day cache), and the
-  background "get the missing" job (Bandcamp → Soulseek → Galaxy). `static/discography.js`.
+  background "get the missing" job (Bandcamp → Galaxy → Soulseek). `static/discography.js`.
 - `src/tagcast/releases.py` (fork): weekly new-release check (`releases.json`); `static/missing.js` is the
   Downloads → Missing tab (New releases, and from v17/v18 Wishlist and Complete my albums).
 - `src/tagcast/wishlist.py` (fork): not-found items retried every few days (`wishlist.json`).
@@ -115,7 +115,7 @@ The application consists of a Python server and a plain JavaScript frontend.
   tagged `source="netease"` rather than trusting Galaxy's own ambient UI source. HotNewHipHop
   (regex over its HTML, no API), Deezer (genre id looked up by name via `api.deezer.com/genre`,
   never hardcoded) and Apple Music (iTunes RSS) have title+artist only, so "Get it" runs them
-  one at a time through the same Bandcamp → Soulseek → Galaxy chain as Discography/Wishlist
+  one at a time through the same Bandcamp → Galaxy → Soulseek chain as Discography/Wishlist
   (`discography._song()`/`discography._wish()`) in a background thread, polled via
   `/api/charts/jobs`. Spotify (v44, `_spotify()`/`_spotify_rows()`) reads a public playlist's
   `open.spotify.com/embed/playlist/<id>` page (`__NEXT_DATA__`, `trackList` of `title` +
@@ -139,6 +139,13 @@ The application consists of a Python server and a plain JavaScript frontend.
   could change without notice, which wasn't worth building on. Browse results share the same
   cache/jobs/progress dicts as the fixed tabs, keyed by a synthetic `browse:<source>:...` id
   instead of one of the six `CHARTS` keys, so `get()`/`jobs_view()` need no changes at all.
+- `src/tagcast/pagelist.py` (fork, v45; Downloads → "From a page", `static/pagelist.js`): reads a
+  link (Reddit `.json`, Wikipedia API, Spotify embed via `Charts._spotify`, else generic HTML:
+  JSON-LD, list items, headings, table rows) or pasted text into Artist/Album candidates, verifies
+  them via MusicBrainz then Deezer (`discography.http`), checks Have/Partly/New with
+  `Downloads.check`, and downloads through `Discography.get` (Bandcamp → Galaxy → Soulseek,
+  wishlist). Background job polled via `/api/pagelist/status`. Links to private addresses are
+  refused. State: in memory only.
 - `src/tagcast/recommendations.py` (fork, v23; the "Recommended for you" tab of the Charts page
   since v44): artists related to `new_releases.artists()` (the same followed-artists-plus-
   library-3+-albums set New releases tracks, capped at `MAX_SEEDS`), Deezer only and no AI. For
@@ -146,7 +153,7 @@ The application consists of a Python server and a plain JavaScript frontend.
   when several share the name), then `/artist/{id}/related` is tallied across all seeds so an
   act related to several ranks first, and `_deezer_top_track()` gives each kept artist a real
   song to offer -- one with no current top track is dropped. The Gemini list was removed in v44
-  together with Ask Gemini. "Get it" reuses the Bandcamp → Soulseek → Galaxy chain and
+  together with Ask Gemini. "Get it" reuses the Bandcamp → Galaxy → Soulseek chain and
   job/progress pattern from Charts. State: in-memory cache only. `static/recommendations.js`
   builds the tab's content (`recommendationsBodyHtml()`) for `charts.js`; there is no page of its own.
 - `src/tagcast/digest.py` (fork, v24): "Daily Digest", its own top-level sidebar page that

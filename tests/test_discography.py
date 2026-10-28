@@ -136,20 +136,24 @@ class DiscographyTests(unittest.TestCase):
         item = next(i for i in studio.download_manager.state["queue"] if i["title"] == "Square One")
         self.assertEqual(item["payload"]["source"], "joox")
 
-    def test_soulseek_comes_before_galaxy_and_falls_back(self):
+    def test_galaxy_comes_before_soulseek_and_a_failed_soulseek_goes_to_the_wishlist(self):
         studio = LocalStudio(soulseek=True)
         studio.gd.search_results[("netease_album", "X&Y", 1)] = [gd_song(31, "Square One", "Coldplay", "X&Y")]
         studio.gd.search_results[("netease_album", "Rush", 1)] = [gd_song(41, "Clocks", "Coldplay", "Rush")]
         result = wait_job(studio.discography, studio.discography.get("Coldplay", albums=[{"title": "X&Y", "status": "missing"},
                                                                                        {"title": "Rush", "status": "partly"},
-                                                                                       {"title": "Parachutes", "status": "partly"}]))
+                                                                                       {"title": "Parachutes", "status": "partly"},
+                                                                                       {"title": "Viva", "status": "missing"}]))
         log = {e["title"]: e["source"] for e in result["log"]}
-        # Bandcamp first; a partly owned album skips Soulseek (it would fetch the whole album again).
-        self.assertEqual(log, {"X&Y": "Soulseek", "Rush": "Galaxy", "Parachutes": "Bandcamp"})
+        # Bandcamp first, then Galaxy; Soulseek only when Galaxy has nothing (and never for a partly owned album).
+        self.assertEqual(log, {"X&Y": "Galaxy", "Rush": "Galaxy", "Parachutes": "Bandcamp", "Viva": "Soulseek"})
         item = next(i for i in studio.download_manager.state["queue"] if i["source"] == "soulseek")
         studio.download_manager.update_item(item["id"], state="failed", note="Nobody on Soulseek shares it right now")
+        wished = []
+        studio.wishlist = type("W", (), {"add": lambda self, *a: wished.append(a)})()
         studio.discography.fallback(studio.download_manager.item(item["id"]))
-        self.assertIn("Square One", {i["title"] for i in studio.download_manager.state["queue"] if i["source"] == "galaxy"})
+        self.assertIn("on your wishlist", studio.download_manager.item(item["id"])["note"])
+        self.assertEqual([c[2] for c in wished], ["Viva"])
 
 
 if __name__ == "__main__":

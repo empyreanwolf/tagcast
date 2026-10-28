@@ -2,7 +2,7 @@
 
 // "Missing" on the Downloads page (fork v16+): New releases of the artists you follow,
 // albums in your library that are only partly there, and the wishlist of things no source had.
-// "Get the missing" sends each artist's albums through Bandcamp → Soulseek → Galaxy.
+// "Get the missing" sends each artist's albums through Bandcamp → Galaxy → Soulseek.
 const missingView = {complete: null, completeQuery: "", completeOpen: new Map(), wishlist: null, wishKind: "album", settingsOpen: false, sub: "releases", releases: null, picked: new Set(), jobs: [], timer: null, jobTimer: null};
 const missingSubs = [["releases", "New releases"], ["complete", "Complete my albums"], ["wishlist", "Wishlist"]];
 
@@ -59,7 +59,7 @@ function releasesHtml() {
         <label><input type="checkbox" data-releases-all ${r.results.every(x => missingView.picked.has(x.id)) ? "checked" : ""}> Select all (${r.results.length})</label>
         <button type="button" class="button primary" data-releases="get" ${picked ? "" : "disabled"}>⬇ Get the missing (${picked})</button>
         <button type="button" class="button" data-releases="dismiss" ${picked ? "" : "disabled"}>Hide selected</button>
-        <span class="muted">Order: Bandcamp → Soulseek → Galaxy.</span></div>
+        <span class="muted">Order: Bandcamp → Galaxy → Soulseek.</span></div>
       <ul class="discography-list">${r.results.map(x => `<li>
         <input type="checkbox" data-releases-pick="${x.id}" aria-label="Select ${escapeHtml(x.title)}" ${missingView.picked.has(x.id) ? "checked" : ""}>
         ${bandcampThumb(x.cover, "galaxy-album-art")}
@@ -127,7 +127,7 @@ function wishlistHtml() {
   if (!w) { wishlistLoad(); return '<p class="muted">Loading…</p>'; }
   if (w.error) return `<p class="error-text">${escapeHtml(w.error)}</p>`;
   const picked = w.items.filter(i => missingView.picked.has(i.id)).length, p = w.progress;
-  return `<p class="muted">Albums and songs that Bandcamp, Soulseek and Galaxy didn't have. Tagcast tries them again every
+  return `<p class="muted">Albums and songs that Bandcamp, Galaxy and Soulseek didn't have. Tagcast tries them again every
       <input id="wishlist-days" type="number" min="1" max="30" value="${w.every_days}" class="releases-days" aria-label="Days between tries"> days while it is open.</p>
     <div class="dl-actions"><input id="wishlist-line" class="dl-path" maxlength="300" placeholder="${missingView.wishKind === "album" ? "Artist - Album" : "Artist - Title"}" aria-label="Add a wish">
       <select id="wishlist-kind" aria-label="Album or song"><option value="album" ${missingView.wishKind === "album" ? "selected" : ""}>Album</option><option value="song" ${missingView.wishKind === "song" ? "selected" : ""}>Song</option></select>

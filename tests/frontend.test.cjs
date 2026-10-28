@@ -9995,3 +9995,27 @@ test("the Daily Digest names charts it could not read in one line instead of red
   assert.match(html, /Couldn't read right now: HotNewHipHop Top 100/);
   assert.doesNotMatch(html, /error-text/);
 });
+
+// ---- From a page (fork v45) ---------------------------------------------------------------------
+
+test("From a page: lists every album with its status, ticks only sure New ones, offers Edit on Not sure rows and keeps the paste box", async () => {
+  const p = page();
+  assert.ok(p.run("downloadsTabs.some(([key, label]) => key === 'pagelist' && label === 'From a page')"));
+  p.run(`pagelistView.job = {id: "j", state: "done", done: 3, total: 3, source: "x", items: [
+    {id: "0", artist: "MIKE", album: "Showbiz!", year: "2024", raw: "", state: "ok", cover: "", status: "new", you_have: []},
+    {id: "1", artist: "Kendrick Lamar", album: "GNX", year: "2024", raw: "", state: "ok", cover: "", status: "have", you_have: [{where: "ibroadcast", title: "GNX", artist: "Kendrick Lamar"}]},
+    {id: "2", artist: "Nobody", album: "Nothing <b>", year: "", raw: "Nobody - Nothing <b>", state: "unsure", cover: "", status: "new", you_have: []}]};
+    pagelistView.picked = new Set(["0"]); pagelistView.editing = "2"; pagelistView.textOpen = true`);
+  const html = p.run("pagelistHtml()");
+  assert.match(html, /1 New|2 New/);
+  assert.match(html, /data-pagelist-pick="0" checked/);
+  assert.doesNotMatch(html, /data-pagelist-pick="2" checked/);
+  assert.match(html, /Not sure/);
+  assert.match(html, /data-pagelist-recheck="2"/);
+  assert.match(html, /Nothing &lt;b&gt;/);
+  assert.match(html, /Download chosen albums \(1\)/);
+  assert.match(html, /Paste the text instead/);
+  assert.match(html, /<details open/);
+  p.run("pagelistView.picked = new Set()");
+  assert.match(p.run("pagelistHtml()"), /data-pagelist-get disabled/);
+});

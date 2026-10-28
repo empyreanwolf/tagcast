@@ -10,9 +10,10 @@ Top 30 songs come from Deezer's ranking (with 30-second previews); when Deezer i
 Galaxy's search order is used. Each song shows Have / Missing.
 
 "Get the missing" runs in the background and tries the sources in the agreed order:
-**Bandcamp → Soulseek → Galaxy**. Bandcamp is used when the artist has the album there; Soulseek
+**Bandcamp → Galaxy → Soulseek** (Galaxy before Soulseek since v45: it is the steadier of the two).
+Bandcamp is used when the artist has the album there; then Galaxy; if Galaxy has nothing, Soulseek
 when Sockseek is set up (an album that is only partly owned skips Soulseek, which would fetch the
-whole album again); a Soulseek job that fails falls back to Galaxy. Every song still passes the
+whole album again); a Soulseek job that fails goes on the wishlist. Every song still passes the
 duplicate check, so anything you may have waits in Needs your decision.
 """
 
@@ -30,6 +31,7 @@ from .library import LibraryError
 from .sources import PACING, Http, SourceError
 
 log = logging.getLogger("tagcast")
+NOT_FOUND = "Not found on Bandcamp, Galaxy or Soulseek"
 CACHE_FILE = "discography_cache.json"
 CACHE_DAYS = 7
 DEEZER = "https://api.deezer.com"
@@ -312,13 +314,16 @@ class Discography:
                     return "Bandcamp", self._summary(self.studio.bandcamp.add(release["url"]))
             except LibraryError as error:
                 log.info("Bandcamp album failed: %s", error)
-        # 2. Soulseek (whole albums only; a partly owned album would be fetched again)
+        # 2. Galaxy
+        source, note = self._galaxy_album(name, title)
+        if source:
+            return source, note
+        # 3. Soulseek (whole albums only; a partly owned album would be fetched again)
         soulseek = getattr(self.studio, "soulseek", None)
         if soulseek is not None and soulseek.configured() and status != "partly":
             result = soulseek.add([{"kind": "album", "artist": name, "album": title, "fallback": True}])
-            return "Soulseek", self._summary(result) + " (Galaxy if Soulseek has nothing)"
-        # 3. Galaxy
-        return self._galaxy_album(name, title)
+            return "Soulseek", self._summary(result) + " (wishlist if Soulseek has nothing)"
+        return None, NOT_FOUND
 
     def _galaxy_sources(self):
         """The chosen source first, then the other open ones (v32): one source missing a song
@@ -332,7 +337,7 @@ class Discography:
             data = galaxy.album(title, name, source)
             if data.get("found"):
                 return "Galaxy", self._summary(galaxy.add(data["tracks"], data["album_artist"], len(data["tracks"])))
-        return None, "Not found on Bandcamp, Soulseek or Galaxy"
+        return None, NOT_FOUND
 
     def _song(self, name, title, album, ctx):
         base = self._bandcamp_base(name, ctx, [album] if album else [])
@@ -344,17 +349,20 @@ class Discography:
                     return "Bandcamp", self._summary(self.studio.bandcamp.add(release["url"], [track["num"]]))
             except LibraryError as error:
                 log.info("Bandcamp song failed: %s", error)
+        source, note = self._galaxy_song(name, title)
+        if source:
+            return source, note
         soulseek = getattr(self.studio, "soulseek", None)
         if soulseek is not None and soulseek.configured():
             result = soulseek.add([{"kind": "song", "artist": name, "title": title, "album": album, "fallback": True}])
-            return "Soulseek", self._summary(result) + " (Galaxy if Soulseek has nothing)"
-        return self._galaxy_song(name, title)
+            return "Soulseek", self._summary(result) + " (wishlist if Soulseek has nothing)"
+        return None, NOT_FOUND
 
     def _galaxy_song(self, name, title):
         galaxy = self.studio.galaxy
         best = find_song(galaxy.api, self._galaxy_sources(), name, title)
         if not best:
-            return None, "Not found on Bandcamp, Soulseek or Galaxy"
+            return None, NOT_FOUND
         return "Galaxy", self._summary(galaxy.add([best]))
 
     def _wish(self, kind, artist, title, album="", status="missing", note=""):
@@ -369,17 +377,10 @@ class Discography:
             return note
 
     def fallback(self, item):
-        """A Soulseek job of "get the missing" failed: try Galaxy."""
+        """A Soulseek job of "get the missing" failed. Galaxy was already tried before Soulseek
+        (v45), so what is left is the wishlist, which tries everything again later."""
         if not item:
             return
-        try:
-            if item["kind"] == "album":
-                source, note = self._galaxy_album(item["artist"], item["title"])
-            else:
-                source, note = self._galaxy_song(item["artist"], item["title"])
-        except Exception as error:
-            source, note = None, str(error)
-        if not source:
-            note = self._wish(item["kind"], item["artist"], item["title"], item.get("album", ""), note=note)
+        note = self._wish(item["kind"], item["artist"], item["title"], item.get("album", ""), note="Not found on Soulseek")
         self.manager.update_item(item["id"], persist=True,
-                                 note=f"{item.get('note', '')} · {'Galaxy: ' + note if source else note}".strip(" ·"))
+                                 note=f"{item.get('note', '')} · {note}".strip(" ·"))

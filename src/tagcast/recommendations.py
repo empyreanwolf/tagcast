@@ -11,7 +11,7 @@ tallied across all your seeds, so someone related to several of your artists ran
 someone related to only one, then each kept artist's current Deezer top track is looked up so
 there is a real song to get. (The Gemini-based list was removed in v44 along with Ask Gemini.)
 
-Songs you pick go through the same Bandcamp -> Soulseek -> Galaxy order as Charts/Discography,
+Songs you pick go through the same Bandcamp -> Galaxy -> Soulseek order as Charts/Discography,
 one at a time; not found anywhere lands on the wishlist. State: in-memory cache only
 (``CACHE_SECONDS``), nothing persisted -- the seed list and the API results are cheap enough to
 redo on request via "Refresh".
