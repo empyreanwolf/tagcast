@@ -3,7 +3,7 @@
 // "From a page" on the Downloads page (fork v45): give Tagcast a link (or pasted text) and it
 // lists every album on that page, says Have / Partly / New for each, and downloads the ticked
 // ones through Bandcamp → Galaxy → Soulseek. Albums it isn't sure about can be edited and checked again.
-const pagelistView = {link: "", text: "", textOpen: false, job: null, picked: new Set(), editing: null, busy: false, timer: null, getJobs: [], getIds: [], touched: new Set(), autoTicked: false, getTimer: null, error: ""};
+const pagelistView = {link: "", text: "", textOpen: false, job: null, picked: new Set(), editing: null, busy: false, timer: null, getJobs: [], getIds: [], getCount: 0, touched: new Set(), autoTicked: false, getTimer: null, error: ""};
 
 function pagelistHtml() {
   const v = pagelistView, job = v.job;
@@ -23,10 +23,10 @@ function pagelistHtml() {
     ${job ? `<p class="dl-summary" role="status">${job.state === "running" ? `Checking ${job.done} of ${job.total} online… ` : ""}
       <span class="dl-badge new">${counts.new} New</span> <span class="dl-badge partly">${counts.partly} Partly</span> <span class="dl-badge have">${counts.have + counts.other} Have</span>
       ${counts.unsure ? `<span class="dl-badge">${counts.unsure} Not sure</span>` : ""}</p>
+      ${pagelistGetHtml()}
       <div class="dl-actions"><button type="button" class="button" data-pagelist-tick-new>Tick all New</button>
         <button type="button" class="button primary" data-pagelist-get ${v.picked.size && !v.busy ? "" : "disabled"}>Download chosen albums (${v.picked.size})</button></div>
-      <ul class="dl-list">${items.map(pagelistRowHtml).join("")}</ul>` : ""}
-    ${pagelistGetHtml()}`;
+      <ul class="dl-list">${items.map(pagelistRowHtml).join("")}</ul>` : ""}`;
 }
 
 function pagelistRowHtml(i) {
@@ -44,14 +44,18 @@ function pagelistRowHtml(i) {
 }
 
 function pagelistGetHtml() {
-  const jobs = pagelistView.getJobs;
-  if (!jobs.length) return "";
-  return `<h3>Getting your albums</h3><ul class="dl-list">${jobs.map(j => j.log.map(e => `<li><span class="dl-badge ${e.source ? "have" : "partly"}">${escapeHtml(e.source || "Not found")}</span>
+  const jobs = pagelistView.getJobs, v = pagelistView;
+  if (!jobs.length) return v.getIds.length ? `<div id="pagelist-progress" class="dl-card" role="status"><b>Getting ${v.getCount} ${v.getCount === 1 ? "album" : "albums"}…</b> checking Bandcamp, then Galaxy, then Soulseek.</div>` : "";
+  return `<div id="pagelist-progress" class="dl-card"><h3>Getting your albums</h3><ul class="dl-list">${jobs.map(j => j.log.map(e => `<li><span class="dl-badge ${e.source ? "have" : "partly"}">${escapeHtml(e.source || "Not found")}</span>
     <div><b>${escapeHtml(e.title)}</b> · ${escapeHtml(j.name)}<div class="dl-have">${escapeHtml(e.note || "")}</div></div></li>`).join("") +
-    (j.state !== "done" ? `<li class="muted">${escapeHtml(j.name)}: ${j.done} of ${j.total}…</li>` : "")).join("")}</ul>`;
+    (j.state !== "done" ? `<li class="muted">${escapeHtml(j.name)}: ${j.done} of ${j.total}…</li>` : "")).join("")}</ul></div>`;
 }
 
-function pagelistRender() { if (downloadsView.tab === "pagelist") renderDownloads(); }
+function pagelistRender(scroll = false) {
+  if (downloadsView.tab !== "pagelist") return;
+  renderDownloads();
+  if (scroll) $("#pagelist-progress")?.scrollIntoView?.({block: "center"});
+}
 
 function pagelistPoll() {
   clearTimeout(pagelistView.timer);
@@ -114,9 +118,9 @@ document.addEventListener("click", async event => {
     v.busy = true; pagelistRender();
     try {
       const data = await api("/api/pagelist/get", {id: v.job.id, ids: [...v.picked]});
-      v.getIds = data.jobs; v.getJobs = []; toast(`Getting ${data.queued} ${data.queued === 1 ? "album" : "albums"}…`); pagelistGetPoll();
+      v.getIds = data.jobs; v.getCount = data.queued; v.getJobs = []; toast(`Getting ${data.queued} ${data.queued === 1 ? "album" : "albums"}…`); pagelistGetPoll();
     } catch (error) { toast(error.message); }
-    v.busy = false; pagelistRender();
+    v.busy = false; pagelistRender(true);
   }
 });
 
