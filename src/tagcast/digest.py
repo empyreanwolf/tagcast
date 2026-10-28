@@ -8,7 +8,7 @@ pages already track into one read-first page instead of four separate checks:
 - **Wishlist, just found**: the most recent entries from `wishlist.state["found"]`, flagged
   as new until "Mark seen" is pressed -- the same manual acknowledgement `new_releases`
   already uses for its own unseen count, rather than silently clearing on every page view.
-- **Chart movement**: for the six fixed charts (not the Browse tab's open-ended country/
+- **Chart movement**: for the fixed charts (not the Browse tab's open-ended country/
   genre combinations), which songs are on the chart now that weren't the last time this
   page looked. Charts itself only keeps an in-memory 6-hour cache with no history, so this
   is the one genuinely new piece of state here: ``digest.json`` persists each chart's last
@@ -16,13 +16,14 @@ pages already track into one read-first page instead of four separate checks:
   is "chart movement". The first time a chart is ever seen there is nothing to diff against
   yet, so it is reported as a first scan with no movement rather than listing the whole
   chart as "new".
-- **Recommendations**: the top of each of Recommendations' own two lists (Deezer-related,
-  Gemini-based), read via their existing 24-hour cache -- opening this page doesn't force a
-  fresh scan of either.
+- **Recommendations**: the top of the "Recommended for you" list on the Charts page
+  (Deezer-related artists), read via its existing 24-hour cache -- opening this page doesn't
+  force a fresh scan.
 
 Every piece degrades independently: if one source errors (not signed in, a chart's site
-changed, no Gemini key yet) its section shows that error and the rest of the page still
-renders. Nothing here fetches songs or starts downloads; that still happens from each
+changed) its section shows that error and the rest of the page still renders. Charts that
+cannot be read right now are left out of "Chart movement" and named in one line instead
+(fork v44), rather than filling the page with red errors. Nothing here fetches songs or starts downloads; that still happens from each
 source's own page ("Get it" on Charts/Recommendations, "Get the missing" on New releases).
 State: ``digest.json`` (chart snapshots, and when wishlist "just found" was last acknowledged).
 """
@@ -108,7 +109,7 @@ class Digest:
         wishlist_found = self._safe(self._wishlist_found)
         charts = {chart_id: self._safe(lambda chart_id=chart_id: self._chart_movement(chart_id)) for chart_id in CHARTS}
         recommendations = {source: self._safe(lambda source=source: self._recommendations(source))
-                            for source in ("deezer", "gemini")}
+                            for source in ("deezer",)}
         self._persist()
         return {"new_releases": new_releases, "wishlist_found": wishlist_found, "charts": charts,
                 "recommendations": recommendations}

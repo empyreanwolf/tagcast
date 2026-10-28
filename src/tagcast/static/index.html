@@ -50,7 +50,6 @@
   <script src="tagclean.js" defer></script>
   <script src="uploads.js" defer></script>
   <script src="charts.js" defer></script>
-  <script src="gemini.js" defer></script>
   <script src="recommendations.js" defer></script>
   <script src="digest.js" defer></script>
   <script src="artist-pictures.js" defer></script>
@@ -105,8 +104,6 @@
     <button class="nav" id="show-downloads"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v12M7 10l5 5 5-5M4 19h16"/></svg> Downloads</button>
     <button class="nav" id="show-digest"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 4h16v4H4zM4 11h10M4 15h10M4 19h7"/></svg> Daily Digest</button>
     <button class="nav" id="show-charts"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 19V9M10 19V5M16 19v-7M20 19V3"/></svg> Charts</button>
-    <button class="nav" id="show-gemini"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3c.6 2.8 1.8 4.6 4 6-2.2 1.4-3.4 3.2-4 6-.6-2.8-1.8-4.6-4-6 2.2-1.4 3.4-3.2 4-6Z"/><path d="M19 13c.3 1.4.9 2.3 2 3-1.1.7-1.7 1.6-2 3-.3-1.4-.9-2.3-2-3 1.1-.7 1.7-1.6 2-3Z"/></svg> Ask Gemini</button>
-    <button class="nav" id="show-recommendations"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.3 6.2 21l1.6-6.9L2 9.2l7-.6L12 2l3 6.6 7 .6-5.8 4.9 1.6 6.9Z"/></svg> Recommendations</button>
     <button class="nav" id="show-overview"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/></svg> Overview</button>
     <button class="nav" id="show-history"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 6v6h6"/></svg> Change history <b id="history-count">0</b></button>
     </nav>
@@ -141,7 +138,7 @@
       <div id="downloads-content" role="tabpanel"></div>
     </section>
     <section id="digest-page" hidden aria-label="Daily Digest">
-      <div class="page-intro"><div><div class="eyebrow">WHAT'S NEW, IN ONE PLACE</div><h1>Daily Digest<span>.</span></h1><p>New releases, what the wishlist just found, chart movement since you last looked, and the top of each Recommendations list -- pulled together to read first. Nothing downloads from here; each section links back to its own page for that.</p></div></div>
+      <div class="page-intro"><div><div class="eyebrow">WHAT'S NEW, IN ONE PLACE</div><h1>Daily Digest<span>.</span></h1><p>New releases, what the wishlist just found, chart movement since you last looked, and the top of your recommended artists -- pulled together to read first. Nothing downloads from here; each section links back to its own page for that.</p></div></div>
       <p id="digest-status" class="error-text" role="status"></p>
       <div id="digest-content"></div>
     </section>
@@ -157,34 +154,10 @@
       <div id="artist-pictures-content"></div>
     </section>
     <section id="charts-page" hidden aria-label="Charts">
-      <div class="page-intro"><div><div class="eyebrow">OUTSIDE HIP-HOP CHARTS</div><h1>Charts<span>.</span></h1><p>Chinese and mainstream hip-hop charts from NetEase, HotNewHipHop, Deezer, Apple Music, Shazam and Billboard. Every song is checked against your iBroadcast library and download history first, then "Get it" queues it the same way Downloads does; nothing happens automatically. The fixed tabs above stay hip-hop; <b>Browse</b> picks any country and/or genre, as far as each source actually supports it.</p></div></div>
+      <div class="page-intro"><div><div class="eyebrow">OUTSIDE HIP-HOP CHARTS</div><h1>Charts<span>.</span></h1><p>Chinese and mainstream hip-hop charts from NetEase, HotNewHipHop, Deezer, Apple Music and Spotify, plus artists recommended from the ones you follow. Every song is checked against your iBroadcast library and download history first, then "Get it" queues it the same way Downloads does; nothing happens automatically. The fixed tabs above stay hip-hop; <b>Browse</b> picks any country and/or genre, or any public Spotify playlist link, as far as each source supports it.</p></div></div>
       <div id="charts-tabs" class="favourites-tabs dl-tabs" role="tablist" aria-label="Charts"></div>
       <p id="charts-status" class="error-text" role="status"></p>
       <div id="charts-content" role="tabpanel"></div>
-    </section>
-    <section id="gemini-page" hidden aria-label="Ask Gemini">
-      <div class="page-intro"><div><div class="eyebrow">TALK ABOUT MUSIC, THEN DOWNLOAD IT</div><h1>Ask Gemini<span>.</span></h1><p>Type an artist, a mood, or a question about music. This talks to your own free Gemini API key (not the gemini.google.com chat, which has no API) -- any songs or artists it names are checked against your library and download history, same as Charts; nothing downloads until you pick "Get it". It has no live internet access on its own, so it says so rather than guessing for "what's out right now"-type questions -- tick "Search the web" on a message to actually look it up first (uses a free Tavily search, separate from Gemini).</p></div></div>
-      <p id="gemini-status" class="error-text" role="status"></p>
-      <div id="gemini-setup" hidden>
-        <div class="dl-card"><p>Add a free Gemini API key to start: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a>, then paste it below.</p>
-          <div class="dl-actions"><input type="password" id="gemini-key-input" placeholder="Gemini API key" autocomplete="off" spellcheck="false"><button type="button" class="button primary" data-gemini="save-key">Save key</button></div>
-          <p>Optional: a free Tavily key (<a href="https://tavily.com" target="_blank" rel="noopener noreferrer">tavily.com</a>, no card needed, 1,000 searches/month) lets "Search the web" actually work for current questions.</p>
-          <div class="dl-actions"><input type="password" id="gemini-tavily-input" placeholder="Tavily API key (optional)" autocomplete="off" spellcheck="false"><button type="button" class="button" data-gemini="save-tavily">Save Tavily key</button></div></div>
-      </div>
-      <div id="gemini-chat"></div>
-      <form id="gemini-form" class="dl-actions">
-        <input type="text" id="gemini-input" maxlength="4000" placeholder="Ask about an artist, a mood, or what to listen to next…" aria-label="Message to Gemini">
-        <label id="gemini-search-label"><input type="checkbox" id="gemini-search-toggle"> Search the web</label>
-        <button type="submit" class="button primary" id="gemini-send">Send</button>
-        <button type="button" class="button" data-gemini="new">New conversation</button>
-        <button type="button" class="button" data-gemini="settings">Settings</button>
-      </form>
-    </section>
-    <section id="recommendations-page" hidden aria-label="Recommendations">
-      <div class="page-intro"><div><div class="eyebrow">BASED ON WHAT YOU ALREADY HAVE</div><h1>Recommendations<span>.</span></h1><p>Two separate lists, both seeded from the artists New releases already tracks (followed artists, plus your library's own if that's turned on): one from Deezer's related-artist data (deterministic, no AI), one from Ask Gemini (conversational, same key/model as that page). Shown separately on purpose -- different kinds of evidence. Every song is checked against your library and history first, then "Get it" queues it the same way Charts does.</p></div></div>
-      <div id="recommendations-tabs" class="favourites-tabs dl-tabs" role="tablist" aria-label="Recommendations"></div>
-      <p id="recommendations-status" class="error-text" role="status"></p>
-      <div id="recommendations-content" role="tabpanel"></div>
     </section>
     <section id="album-guide-page" hidden aria-label="1001 Albums">
       <div class="page-intro"><div><div class="eyebrow">DISCOVER YOUR COLLECTION</div><h1>1001 Albums<span>.</span></h1><p>Based on <cite><a href="https://en.wikipedia.org/wiki/1001_Albums_You_Must_Hear_Before_You_Die" target="_blank" rel="noopener noreferrer">1001 Albums You Must Hear Before You Die</a></cite>, edited by Robert Dimery. Explore the albums you already have from this selection, covering 1955–2007.</p></div></div>

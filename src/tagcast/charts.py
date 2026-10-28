@@ -11,8 +11,9 @@ Sources, grouped by what actually exists online:
   so "Get it" queues them straight through Galaxy, the same as a Galaxy search result.
 - **Mainstream hip-hop**: HotNewHipHop's Top 100, Deezer's Hip-Hop/Rap chart (its genre id is
   looked up by name, never hardcoded, so a renumbering on Deezer's side can't silently pick
-  the wrong genre), Apple Music/iTunes' Hip-Hop/Rap "Top Songs" feed, Shazam's US Hip-Hop/Rap
-  chart, and Billboard's Hot Rap Songs. These give title + artist only (no platform id), so
+  the wrong genre), Apple Music/iTunes' Hip-Hop/Rap "Top Songs" feed, and a public Spotify playlist
+  (RapCaviar by default; Browse takes any public playlist link). Shazam and Billboard were
+  removed in v44: their pages no longer carry readable chart data. These give title + artist only (no platform id), so
   "Get it" goes through the same Bandcamp -> Soulseek -> Galaxy order as Discography's "Get
   the missing", one song at a time; songs not found anywhere land on the wishlist.
 - **Underground hip-hop**: no platform publishes this as an actual, fetchable chart --
@@ -20,8 +21,8 @@ Sources, grouped by what actually exists online:
   either locked behind that platform's own login or just prose with no song list. Nothing is
   listed under this group; it stays here as a note rather than a silently-missing feature.
 
-HotNewHipHop, Shazam and Billboard have no public API: their pages are scraped, and Shazam and
-Billboard render their chart with JavaScript, so this reads whatever structured data blob the
+HotNewHipHop and Spotify have no usable public API: their pages are read, and Spotify renders
+its list with JavaScript, so this reads whatever structured data blob the
 page ships for its own use (a Next.js ``__NEXT_DATA__`` script tag) rather than guessing at
 rendered HTML. That is inherently more fragile than a real API -- if a site reshapes its page,
 that one chart's fetch fails with a clear "couldn't read this chart" error rather than wrong
@@ -53,6 +54,9 @@ class ChartsError(LibraryError):
     pass
 
 
+SPOTIFY_RAPCAVIAR = "37i9dQZF1DX0XUsuxWHRQd"  # Spotify's own hip-hop playlist, public
+SPOTIFY_ID_RE = re.compile(r"(?:playlist[/:]|^)([A-Za-z0-9]{22})(?:[?/#].*)?$")
+
 CHARTS = {
     "netease_cn_rap": {"label": "NetEase · Chinese Rap chart", "group": "chinese",
                         "url": "https://music.163.com/discover/toplist?id=991319590"},
@@ -62,10 +66,8 @@ CHARTS = {
                        "url": "https://www.deezer.com/charts"},
     "apple_hiphop": {"label": "Apple Music · Top Hip-Hop/Rap songs", "group": "mainstream",
                       "url": "https://music.apple.com/us/genre/hip-hop-rap/id18"},
-    "shazam_hiphop_us": {"label": "Shazam · Hip-Hop/Rap (US)", "group": "mainstream",
-                          "url": "https://www.shazam.com/charts/genre/united-states/hip-hop-rap"},
-    "billboard_rap": {"label": "Billboard · Hot Rap Songs", "group": "mainstream",
-                       "url": "https://www.billboard.com/charts/rap-song/"},
+    "spotify_rapcaviar": {"label": "Spotify · RapCaviar", "group": "mainstream",
+                           "url": f"https://open.spotify.com/playlist/{SPOTIFY_RAPCAVIAR}"},
 }
 
 # -- Browse (fork v22): any country, any genre -------------------------------------------
@@ -80,44 +82,13 @@ CHARTS = {
 #   mean what, and testing shows genre filtering on this exact feed may not even work beyond
 #   the Hip-Hop/Rap id (18) already in use -- so genre stays fixed to that rather than risk
 #   silently showing the wrong genre under a confident-looking label.
-# - **Shazam**: both. Its charts page lists ~70 real country names (used below), and separate
-#   genre slugs are known for some but not all; since no official table exists for either,
-#   a chosen combination is only trusted once the request actually succeeds -- an
-#   unsupported pairing comes back as a plain "not available" error, never wrong data.
+# - **Spotify**: any public playlist link (a hip-hop Top 50, say), read from the playlist's
+#   embed page. No login; a private playlist or a page change comes back as a plain error.
 # - **Deezer**: genre only (reusing the same by-name genre lookup the "Deezer" tab above
 #   uses, so any genre Deezer lists -- pop, k-pop, rock, electro, and so on -- works, not
 #   just hip-hop). Deezer's public API has no per-country chart at all -- the only way
 #   anyone gets one is an undocumented, per-country Deezer-curated playlist id that could
 #   change without notice, which isn't a foundation worth building on.
-SHAZAM_GENRES = ["hip-hop-rap", "pop", "dance", "alternative", "rock", "randb-soul", "latin",
-                  "reggae-dancehall", "k-pop", "country", "film-tv-and-stage"]
-SHAZAM_COUNTRIES = [
-    "Global", "Algeria", "Argentina", "Australia", "Austria", "Azerbaijan", "Belarus", "Belgium",
-    "Brazil", "Bulgaria", "Cameroon", "Canada", "Chile", "China", "Colombia", "Costa Rica",
-    "Croatia", "Czech Republic", "Côte d'Ivoire", "Denmark", "Egypt", "Finland", "France",
-    "Germany", "Ghana", "Greece", "Hungary", "India", "Indonesia", "Ireland", "Israel", "Italy",
-    "Japan", "Kazakhstan", "Kenya", "Malaysia", "Mexico", "Morocco", "Mozambique", "Netherlands",
-    "New Zealand", "Nigeria", "Norway", "Peru", "Philippines", "Poland", "Portugal", "Romania",
-    "Russia", "Saudi Arabia", "Senegal", "Singapore", "South Africa", "South Korea", "Spain",
-    "Sweden", "Switzerland", "Tanzania", "Thailand", "Tunisia", "Türkiye", "Uganda", "Ukraine",
-    "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan",
-    "Venezuela", "Vietnam", "Zambia",
-]
-_SHAZAM_SLUG_OVERRIDES = {
-    "côte d'ivoire": "cote-divoire", "türkiye": "turkiye", "united arab emirates": "united-arab-emirates",
-    "united states": "united-states", "united kingdom": "united-kingdom", "new zealand": "new-zealand",
-    "south africa": "south-africa", "south korea": "south-korea", "czech republic": "czech-republic",
-    "costa rica": "costa-rica", "saudi arabia": "saudi-arabia",
-}
-
-
-def _shazam_country_slug(name):
-    key = text(name).strip().casefold()
-    if key in _SHAZAM_SLUG_OVERRIDES:
-        return _SHAZAM_SLUG_OVERRIDES[key]
-    return re.sub(r"[^a-z0-9]+", "-", key).strip("-")
-
-
 def _extract_next_data(html, chart_label):
     m = NEXT_DATA_RE.search(html or "")
     if not m:
@@ -155,6 +126,41 @@ def _walk_entries(node, out, seen, limit=MAX_ROWS):
             _walk_entries(item, out, seen, limit)
 
 
+def _spotify_rows(data):
+    """Songs from a Spotify embed page's data: its trackList (title + "Artist A, Artist B"),
+    or, if Spotify renames that, whatever title/artist pairs the page carries."""
+    tracks = []
+
+    def find(node, depth=0):
+        if depth > 8 or tracks:
+            return
+        if isinstance(node, dict):
+            if isinstance(node.get("trackList"), list):
+                tracks.extend(node["trackList"])
+                return
+            for value in node.values():
+                find(value, depth + 1)
+        elif isinstance(node, list):
+            for item in node:
+                find(item, depth + 1)
+
+    find(data)
+    rows = []
+    for track in tracks:
+        if not isinstance(track, dict):
+            continue
+        title = text(track.get("title") or track.get("name")).strip()
+        artist = _artist_text(track.get("artists") or track.get("subtitle") or "")
+        artist = "; ".join(a.strip() for a in re.split(r",\s*|\u00a0,\s*", artist.replace("\u00a0", " ")) if a.strip())
+        if title and artist:
+            rows.append({"title": title, "artist": artist})
+    if not rows:
+        found = []
+        _walk_entries(data, found, set())
+        rows = found
+    return _dedup(rows)
+
+
 def _dedup(rows):
     out, seen = [], set()
     for r in rows:
@@ -186,13 +192,13 @@ class Charts:
             "apple": {"label": "Apple Music", "needs_country": True, "needs_genre": False,
                       "note": 'Country only -- type any 2-letter code, like "th" or "jp". Genre stays '
                               "Hip-Hop/Rap: Apple publishes no reliable list of other genre ids to pick from."},
-            "shazam": {"label": "Shazam", "needs_country": True, "needs_genre": True,
-                       "countries": SHAZAM_COUNTRIES, "genres": SHAZAM_GENRES,
-                       "note": "Not every genre is published for every country -- an unsupported combination "
-                               "comes back as a plain error, not wrong data."},
             "deezer": {"label": "Deezer", "needs_country": False, "needs_genre": True,
                        "note": 'Genre only -- type any genre Deezer lists, like "pop", "k-pop" or "rock". '
                                "Deezer's API has no per-country charts."},
+            "spotify": {"label": "Spotify playlist", "needs_country": False, "needs_genre": True,
+                        "genre_label": "Playlist link", "genre_placeholder": "https://open.spotify.com/playlist/…",
+                        "note": "Paste the link of any public Spotify playlist, such as a hip-hop Top 50. "
+                                "No Spotify login is needed; private playlists cannot be read."},
         }
 
     def view(self, chart_id, refresh=False):
@@ -211,7 +217,7 @@ class Charts:
     def _load(self, chart_id):
         fetchers = {"netease_cn_rap": self._netease, "hotnewhiphop_top100": self._hotnewhiphop,
                     "deezer_hiphop": self._deezer, "apple_hiphop": self._apple,
-                    "shazam_hiphop_us": self._shazam, "billboard_rap": self._billboard}
+                    "spotify_rapcaviar": lambda: self._spotify(SPOTIFY_RAPCAVIAR)}
         try:
             rows = fetchers[chart_id]()
             rows = self._with_status(rows)
@@ -262,14 +268,10 @@ class Charts:
             url = f"https://itunes.apple.com/{code}/rss/topsongs/limit=100/genre=18/json"
             return (f"browse:apple:{code}", f"Apple Music · Top Hip-Hop/Rap songs ({code.upper()})", url,
                     lambda: self._apple_browse(code))
-        if source == "shazam":
-            if not country:
-                raise ChartsError("Pick a country.")
-            genre_slug = (genre or "hip-hop-rap").strip().casefold()
-            country_slug = _shazam_country_slug(country)
-            url = f"https://www.shazam.com/charts/genre/{country_slug}/{genre_slug}"
-            return (f"browse:shazam:{country_slug}:{genre_slug}", f"Shazam · {genre_slug} ({country})", url,
-                    lambda: self._shazam_browse(url, country, genre_slug))
+        if source == "spotify":
+            playlist = self._spotify_id(genre)
+            return (f"browse:spotify:{playlist}", f"Spotify · playlist {playlist}",
+                    f"https://open.spotify.com/playlist/{playlist}", lambda: self._spotify(playlist))
         if source == "deezer":
             if not genre:
                 raise ChartsError('Type a genre, like "pop", "k-pop" or "rock".')
@@ -368,20 +370,6 @@ class Charts:
             raise ChartsError("Apple Music's Hip-Hop/Rap feed came back empty.")
         return rows
 
-    def _shazam(self):
-        try:
-            r = self.session.get(CHARTS["shazam_hiphop_us"]["url"], timeout=15)
-            r.raise_for_status()
-            html = r.text
-        except requests.RequestException as error:
-            raise ChartsError(f"Couldn't reach Shazam: {error}") from None
-        data = _extract_next_data(html, "Shazam's Hip-Hop/Rap chart")
-        found = []
-        _walk_entries(data, found, set())
-        if not found:
-            raise ChartsError("Couldn't find any songs in Shazam's chart data -- its page structure may have changed.")
-        return [{"rank": i + 1, **row, "album": "", "source": "", "source_id": ""} for i, row in enumerate(_dedup(found))]
-
     def _apple_browse(self, code):
         try:
             feed = (self.http.json(f"https://itunes.apple.com/{code}/rss/topsongs/limit=100/genre=18/json") or {}).get("feed") or {}
@@ -397,22 +385,6 @@ class Charts:
         if not rows:
             raise ChartsError(f'Apple Music has no Hip-Hop/Rap "Top Songs" feed for "{code}", or it came back empty.')
         return rows
-
-    def _shazam_browse(self, url, country, genre_slug):
-        try:
-            r = self.session.get(url, timeout=15)
-            if r.status_code == 404:
-                raise ChartsError(f'Shazam doesn\'t publish a "{genre_slug}" chart for {country}.')
-            r.raise_for_status()
-            html = r.text
-        except requests.RequestException as error:
-            raise ChartsError(f"Couldn't reach Shazam: {error}") from None
-        data = _extract_next_data(html, f"Shazam's {genre_slug} chart for {country}")
-        found = []
-        _walk_entries(data, found, set())
-        if not found:
-            raise ChartsError(f'Shazam doesn\'t publish a "{genre_slug}" chart for {country} (or its page structure changed).')
-        return [{"rank": i + 1, **row, "album": "", "source": "", "source_id": ""} for i, row in enumerate(_dedup(found))]
 
     def _deezer_browse(self, genre_name):
         try:
@@ -436,19 +408,30 @@ class Charts:
             raise ChartsError(f"Deezer's {text(genre.get('name'))} chart came back empty.")
         return rows
 
-    def _billboard(self):
+    @staticmethod
+    def _spotify_id(link):
+        m = SPOTIFY_ID_RE.search(text(link).strip())
+        if not m:
+            raise ChartsError("Paste the link of a public Spotify playlist, like https://open.spotify.com/playlist/….")
+        return m.group(1)
+
+    def _spotify(self, playlist_id):
+        """A public Spotify playlist read from its embed page -- no login, no API key. Spotify
+        closed its Web API to Spotify-owned playlists in November 2024, but the embed page that
+        open.spotify.com serves for sharing still ships the track list for its own use."""
+        url = f"https://open.spotify.com/embed/playlist/{playlist_id}"
         try:
-            r = self.session.get(CHARTS["billboard_rap"]["url"], timeout=15)
+            r = self.session.get(url, timeout=20, headers={"Accept-Language": "en"})
             r.raise_for_status()
             html = r.text
         except requests.RequestException as error:
-            raise ChartsError(f"Couldn't reach Billboard: {error}") from None
-        data = _extract_next_data(html, "Billboard's Hot Rap Songs chart")
-        found = []
-        _walk_entries(data, found, set())
-        if not found:
-            raise ChartsError("Couldn't find any songs in Billboard's chart data -- its page structure may have changed.")
-        return [{"rank": i + 1, **row, "album": "", "source": "", "source_id": ""} for i, row in enumerate(_dedup(found))]
+            raise ChartsError(f"Couldn't reach Spotify: {error}") from None
+        data = _extract_next_data(html, "this Spotify playlist")
+        rows = _spotify_rows(data)
+        if not rows:
+            raise ChartsError("Couldn't find any songs in this Spotify playlist -- it may be private, "
+                              "empty, or Spotify changed its page.")
+        return [{"rank": i + 1, **row, "album": "", "source": "", "source_id": ""} for i, row in enumerate(rows)]
 
     # -- getting songs -------------------------------------------------------------------
 

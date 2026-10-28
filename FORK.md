@@ -64,6 +64,17 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v44** **Charts: Spotify in, Shazam and Billboard out; Ask Gemini gone; Daily Digest cleaned up.**
+  - **Charts**: the Shazam (US) and Billboard Hot Rap tabs are removed (their pages no longer
+    carry readable chart data), and so is Shazam in Browse. New **Spotify RapCaviar** tab, and
+    Browse → **Spotify playlist** takes the link of any public playlist (a hip-hop Top 50, say),
+    no login. It is read from Spotify's embed page, which I could not test from here: if a
+    playlist says it can't be read, send me a screenshot.
+  - **Ask Gemini is removed** (page, menu entry and its Gemini key settings). Recommendations moved
+    to the **Charts** page as the **Recommended for you** tab: Deezer's related artists, as before.
+    The separate Recommendations page is gone.
+  - **Daily Digest**: no Gemini section, recommendations come from the Charts tab, and charts that
+    cannot be read right now are named in one line instead of showing red errors.
 - **v43** **Clean up no longer asks about tracks already in "Underground Hip Hop" or "Chinese Hip Hop"**
   (it used to, whenever MusicBrainz couldn't place the artist). Scan again to clear the old list.
 - **v42** **Recently uploaded opens instantly.** Like iBroadcast's own web app, it now reads the library

@@ -39,12 +39,11 @@ function digestBodyHtml(d) {
     </div>
     <div class="dl-card">
       <h2>Chart movement</h2>
-      ${Object.entries(d.charts).map(([chartId, section]) => digestChartHtml(chartId, section)).join("")}
+      ${digestChartsHtml(d.charts)}
     </div>
     <div class="dl-card">
       <h2>Recommendations</h2>
-      ${digestRecommendationHtml("deezer", "Deezer (related artists)", d.recommendations.deezer)}
-      ${digestRecommendationHtml("gemini", "Gemini", d.recommendations.gemini)}
+      ${digestRecommendationHtml("deezer", "Related to your artists (Deezer)", d.recommendations.deezer)}
     </div>`;
 }
 
@@ -64,6 +63,14 @@ function digestWishlistFoundHtml(section) {
       <button type="button" class="button" data-digest="see-missing">See in Downloads → Missing</button>
       ${section.new_count ? `<button type="button" class="button" data-digest="mark-found-seen">Mark seen</button>` : ""}
     </div>`;
+}
+
+// Charts that cannot be read right now are named in one line, not shown as red errors.
+function digestChartsHtml(charts) {
+  const entries = Object.entries(charts), working = entries.filter(([, s]) => s.ok), broken = entries.filter(([, s]) => !s.ok);
+  const names = broken.map(([id]) => chartsTabs.find(([k]) => k === id)?.[1] || id);
+  return `${working.map(([id, section]) => digestChartHtml(id, section)).join("")}
+    ${broken.length ? `<p class="muted">Couldn't read right now: ${escapeHtml(names.join(", "))}.</p>` : ""}`;
 }
 
 function digestChartHtml(chartId, section) {
@@ -102,5 +109,5 @@ document.addEventListener("click", event => {
   const chart = target.closest("[data-digest-chart]")?.dataset.digestChart;
   if (chart) { showCharts(chart); return; }
   const recs = target.closest("[data-digest-recs]")?.dataset.digestRecs;
-  if (recs) { showRecommendations(recs); return; }
+  if (recs) { showCharts("recommended"); return; }
 });

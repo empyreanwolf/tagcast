@@ -9950,3 +9950,48 @@ test("Recently uploaded: views come from memory; only Refresh asks iBroadcast fo
   const urls = p.requests.map(r => r.url).filter(u => u.startsWith("/api/uploads"));
   assert.deepEqual(urls, ["/api/uploads?view=days", "/api/uploads?view=days&refresh=1"]);
 });
+
+// ---- Charts: Spotify, Recommended for you, no Shazam/Billboard/Gemini (fork v44) --------------------
+
+test("Charts has Spotify and Recommended for you tabs, and no Shazam, Billboard or Ask Gemini", async () => {
+  const p = page();
+  const labels = JSON.parse(JSON.stringify(p.run("chartsTabs.map(t => t[1])")));
+  assert.ok(labels.includes("Spotify RapCaviar") && labels.includes("Recommended for you") && labels.includes("Browse"));
+  assert.ok(!labels.some(l => /shazam|billboard/i.test(l)));
+  const html = readFileSync(path.join(staticDir, "index.html"), "utf8");
+  assert.doesNotMatch(html, /show-gemini|gemini-page|gemini\.js|show-recommendations|recommendations-page/);
+});
+
+test("the Recommended for you tab shows the Deezer list inside the Charts page and Get it uses the recommendations API", async () => {
+  const p = livePage(); await settle();
+  p.run(`state.screen = "charts"; chartsView.tab = "recommended";
+    recommendationsView.data.deezer = {source: "deezer", error: "", when: 0, seeds: ["A"], progress: null,
+      rows: [{rank: 1, artist: "Related Act", title: "Big Song", album: "", status: "new", why: "related to 2 artist(s) you have"}]}`);
+  p.run("renderCharts()");
+  const html = p.nodes.get("#charts-content").innerHTML;
+  assert.match(html, /Related Act/); assert.match(html, /related to 2 artist/); assert.match(html, /data-recommendations="get"/);
+  p.run("recommendationsView.picked.add(1)");
+  p.setFetch(() => ({ok: true, json: async () => ({jobs: 1, source: "deezer", rows: [], error: "", seeds: [], progress: null, when: 0})}));
+  await p.click({"#charts-page": {}, "[data-recommendations]": {dataset: {recommendations: "get"}}});
+  await settle();
+  assert.ok(p.requests.some(r => r.url === "/api/recommendations/get" && JSON.parse(r.options.body).source === "deezer"));
+});
+
+test("Browse offers a Spotify playlist link field", async () => {
+  const p = page();
+  p.run(`chartsView.browse.options = {spotify: {label: "Spotify playlist", needs_country: false, needs_genre: true,
+    genre_label: "Playlist link", genre_placeholder: "https://open.spotify.com/playlist/…", note: "Paste a link."}};
+    chartsView.browse.source = "spotify"`);
+  const html = p.run("browseBodyHtml()");
+  assert.match(html, /Playlist link/); assert.match(html, /open\.spotify\.com\/playlist/);
+});
+
+test("the Daily Digest names charts it could not read in one line instead of red errors", async () => {
+  const p = page();
+  const html = p.run(`digestChartsHtml(${JSON.stringify({
+    netease_cn_rap: {ok: true, label: "NetEase", first_scan: false, new_entries: [{title: "S", artist: "A"}]},
+    hotnewhiphop_top100: {ok: false, error: "Couldn't read HotNewHipHop"}})})`);
+  assert.match(html, /NetEase/);
+  assert.match(html, /Couldn't read right now: HotNewHipHop Top 100/);
+  assert.doesNotMatch(html, /error-text/);
+});

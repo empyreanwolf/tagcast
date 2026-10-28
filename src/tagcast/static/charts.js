@@ -7,17 +7,17 @@
 // "underground hip-hop" tab: nothing online actually publishes that as a fetchable chart --
 // see the note on the page.
 const chartsTabs = [["netease_cn_rap", "Chinese Rap (NetEase)"], ["hotnewhiphop_top100", "HotNewHipHop Top 100"],
-  ["deezer_hiphop", "Deezer Hip-Hop"], ["apple_hiphop", "Apple Music"], ["shazam_hiphop_us", "Shazam (US)"],
-  ["billboard_rap", "Billboard Hot Rap"], ["browse", "Browse"]];
+  ["deezer_hiphop", "Deezer Hip-Hop"], ["apple_hiphop", "Apple Music"], ["spotify_rapcaviar", "Spotify RapCaviar"],
+  ["recommended", "Recommended for you"], ["browse", "Browse"]];
 const chartsView = {tab: "netease_cn_rap", data: {}, picked: new Set(), jobs: null, timer: null, jobTimer: null, busy: false,
-  browse: {source: "shazam", country: "", genre: "", options: null, key: null}};
+  browse: {source: "apple", country: "", genre: "", options: null, key: null}};
 
 function showCharts(tab) {
   if (tab) chartsView.tab = tab;
   showScreen("charts");
   renderCharts();
-  chartsLoad();
-  chartsJobsLoad();
+  if (chartsView.tab === "recommended") { recommendationsLoad(); recommendationsJobsLoad(); }
+  else { chartsLoad(); chartsJobsLoad(); }
 }
 
 function chartsTabsHtml() {
@@ -33,10 +33,11 @@ function renderCharts() {
 
 function chartsBodyHtml() {
   if (chartsView.tab === "browse") return browseBodyHtml();
+  if (chartsView.tab === "recommended") return `<p class="muted">Artists related to the ones you follow on New releases, per Deezer. No AI.</p>${recommendationsBodyHtml()}`;
   const d = chartsView.data[chartsView.tab];
   const note = `<p class="muted">There's no "underground hip-hop" tab here: no platform actually publishes one as a fetchable
-      chart -- everything calling itself that is either locked behind a login (Spotify/Apple Music editorial playlists)
-      or just a blog post naming other platforms, with no song list to read. This page lists what genuinely exists.</p>`;
+      chart -- everything calling itself that is either locked behind a login or just a blog post naming other platforms, with no
+      song list to read. This page lists what genuinely exists. Browse can read any public Spotify playlist from its link.</p>`;
   if (!d) { chartsLoad(); return `${note}<p class="muted">Loading…</p>`; }
   return `${note}${chartsResultBody(d, "data-charts", "data-charts-all")}`;
 }
@@ -77,7 +78,7 @@ function browseBodyHtml() {
       ${src.needs_genre ? (src.genres
           ? `<label>Genre <select data-browse-field="genre">${src.genres.map(g =>
               `<option value="${escapeHtml(g)}" ${b.genre === g ? "selected" : ""}>${escapeHtml(g)}</option>`).join("")}</select></label>`
-          : `<label>Genre <input type="text" data-browse-field="genre" placeholder="pop" value="${escapeHtml(b.genre)}"></label>`) : ""}
+          : `<label>${escapeHtml(src.genre_label || "Genre")} <input type="text" data-browse-field="genre" placeholder="${escapeHtml(src.genre_placeholder || "pop")}" value="${escapeHtml(b.genre)}"></label>`) : ""}
       <button type="submit" class="button primary">Browse</button></form>
     ${src.note ? `<p class="muted">${escapeHtml(src.note)}</p>` : ""}
     ${chartsResultBody(d, "data-browse-action", "data-browse-all")}`;
@@ -146,7 +147,8 @@ document.addEventListener("click", event => {
     chartsView.tab = tab.dataset.chartsTab;
     chartsView.picked.clear();
     renderCharts();
-    if (chartsView.tab !== "browse") chartsLoad();
+    if (chartsView.tab === "recommended") { recommendationsLoad(); recommendationsJobsLoad(); }
+    else if (chartsView.tab !== "browse") chartsLoad();
     return;
   }
   const action = target.closest("[data-charts]")?.dataset.charts;

@@ -1,30 +1,18 @@
 "use strict";
 
-// Recommendations (fork v23): two separate lists -- Deezer's related-artist data
-// (deterministic, no AI) and Ask Gemini (conversational, same key/model as that page) --
-// both seeded from the artists New releases already tracks. Every song is checked against
-// the library and download history first; "Get it" queues it the same Bandcamp -> Soulseek
-// -> Galaxy order as Charts, one at a time, landing on the wishlist if nothing has it.
-const recommendationsTabs = [["deezer", "Deezer (related artists)"], ["gemini", "Gemini"]];
+// Recommendations (fork v23, on the Charts page since v44): artists related (per Deezer) to the
+// ones New releases already tracks, no AI. Every song is checked against the library and
+// history first; "Get it" queues it the same Bandcamp -> Soulseek -> Galaxy order as Charts,
+// one at a time, landing on the wishlist if nothing has it. It is the "Recommended for you"
+// tab of the Charts page: this file only builds that tab's content.
 const recommendationsView = {tab: "deezer", data: {}, picked: new Set(), jobs: null, timer: null, jobTimer: null, busy: false};
 
-function showRecommendations(tab) {
-  if (tab) recommendationsView.tab = tab;
-  showScreen("recommendations");
-  renderRecommendations();
-  recommendationsLoad();
-  recommendationsJobsLoad();
-}
-
-function recommendationsTabsHtml() {
-  return recommendationsTabs.map(([key, label]) => `<button type="button" role="tab" id="recommendations-tab-${key}"
-      aria-selected="${recommendationsView.tab === key}" tabindex="${recommendationsView.tab === key ? 0 : -1}"
-      data-recommendations-tab="${key}">${label}</button>`).join("");
+function recommendationsOnScreen() {
+  return state.screen === "charts" && chartsView.tab === "recommended";
 }
 
 function renderRecommendations() {
-  $("#recommendations-tabs").innerHTML = recommendationsTabsHtml();
-  $("#recommendations-content").innerHTML = recommendationsBodyHtml();
+  if (recommendationsOnScreen()) renderCharts();
 }
 
 function recommendationsBodyHtml() {
@@ -69,31 +57,28 @@ async function recommendationsLoad() {
   } catch (error) { recommendationsView.data[tab] = {error: error.message, rows: []}; }
   if (recommendationsView.tab === tab) renderRecommendations();
   clearTimeout(recommendationsView.timer);
-  if (recommendationsView.data[tab]?.progress && state.screen === "recommendations")
+  if (recommendationsView.data[tab]?.progress && recommendationsOnScreen())
     recommendationsView.timer = setTimeout(() => { recommendationsLoad(); recommendationsJobsLoad(); }, 1500);
 }
 
 async function recommendationsJobsLoad() {
   try { recommendationsView.jobs = await api("/api/recommendations/jobs"); } catch (error) { /* quietly skip */ }
-  if (state.screen === "recommendations") $("#recommendations-content") && renderRecommendations();
+  if (recommendationsOnScreen()) renderRecommendations();
   clearTimeout(recommendationsView.jobTimer);
-  if (recommendationsView.jobs?.progress && Object.keys(recommendationsView.jobs.progress).length && state.screen === "recommendations")
+  if (recommendationsView.jobs?.progress && Object.keys(recommendationsView.jobs.progress).length && recommendationsOnScreen())
     recommendationsView.jobTimer = setTimeout(recommendationsJobsLoad, 1500);
 }
 
 async function recommendationsRun(work) {
   if (recommendationsView.busy) return;
   recommendationsView.busy = true;
-  try { await work(); } catch (error) { setActionStatus("#recommendations-status", error.message || String(error)); }
+  try { await work(); } catch (error) { setActionStatus("#charts-status", error.message || String(error)); }
   finally { recommendationsView.busy = false; }
 }
 
 document.addEventListener("click", event => {
   const target = event.target;
-  if (target.closest("#show-recommendations")) { showRecommendations(); return; }
-  if (!target.closest("#recommendations-page")) return;
-  const tab = target.closest("[data-recommendations-tab]");
-  if (tab) { recommendationsView.tab = tab.dataset.recommendationsTab; recommendationsView.picked.clear(); renderRecommendations(); recommendationsLoad(); return; }
+  if (!target.closest("#charts-page")) return;
   const action = target.closest("[data-recommendations]")?.dataset.recommendations;
   if (action === "refresh") {
     recommendationsRun(async () => {

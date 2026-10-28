@@ -117,11 +117,12 @@ The application consists of a Python server and a plain JavaScript frontend.
   never hardcoded) and Apple Music (iTunes RSS) have title+artist only, so "Get it" runs them
   one at a time through the same Bandcamp → Soulseek → Galaxy chain as Discography/Wishlist
   (`discography._song()`/`discography._wish()`) in a background thread, polled via
-  `/api/charts/jobs`. Shazam and Billboard render with JavaScript and have no public API, so
-  they're read from whatever `__NEXT_DATA__` JSON blob the page ships, walked generically by
-  shape (title/artist-like keys) rather than a markup-dependent selector -- more fragile than
-  the others, and expected to need a follow-up fix if the real pages differ from what was
-  inferred. There is deliberately no "underground hip-hop" chart: nothing online publishes one
+  `/api/charts/jobs`. Spotify (v44, `_spotify()`/`_spotify_rows()`) reads a public playlist's
+  `open.spotify.com/embed/playlist/<id>` page (`__NEXT_DATA__`, `trackList` of `title` +
+  `subtitle` "A, B", falling back to the generic title/artist walker); no login. The tab uses
+  RapCaviar and Browse takes any playlist link. It could not be tried against the real site
+  from the sandbox. Shazam and Billboard were removed in v44 (their pages no longer carry
+  readable data). There is deliberately no "underground hip-hop" chart: nothing online publishes one
   as an actual fetchable list. State: in-memory cache only (`CACHE_SECONDS`), nothing persisted.
   `static/charts.js` (its own sidebar page, not a Downloads tab).
   **Browse (fork, v22)**, a 7th tab alongside the six fixed ones (unchanged): any
@@ -130,72 +131,36 @@ The application consists of a Python server and a plain JavaScript frontend.
   `browse_options()` reports each source's real `needs_country`/`needs_genre`, so the frontend
   never offers a field a source can't honor. Apple (`_apple_browse`): any 2-letter country
   code reuses the same feed shape as `_apple()`, genre fixed to Hip-Hop/Rap (id 18, the only
-  value anyone's confirmed actually works on this feed). Shazam (`_shazam_browse`): both
-  country and genre, built from `SHAZAM_COUNTRIES`/`SHAZAM_GENRES` and `_shazam_country_slug()`
-  (a handful of confirmed multi-word overrides, otherwise a plain lowercase-hyphenate); since
-  no official table of which combinations exist was found, a 404 or an empty page comes back
-  as a plain "doesn't publish that chart" error rather than guessed data. Deezer
+  value anyone's confirmed actually works on this feed). Spotify (`_spotify`): any public playlist link or id in the genre field (`genre_label`/`genre_placeholder`
+  tell the page how to label it). Deezer
   (`_deezer_browse`): genre only, reusing the existing by-name `/genre` lookup (so any genre
   Deezer lists works, not just hip-hop) -- no country, because Deezer's API has none; the only
   way anyone gets a country chart from Deezer is an undocumented per-country playlist id that
   could change without notice, which wasn't worth building on. Browse results share the same
   cache/jobs/progress dicts as the fixed tabs, keyed by a synthetic `browse:<source>:...` id
   instead of one of the six `CHARTS` keys, so `get()`/`jobs_view()` need no changes at all.
-- `src/tagcast/gemini.py` (fork, v21): "Ask Gemini", a chat page on its own top-level
-  sidebar page, backed by the user's own free Gemini API key (Google AI Studio, not the
-  gemini.google.com consumer chat -- that page has no API). Calls the Gemini Developer API
-  (`generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`) with a system
-  instruction asking the model to end any reply naming concrete songs/artists with a single
-  fenced ```json block (`{"songs":[...], "similar_artists":[...]}`); that block is parsed out
-  with `JSON_BLOCK_RE` and shown as a "Get it" list (checked against the library/history, same
-  as Charts) and clickable artist chips, while the rest of the reply is the plain chat text.
-  Picked songs run one at a time through the same Bandcamp → Soulseek → Galaxy chain as
-  Charts/Discography/Wishlist (`discography._song()`/`discography._wish()`), polled via
-  `/api/gemini/jobs`. The model name is a Settings field, not hardcoded, so a
-  renamed/retired model needs no code change. The exact API shape could not be exercised
-  against the real service from this sandbox (no network path to
-  generativelanguage.googleapis.com here); it follows Google's long-documented REST method
-  and fails with an actionable error rather than a crash if that's wrong. No Google Search
-  grounding is used -- it is paid-tier only even though a small monthly quota is bundled in
-  free once billing is enabled, which doesn't fit a free-key feature. Instead a per-message
-  "Search the web" checkbox runs one Tavily search first (tavily.com, free, no card, 1,000/mo,
-  `_tavily_search()`) and hands the results to Gemini as inline context (`_format_search_context()`),
-  so time-sensitive questions ("Thailand top hip hop songs") get a real current answer instead
-  of a training-data guess; left unticked, nothing is searched and no Tavily credit is spent.
-  State: `gemini.json` (Gemini key, Tavily key, model, the conversation -- persists across
-  restarts; "New conversation" clears it). `static/gemini.js` (its own sidebar page, not a
-  Downloads tab).
-- `src/tagcast/recommendations.py` (fork, v23): "Recommendations", its own top-level
-  sidebar page with two separate lists, both seeded from `new_releases.artists()` (the same
-  followed-artists-plus-library-3+-albums set New releases already tracks, capped at
-  `MAX_SEEDS`). **Deezer** (`_deezer_related`): no AI -- for each seed, `_deezer_candidate()`
-  finds its Deezer id (exact name match, most-followed act wins when several share the name,
-  the same tie-break `discography._deezer_artists()` uses, reimplemented locally rather than
-  called into so this module stays independently testable), then `/artist/{id}/related` is
-  tallied across all seeds so an act related to several of them ranks first, and
-  `_deezer_top_track()` gives each kept artist a real song to offer -- one with no current top
-  track is dropped rather than shown with nothing to get. **Gemini** (`_gemini_related`): the
-  seed list is sent as a one-off prompt (`REC_PROMPT`, never saved into `gemini.json`'s
-  conversation) through `studio.gemini._generate()`, reusing that page's own key/model and its
-  exact fenced ```json reply shape, parsed with the same `Gemini._parse_reply()`. The two lists
-  are cached and returned separately, never merged -- a deterministic signal and a model's
-  guess are different kinds of evidence, and merging them would hide which is which. "Get it"
-  reuses the Bandcamp → Soulseek → Galaxy chain and job-queue/progress pattern from
-  Charts/Gemini, keyed by source (`deezer`/`gemini`) rather than a chart id. State: in-memory
-  cache only (`CACHE_SECONDS`), nothing persisted. `static/recommendations.js` (its own
-  sidebar page, not a Downloads tab).
+- `src/tagcast/recommendations.py` (fork, v23; the "Recommended for you" tab of the Charts page
+  since v44): artists related to `new_releases.artists()` (the same followed-artists-plus-
+  library-3+-albums set New releases tracks, capped at `MAX_SEEDS`), Deezer only and no AI. For
+  each seed `_deezer_candidate()` finds its Deezer id (exact name match, most-followed act wins
+  when several share the name), then `/artist/{id}/related` is tallied across all seeds so an
+  act related to several ranks first, and `_deezer_top_track()` gives each kept artist a real
+  song to offer -- one with no current top track is dropped. The Gemini list was removed in v44
+  together with Ask Gemini. "Get it" reuses the Bandcamp → Soulseek → Galaxy chain and
+  job/progress pattern from Charts. State: in-memory cache only. `static/recommendations.js`
+  builds the tab's content (`recommendationsBodyHtml()`) for `charts.js`; there is no page of its own.
 - `src/tagcast/digest.py` (fork, v24): "Daily Digest", its own top-level sidebar page that
   reads four other modules rather than fetching anything itself: `new_releases.view()`'s
   undismissed results, `wishlist.state["found"]` (copied per row before adding `is_new`, so
-  this never mutates Wishlist's own persisted state), `charts.view()` for each of the six
-  fixed `CHARTS` ids, and `recommendations.view()` for both sources. Chart movement is the
+  this never mutates Wishlist's own persisted state), `charts.view()` for each of the
+  fixed `CHARTS` ids, and `recommendations.view("deezer")`. Chart movement is the
   one new piece of state: Charts itself only caches in memory for `CACHE_SECONDS`, with no
   history, so `digest.json` persists each chart's last-seen `(artist, title)`-pair set
   (`_row_key()`) and diffs the current rows against it on every `view()`; a chart seen for
   the first time has nothing to diff against yet and is reported as a first scan rather than
   the whole chart being called "new". Every section goes through `_safe()`, which catches any
   exception and turns it into `{"ok": False, "error": ...}` for that section alone, so one
-  broken chart or a missing Gemini key never takes down the rest of the page. Nothing here
+  broken chart never takes down the rest of the page (the page names unreadable charts in one line). Nothing here
   downloads anything; "Get it" still only exists on each source's own page, which the digest
   links back to. State: `digest.json` (chart snapshots; when wishlist "just found" was last
   acknowledged via `mark_found_seen()`). `static/digest.js` (its own sidebar page).

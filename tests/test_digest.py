@@ -7,7 +7,6 @@ import unittest
 
 from tagcast.charts import Charts
 from tagcast.digest import Digest
-from tagcast.gemini import Gemini
 from tagcast.recommendations import Recommendations
 from tagcast.releases import NewReleases
 from tagcast.wishlist import Wishlist
@@ -45,20 +44,8 @@ class FakeSession:
         return FakeResponse(status=404)
 
 
-class FakeGeminiSession:
-    def __init__(self, replies=None):
-        self.replies = list(replies or [])
-
-    def post(self, url, params=None, json=None, timeout=None):
-        import json as jsonlib
-        if not self.replies:
-            return FakeResponse(status=500)
-        text = self.replies.pop(0)
-        return FakeResponse(jsonlib.dumps({"candidates": [{"content": {"parts": [{"text": text}]}}]}))
-
-
 class LocalStudio(DiscographyStudio):
-    def __init__(self, http_answers=None, session_answers=None, seeds=(), gemini_replies=None, gemini_key=""):
+    def __init__(self, http_answers=None, session_answers=None, seeds=()):
         super().__init__()
         self.wishlist = Wishlist(self, scheduler=False)
         self.new_releases = NewReleases(self, scheduler=False)
@@ -68,9 +55,6 @@ class LocalStudio(DiscographyStudio):
         self.discography.http = self.http
         self.session = FakeSession(dict(session_answers or {}))
         self.charts = Charts(self, http=self.http, session=self.session)
-        self.gemini = Gemini(self, session=FakeGeminiSession(gemini_replies))
-        if gemini_key:
-            self.gemini.state["api_key"] = gemini_key
         self.recommendations = Recommendations(self, http=self.http)
         self.digest = Digest(self)
 
@@ -165,7 +149,7 @@ class RecommendationsSectionTests(unittest.TestCase):
         data = studio.digest.view()
         self.assertTrue(data["recommendations"]["deezer"]["ok"])
         self.assertEqual(data["recommendations"]["deezer"]["rows"][0]["artist"], "Related Act")
-        self.assertFalse(data["recommendations"]["gemini"]["ok"])  # no Gemini key configured
+        self.assertEqual(list(data["recommendations"]), ["deezer"])  # the Gemini list is gone (v44)
 
 
 if __name__ == "__main__":

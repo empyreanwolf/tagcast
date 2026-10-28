@@ -307,10 +307,6 @@ class Handler(SimpleHTTPRequestHandler):
         elif url.path == "/api/charts/browse/view":
             self._run(lambda: self.studio.charts.browse_view(
                 query.get("source"), query.get("country", ""), query.get("genre", ""), query.get("refresh") == "1"))
-        elif url.path == "/api/gemini":
-            self._run(self.studio.gemini.view)
-        elif url.path == "/api/gemini/jobs":
-            self._run(self.studio.gemini.jobs_view)
         elif url.path == "/api/recommendations":
             self._run(lambda: self.studio.recommendations.view(query.get("source"), query.get("refresh") == "1"))
         elif url.path == "/api/recommendations/jobs":
@@ -397,10 +393,6 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/charts/get": lambda b: self.studio.charts.get(b.get("chart"), b.get("ranks")),
             "/api/charts/browse/get": lambda b: self.studio.charts.browse_get(
                 b.get("source"), b.get("country") or "", b.get("genre") or "", b.get("ranks")),
-            "/api/gemini/ask": lambda b: self.studio.gemini.ask(b.get("message"), bool(b.get("search"))),
-            "/api/gemini/get": lambda b: self.studio.gemini.get(b.get("ids")),
-            "/api/gemini/reset": lambda b: self.studio.gemini.reset(),
-            "/api/gemini/settings": lambda b: self.studio.gemini.save_settings(b),
             "/api/recommendations/get": lambda b: self.studio.recommendations.get(b.get("source"), b.get("ranks")),
             "/api/digest/mark-found-seen": lambda b: self.studio.digest.mark_found_seen(),
             "/api/wishlist/retry": lambda b: self.studio.wishlist.retry(b.get("ids")),
@@ -663,7 +655,7 @@ QUIET_ROUTES = {"/api/queue-sync", "/api/galaxy/cards", "/api/galaxy/album-years
                 "/api/album-information", "/api/playlist-import/view", "/api/lyrics/review"}
 _ROUTE_CATEGORIES = [
     (("/api/galaxy", "/api/bandcamp", "/api/soulseek", "/api/downloads", "/api/discography", "/api/wishlist",
-      "/api/complete", "/api/charts", "/api/recommendations", "/api/releases", "/api/digest", "/api/gemini"), "downloads"),
+      "/api/complete", "/api/charts", "/api/recommendations", "/api/releases", "/api/digest"), "downloads"),
     (("/api/save", "/api/artwork", "/api/tags", "/api/lyrics", "/api/tagclean", "/api/trash", "/api/album-rating",
       "/api/artist-rating", "/api/favourite", "/api/album-favourite", "/api/artist-favourite", "/api/playlist",
       "/api/metadata-export"), "metadata"),

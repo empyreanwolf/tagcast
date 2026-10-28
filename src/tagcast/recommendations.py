@@ -1,29 +1,20 @@
-"""Recommendations (fork v23).
+"""Recommendations (fork v23; on the Charts page since v44).
 
-A "Recommendations" page with two separate, independently-built lists of artists you
-likely don't have much of yet, both seeded from the same artists New Releases already
-tracks (``new_releases.artists()`` -- the ones you follow, plus, if that setting is on,
-every album artist with 3+ albums in your library):
+A "Recommended for you" tab on the Charts page: artists you likely don't have much of yet,
+seeded from the artists New Releases already tracks (``new_releases.artists()`` -- the ones
+you follow, plus, if that setting is on, every album artist with 3+ albums in your library).
 
-- **Deezer-based**: deterministic, no AI. For each seed artist, finds its Deezer artist
-  id (matched by exact name, picking the most-followed act when more than one shares that
-  name -- the same tie-break Discography uses) and calls Deezer's own
-  ``/artist/{id}/related`` endpoint. Related artists are tallied across all your seeds, so
-  someone related to several of your artists ranks above someone related to only one, then
-  each kept artist's current Deezer top track is looked up so there is a real song to get.
-- **Gemini-based**: conversational, using the same free Gemini API key and model as "Ask
-  Gemini" (Settings are shared with that page). The seed-artist list is sent as a one-off
-  prompt -- separate from and not saved into that page's conversation -- asking for other
-  artists worth exploring, each with one real song, reusing the exact fenced ```json reply
-  shape and parser Ask Gemini already uses.
+Deterministic, no AI. For each seed artist, finds its Deezer artist id (matched by exact name,
+picking the most-followed act when more than one shares that name -- the same tie-break
+Discography uses) and calls Deezer's own ``/artist/{id}/related`` endpoint. Related artists are
+tallied across all your seeds, so someone related to several of your artists ranks above
+someone related to only one, then each kept artist's current Deezer top track is looked up so
+there is a real song to get. (The Gemini-based list was removed in v44 along with Ask Gemini.)
 
-The two lists are kept and shown separately on purpose: a deterministic signal from actual
-listening data and a model's opinion are different kinds of evidence, and merging them
-into one ranked list would hide which is which and make a wrong Gemini guess look as solid
-as the Deezer data. Songs you pick from either list go through the same Bandcamp ->
-Soulseek -> Galaxy order as Charts/Discography, one at a time; not found anywhere lands on
-the wishlist. State: in-memory cache only (``CACHE_SECONDS``), nothing persisted -- the
-seed list and both API results are cheap enough to redo on request via "Refresh".
+Songs you pick go through the same Bandcamp -> Soulseek -> Galaxy order as Charts/Discography,
+one at a time; not found anywhere lands on the wishlist. State: in-memory cache only
+(``CACHE_SECONDS``), nothing persisted -- the seed list and the API results are cheap enough to
+redo on request via "Refresh".
 """
 
 import logging
@@ -33,7 +24,6 @@ import time
 import requests
 
 from . import artist_match as match
-from .gemini import Gemini
 from .library import LibraryError, text
 from .sources import PACING, Http, SourceError
 
@@ -43,16 +33,7 @@ CACHE_SECONDS = 24 * 3600
 MAX_SEEDS = 20
 MAX_RELATED_PER_SEED = 10
 MAX_ROWS = 30
-SOURCES = ("deezer", "gemini")
-
-REC_PROMPT = (
-    "A listener's music library already has a lot from these artists: {artists}. "
-    "Suggest {n} other artists -- not already in that list -- they would likely enjoy, "
-    "each with exactly one real, existing song of theirs worth trying. Never invent an "
-    "artist or song you are not reasonably sure exists. End your reply with exactly one "
-    "fenced ```json code block and nothing after it, shaped exactly like this: "
-    '```json\n{{"songs": [{{"artist": "", "title": "", "album": ""}}], "similar_artists": []}}\n```'
-)
+SOURCES = ("deezer",)
 
 
 class RecommendationsError(LibraryError):
@@ -64,7 +45,7 @@ class Recommendations:
         self.studio = studio
         self.http = http or Http(PACING)
         self.lock = threading.RLock()
-        self.cache = {}  # "deezer"/"gemini" -> {"rows", "when", "error", "seeds"}
+        self.cache = {}  # "deezer" -> {"rows", "when", "error", "seeds"}
         self.progress = {}  # source -> {"done", "total", "title"} while "Get it" runs
         self.jobs = []  # recent per-song "Get it" outcomes, most recent first
 
@@ -98,7 +79,7 @@ class Recommendations:
                 raise RecommendationsError(
                     "No artists to base this on yet -- follow some on the New releases page, "
                     "or turn on its library-based artists in Settings.")
-            rows = self._deezer_related(seeds) if source == "deezer" else self._gemini_related(seeds)
+            rows = self._deezer_related(seeds)
             rows = self._with_status(rows)
             error = ""
         except (LibraryError, SourceError, requests.RequestException, ValueError) as err:
@@ -174,25 +155,6 @@ class Recommendations:
         if not rows:
             raise RecommendationsError("Deezer suggested artists, but none with a current top track to try.")
         return rows
-
-    # -- Gemini: conversational, reusing Ask Gemini's own key/model and reply format ------
-
-    def _gemini_related(self, seeds):
-        gem = self.studio.gemini
-        if not gem.configured():
-            raise RecommendationsError("Add your free Gemini API key in Settings on the Ask Gemini page first.")
-        with gem.lock:
-            model, api_key = gem.state["model"], gem.state["api_key"]
-        prompt = REC_PROMPT.format(artists=", ".join(seeds), n=min(15, max(5, len(seeds))))
-        reply = gem._generate(model, api_key, [{"role": "user", "parts": [{"text": prompt}]}])
-        _, songs, _ = Gemini._parse_reply(reply)
-        mine = {match.match_key(s) for s in seeds}
-        rows = [{"rank": i, "artist": s["artist"], "title": s["title"], "album": s.get("album", ""),
-                 "source": "", "source_id": "", "why": "suggested by Gemini"}
-                for i, s in enumerate((s for s in songs if match.match_key(s["artist"]) not in mine), 1)]
-        if not rows:
-            raise RecommendationsError("Gemini didn't suggest anyone new this time -- try Refresh.")
-        return rows[:MAX_ROWS]
 
     # -- getting songs --------------------------------------------------------------------
 

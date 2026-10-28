@@ -1,10 +1,9 @@
-"""Recommendations (fork v23): Deezer related-artist list + Gemini-based list."""
+"""Recommendations (fork v23, on the Charts page since v44): the Deezer related-artist list."""
 
 import json
 import time
 import unittest
 
-from tagcast.gemini import Gemini
 from tagcast.recommendations import Recommendations, RecommendationsError
 from tagcast.releases import NewReleases
 
@@ -26,26 +25,8 @@ class FakeResponse:
         return json.loads(self.text)
 
 
-class FakeGeminiSession:
-    def __init__(self, replies=None):
-        self.replies, self.calls = list(replies or []), []
-
-    def post(self, url, params=None, json=None, timeout=None):
-        self.calls.append({"url": url, "params": params, "json": json})
-        import json as jsonlib
-        if not self.replies:
-            return FakeResponse(status=500)
-        text = self.replies.pop(0)
-        return FakeResponse(jsonlib.dumps({"candidates": [{"content": {"parts": [{"text": text}]}}]}))
-
-
-def gemini_reply(songs):
-    body = json.dumps({"songs": songs, "similar_artists": []})
-    return f"Here you go.\n```json\n{body}\n```"
-
-
 class LocalStudio(DiscographyStudio):
-    def __init__(self, seeds=("Seed Artist",), http_answers=None, gemini_replies=None, gemini_key="k"):
+    def __init__(self, seeds=("Seed Artist",), http_answers=None):
         super().__init__()
         self.wishlist = Wishlist(self, scheduler=False)
         self.new_releases = NewReleases(self, scheduler=False)
@@ -53,9 +34,6 @@ class LocalStudio(DiscographyStudio):
         self.new_releases.state["auto"] = False
         self.http = FakeHttp(dict(http_answers or {}))
         self.discography.http = self.http
-        self.gemini = Gemini(self, session=FakeGeminiSession(gemini_replies))
-        if gemini_key:
-            self.gemini.state["api_key"] = gemini_key
         self.recommendations = Recommendations(self, http=self.http)
 
 
@@ -117,34 +95,6 @@ class DeezerRecommendationsTests(unittest.TestCase):
         self.assertGreater(len(studio.http.calls), calls)
 
 
-class GeminiRecommendationsTests(unittest.TestCase):
-    def test_no_key_is_a_clean_error(self):
-        studio = LocalStudio(seeds=("Seed Artist",), gemini_key="")
-        data = studio.recommendations.view("gemini")
-        self.assertEqual(data["rows"], [])
-        self.assertIn("Add your free Gemini API key", data["error"])
-
-    def test_parses_the_same_json_block_ask_gemini_uses(self):
-        reply = gemini_reply([{"artist": "New Act", "title": "New Song", "album": "New Album"}])
-        studio = LocalStudio(seeds=("Seed Artist",), gemini_replies=[reply])
-        data = studio.recommendations.view("gemini")
-        self.assertEqual([(r["artist"], r["title"], r["album"]) for r in data["rows"]],
-                          [("New Act", "New Song", "New Album")])
-
-    def test_drops_any_artist_gemini_echoes_back_from_the_seed_list(self):
-        reply = gemini_reply([{"artist": "Seed Artist", "title": "Old Song", "album": ""},
-                               {"artist": "New Act", "title": "New Song", "album": ""}])
-        studio = LocalStudio(seeds=("Seed Artist",), gemini_replies=[reply])
-        data = studio.recommendations.view("gemini")
-        self.assertEqual([r["artist"] for r in data["rows"]], ["New Act"])
-
-    def test_gemini_http_error_is_a_clean_error_not_a_crash(self):
-        studio = LocalStudio(seeds=("Seed Artist",), gemini_replies=[])  # FakeGeminiSession returns 500
-        data = studio.recommendations.view("gemini")
-        self.assertEqual(data["rows"], [])
-        self.assertTrue(data["error"])
-
-
 class GetTests(unittest.TestCase):
     def test_get_runs_bandcamp_soulseek_galaxy_same_as_charts(self):
         studio = LocalStudio(seeds=("Seed Artist",), http_answers={
@@ -173,3 +123,10 @@ class GetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OnlyDeezerRemainsTests(unittest.TestCase):
+    def test_the_gemini_list_is_gone(self):
+        studio = LocalStudio()
+        with self.assertRaises(RecommendationsError):
+            studio.recommendations.view("gemini")

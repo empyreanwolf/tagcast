@@ -88,11 +88,11 @@ def next_data_html(entries):
 
 
 class ChartsListViewTests(unittest.TestCase):
-    def test_list_has_all_six_charts_grouped(self):
+    def test_list_has_all_five_charts_grouped(self):
         studio = LocalStudio()
         charts = studio.charts.list()
         self.assertEqual(set(charts), {"netease_cn_rap", "hotnewhiphop_top100", "deezer_hiphop",
-                                        "apple_hiphop", "shazam_hiphop_us", "billboard_rap"})
+                                        "apple_hiphop", "spotify_rapcaviar"})
         self.assertEqual(charts["netease_cn_rap"]["group"], "chinese")
         self.assertEqual(charts["hotnewhiphop_top100"]["group"], "mainstream")
 
@@ -182,24 +182,47 @@ class AppleFetchTests(unittest.TestCase):
         self.assertTrue(data["error"])
 
 
-class ShazamBillboardFetchTests(unittest.TestCase):
-    def test_shazam_reads_next_data_blob(self):
-        html = next_data_html([{"title": "Shaz Song", "artist": "Shaz Rapper"}])
-        studio = LocalStudio(session_answers={"shazam.com": FakeResponse(html)})
-        data = studio.charts.view("shazam_hiphop_us")
-        self.assertEqual([(r["title"], r["artist"]) for r in data["rows"]], [("Shaz Song", "Shaz Rapper")])
+SPOTIFY_EMBED = {"props": {"pageProps": {"state": {"data": {"entity": {"name": "RapCaviar", "trackList": [
+    {"title": "Spot Song", "subtitle": "Spot Rapper, Guest One"},
+    {"title": "Second Song", "subtitle": "Other Rapper"},
+    {"title": "Spot Song", "subtitle": "Spot Rapper, Guest One"}]}}}}}}
 
-    def test_billboard_reads_next_data_blob_with_artists_list(self):
-        html = next_data_html([{"name": "Bbd Song", "artists": [{"name": "Bbd Rapper"}]}])
-        studio = LocalStudio(session_answers={"billboard.com": FakeResponse(html)})
-        data = studio.charts.view("billboard_rap")
-        self.assertEqual([(r["title"], r["artist"]) for r in data["rows"]], [("Bbd Song", "Bbd Rapper")])
 
-    def test_missing_next_data_is_a_clean_error(self):
-        studio = LocalStudio(session_answers={"shazam.com": FakeResponse("<html>no data here</html>")})
-        data = studio.charts.view("shazam_hiphop_us")
-        self.assertEqual(data["rows"], [])
-        self.assertIn("Shazam", data["error"])
+class SpotifyFetchTests(unittest.TestCase):
+    def embed(self, data=SPOTIFY_EMBED):
+        return FakeResponse(NEXT_DATA_HTML.format(json=json.dumps(data)))
+
+    def test_rapcaviar_reads_the_embed_page_track_list_and_drops_duplicates(self):
+        studio = LocalStudio(session_answers={"open.spotify.com/embed/playlist/37i9dQZF1DX0XUsuxWHRQd": self.embed()})
+        data = studio.charts.view("spotify_rapcaviar")
+        self.assertEqual([(r["rank"], r["title"], r["artist"]) for r in data["rows"]],
+                         [(1, "Spot Song", "Spot Rapper; Guest One"), (2, "Second Song", "Other Rapper")])
+        self.assertEqual(data["error"], "")
+
+    def test_browse_takes_any_public_playlist_link_or_bare_id(self):
+        studio = LocalStudio(session_answers={"embed/playlist/ABCDEFGHIJKLMNOPQRSTUV": self.embed()})
+        for link in ("https://open.spotify.com/playlist/ABCDEFGHIJKLMNOPQRSTUV?si=xyz", "spotify:playlist:ABCDEFGHIJKLMNOPQRSTUV",
+                     "ABCDEFGHIJKLMNOPQRSTUV"):
+            data = studio.charts.browse_view("spotify", genre=link, refresh=True)
+            self.assertEqual(len(data["rows"]), 2, link)
+            self.assertEqual(data["url"], "https://open.spotify.com/playlist/ABCDEFGHIJKLMNOPQRSTUV")
+
+    def test_a_bad_link_is_a_clean_error(self):
+        with self.assertRaises(ChartsError):
+            LocalStudio().charts.browse_view("spotify", genre="not a playlist")
+
+    def test_a_private_or_changed_page_is_a_clean_error_not_a_crash(self):
+        for answer in (FakeResponse(status=404), FakeResponse("<html>no data here</html>"), self.embed({"props": {}})):
+            studio = LocalStudio(session_answers={"open.spotify.com": answer})
+            data = studio.charts.view("spotify_rapcaviar")
+            self.assertEqual(data["rows"], [])
+            self.assertTrue(data["error"])
+
+    def test_shazam_and_billboard_are_gone(self):
+        studio = LocalStudio()
+        self.assertNotIn("shazam", studio.charts.browse_options())
+        with self.assertRaises(Exception):
+            studio.charts.browse_view("shazam", country="Thailand")
 
 
 class StatusAndGetTests(unittest.TestCase):
@@ -266,12 +289,11 @@ class StatusAndGetTests(unittest.TestCase):
 class BrowseOptionsTests(unittest.TestCase):
     def test_options_describe_each_sources_real_capability(self):
         opts = LocalStudio().charts.browse_options()
-        self.assertEqual(set(opts), {"apple", "shazam", "deezer"})
+        self.assertEqual(set(opts), {"apple", "deezer", "spotify"})
         self.assertTrue(opts["apple"]["needs_country"])
         self.assertFalse(opts["apple"]["needs_genre"])
-        self.assertTrue(opts["shazam"]["needs_country"])
-        self.assertTrue(opts["shazam"]["needs_genre"])
-        self.assertIn("Thailand", opts["shazam"]["countries"])
+        self.assertTrue(opts["spotify"]["needs_genre"])
+        self.assertFalse(opts["spotify"]["needs_country"])
         self.assertFalse(opts["deezer"]["needs_country"])
         self.assertTrue(opts["deezer"]["needs_genre"])
 
@@ -299,39 +321,6 @@ class BrowseAppleTests(unittest.TestCase):
         data = studio.charts.browse_view("apple", country="zz")
         self.assertEqual(data["rows"], [])
         self.assertIn("zz", data["error"])
-
-
-class BrowseShazamTests(unittest.TestCase):
-    def test_country_and_genre_build_the_right_url_and_parse_next_data(self):
-        html = next_data_html([{"title": "Thai Pop Song", "artist": "Thai Star"}])
-        studio = LocalStudio(session_answers={"shazam.com/charts/genre/thailand/pop": FakeResponse(html)})
-        data = studio.charts.browse_view("shazam", country="Thailand", genre="pop")
-        self.assertEqual([(r["title"], r["artist"]) for r in data["rows"]], [("Thai Pop Song", "Thai Star")])
-        self.assertEqual(data["url"], "https://www.shazam.com/charts/genre/thailand/pop")
-
-    def test_genre_defaults_to_hip_hop_rap(self):
-        html = next_data_html([{"title": "Song", "artist": "Artist"}])
-        studio = LocalStudio(session_answers={"shazam.com/charts/genre/thailand/hip-hop-rap": FakeResponse(html)})
-        data = studio.charts.browse_view("shazam", country="Thailand")
-        self.assertEqual(data["url"], "https://www.shazam.com/charts/genre/thailand/hip-hop-rap")
-
-    def test_multiword_country_uses_the_known_slug_override(self):
-        html = next_data_html([{"title": "K-Song", "artist": "K-Artist"}])
-        studio = LocalStudio(session_answers={"shazam.com/charts/genre/south-korea/k-pop": FakeResponse(html)})
-        data = studio.charts.browse_view("shazam", country="South Korea", genre="k-pop")
-        self.assertEqual([(r["title"], r["artist"]) for r in data["rows"]], [("K-Song", "K-Artist")])
-
-    def test_no_country_is_a_clean_error(self):
-        studio = LocalStudio()
-        with self.assertRaises(Exception):
-            studio.charts.browse_view("shazam", country="", genre="pop")
-
-    def test_404_combination_is_a_plain_not_available_error_not_a_crash(self):
-        studio = LocalStudio(session_answers={
-            "shazam.com/charts/genre/thailand/reggae-dancehall": FakeResponse(status=404)})
-        data = studio.charts.browse_view("shazam", country="Thailand", genre="reggae-dancehall")
-        self.assertEqual(data["rows"], [])
-        self.assertIn("doesn't publish", data["error"])
 
 
 class BrowseDeezerTests(unittest.TestCase):
