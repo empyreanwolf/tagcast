@@ -64,6 +64,7 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v40** **Ask Gemini waits up to 2 minutes** for an answer (was 30 seconds) and says plainly when it times out.
 - **v39** **Ask Gemini / Tavily keys: pasted spaces are removed.** A key copied with a space, line break
   or invisible character inside is cleaned instead of refused with "That Gemini API key doesn't look right."
 - **v38** **Recently uploaded: check your uploads by day.** Downloads → **Clean up** now has two

@@ -233,11 +233,15 @@ class Gemini:
     def _generate(self, model, api_key, contents):
         url = f"{API_BASE}/{model}:generateContent"
         try:
-            r = self.session.post(url, params={"key": api_key}, json={"contents": contents}, timeout=30)
+            r = self.session.post(url, params={"key": api_key}, json={"contents": contents}, timeout=(15, 120))
             r.raise_for_status()
             data = r.json()
         except requests.HTTPError as error:
             raise GeminiError(f"Gemini didn't answer -- check the API key and model name in Settings ({error}).") from None
+        except requests.Timeout:
+            raise GeminiError("Gemini took too long to answer (over 2 minutes). Try again; if it keeps happening, "
+                              "check that this computer can reach generativelanguage.googleapis.com "
+                              "(a VPN, proxy or firewall can block it).") from None
         except (requests.RequestException, ValueError) as error:
             raise GeminiError(f"Couldn't reach Gemini: {error}") from None
         try:
