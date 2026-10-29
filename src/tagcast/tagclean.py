@@ -74,6 +74,12 @@ TAG_GENRES = (  # (words in a MusicBrainz tag or your file's genre, your genres 
 )
 
 
+def _chinese_name(name):
+    """An artist name written with Chinese characters (and no Japanese kana or Korean hangul)."""
+    name = text(name)
+    return bool(re.search(r"[\u4e00-\u9fff]", name)) and not re.search(r"[\u3040-\u30ff\uac00-\ud7af]", name)
+
+
 def genre_settled(genres, labels):
     """Exactly one value and it is one of your genres: never touched again."""
     values = [text(g).strip() for g in genres if text(g).strip()]
@@ -362,6 +368,9 @@ class TagClean:
         label, confident = pick_label(info, genres, labels)
         if label and confident:
             return label, False
+        if _chinese_name(artist) and _have(labels, "Chinese Hip Hop"):
+            # Most of your Chinese downloads are Chinese hip-hop: the default unless MusicBrainz says otherwise (v57).
+            return _have(labels, "Chinese Hip Hop"), False
         return None, True
 
     def suggestions(self, artist, genres=()):

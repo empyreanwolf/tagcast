@@ -293,5 +293,18 @@ class PlacingTests(unittest.TestCase):
             self.assertEqual((group["artist"], group["count"]), ("Mystery Artist", 1))
 
 
+class ChineseDefaultTests(unittest.TestCase):
+    def test_an_unplaced_chinese_name_defaults_to_chinese_hip_hop_but_musicbrainz_wins(self):
+        studio = LocalStudio()
+        tc = studio.tagclean
+        labels = ["Chinese Hip Hop", "Chinese Song", "English Song"]
+        tc._mb_info = lambda artist: {"found": False, "country": "", "area": "", "tags": []}
+        self.assertEqual(tc._resolve_genre("鱼子酱大王", [], labels), ("Chinese Hip Hop", False))
+        self.assertEqual(tc._resolve_genre("Mystery Artist", [], labels), (None, True))
+        self.assertEqual(tc._resolve_genre("ヒカル", [], labels), (None, True))
+        tc._mb_info = lambda artist: {"found": True, "country": "CN", "area": "", "tags": ["mandopop"]}
+        self.assertEqual(tc._resolve_genre("周杰伦", [], labels), ("Chinese Song", False))
+
+
 if __name__ == "__main__":
     unittest.main()

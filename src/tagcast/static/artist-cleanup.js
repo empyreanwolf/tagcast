@@ -15,7 +15,7 @@ const artistCleanupTabs = [["merge", "Duplicates"], ["split", "Combined names"],
 const artistCleanupModes = {merge: "Merge duplicates", split: "Split combined names", feat: "Link featured artists"};
 const artistCleanupPage = 25;
 // Shown beside the dialog title; raise it with every update of this fork.
-const artistCleanupVersion = "fork v56";
+const artistCleanupVersion = "fork v57";
 let artistCleanupAudio = null;
 
 // A short falling two-tone alert. Browsers only allow sound after a click on the page,
