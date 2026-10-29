@@ -584,7 +584,15 @@ function addToQueue(albumId, trackId = null, next = false) {
   return task;
 }
 
+// A track row shows its three actions as buttons (fork v53): no menu to open first.
+function trackRowActions(albumId, track) {
+  const off = !live() || state.loading ? "disabled" : "", base = `data-row-album="${escapeHtml(albumId)}" data-row-track="${escapeHtml(track.id)}" ${off}`;
+  const one = (act, text, title) => `<button type="button" class="row-act" data-row-act="${act}" ${base} aria-label="${escapeHtml(`${title}: ${track.title}`)}" title="${escapeHtml(title)}">${text}</button>`;
+  return `<span class="row-actions" role="group" aria-label="Actions for ${escapeHtml(track.title)}">${one("append", "＋ Queue", "Add to queue (end of the queue)")}${one("next", "⏭ Next", "Play next (before the rest of the queue)")}${one("playlist", "☰ Playlist…", "Add to a playlist…")}</span>`;
+}
+
 function queueButton(albumId, track = null, compact = false, plainLabel = false) {
+  if (track) return trackRowActions(albumId, track);
   const label = track ? `Queue actions for ${track.title}` : "Queue actions for this album";
   return `<button type="button" class="queue-add ${compact ? "queue-compact" : track ? "" : "button small"} queue-menu-trigger" data-queue-album="${escapeHtml(albumId)}" ${track ? `data-queue-track="${escapeHtml(track.id)}"` : ""} aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" aria-haspopup="menu" aria-expanded="false" aria-controls="queue-action-menu" ${!live() || state.loading ? "disabled" : ""}>${compact ? '<svg class="queue-plus" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.5v9M1.5 6h9"/></svg>' : `<span aria-hidden="true">${track ? "+" : plainLabel ? "Queue" : "+ Queue"}</span>`}<svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="m3 4.5 3 3 3-3"/></svg></button>`;
 }
@@ -770,6 +778,13 @@ $("#player-album").addEventListener("click", () => {
 document.addEventListener("click", event => {
   const cardPlay = event.target.closest("[data-card-play]");
   if (cardPlay) return playCardAlbum(cardPlay.dataset.cardPlay);
+  const rowAct = event.target.closest("[data-row-act]");
+  if (rowAct) {
+    closeQueueActions();
+    if (rowAct.disabled || !live() || state.loading) return;
+    const {rowAlbum, rowTrack, rowAct: act} = rowAct.dataset;
+    return act === "playlist" ? openTrackPlaylist(rowAlbum, rowTrack) : addToQueue(rowAlbum, rowTrack, act === "next");
+  }
   const queued = event.target.closest("[data-queue-album]");
   if (queued) { openQueueActions(queued); return; }
   if (!event.target.closest("#queue-action-menu")) closeQueueActions();

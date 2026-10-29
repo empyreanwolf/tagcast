@@ -1186,6 +1186,11 @@ python3 tools/build_dark_css.py --check
   `docs/write-reliability.md`), edition-suffix album info. Not taken: year review, upload folder/day
   browsing, Mini Player. The fork's queued save (`saveDraft` in `app.js`) stays; the backend send-once
   policy applies underneath it.
+- Fork v53: `duplicateTitleKey` (album_id + title) drives the Duplicated tag and `summary.duplicates`; `hasDuplicateTracks`
+  ignores `repeated_numbers`; trash.js still uses the number-based keys. `queueButton(albumId, track)` returns
+  `trackRowActions` (`data-row-act` append/next/playlist, handled in player.js's document click). `heart-playlist.js`
+  (key `tagcast-heart-playlist`: {id,name} or "off"; `heartAfterFavourite` is called from `toggleFavourite` after a confirmed rating 5).
+  The test harness defaults the heart playlist to "off".
 - Fork v52: `results-actions.js` (`resultsAlbums`, `playResults`, `addResults`, uses `playShuffleGroup(albums,{ordered,label})`
   and `quickAddAlbums`); `resume.js` (key `tagcast-resume-queue`, `resumeSave` from `markPlaying`/timeupdate, `resumeQueue`);
   `crossfade.js` (key `tagcast-crossfade`; second temporary Audio for the ending track; `crossfade.makeAudio` is injectable

@@ -15,6 +15,7 @@ const LEGACY_PAGE_SIZES = {"tagcast-artists-per-page": "24", "tagcast-favourite-
   "tagcast-browse-per-page": "24", "tagcast-favourites-per-page": "50", "tagcast-tracks-per-page": "50",
   "tagcast-recently-played-per-page": "50", "tagcast-guide-per-page": "24"};
 function page({hash = "", storage = {}, server = true, browserNavigator = {}, metadataClass, setupAudio, deferReady = false, freshPageSizes = false} = {}) {
+  if (!("tagcast-heart-playlist" in storage)) storage["tagcast-heart-playlist"] = "off";   // fork v53 tests turn it on
   if (!("tagcast-preload" in storage)) storage["tagcast-preload"] = "off";   // fork v50 tests turn it on
   if (!freshPageSizes && !("tagcast-page-size-v33" in storage)) {
     storage["tagcast-page-size-v33"] = "1";
@@ -2985,7 +2986,7 @@ test("you choose how many albums and album artists a page shows, and Tagcast rem
   assert.equal(again.run("artistBrowse.pageSize"), 200);
 });
 
-test("Duplicate badges mark repeated numbers; extra-copy selection requires matching titles per disc", async () => {
+test("Duplicate badges mark repeated titles only; extra-copy selection requires matching titles per disc", async () => {
   const p = page();
   p.run(`const album = state.details.get("5"); album.tracks.push(
       {...album.tracks[2], id: 599, title: " TEARDROP "},
@@ -2996,7 +2997,7 @@ test("Duplicate badges mark repeated numbers; extra-copy selection requires matc
   p.nodes.get("#filter").value = "duplicates";
   assert.deepEqual(p.json("filteredAlbums().map(a => String(a.id))"), ["5"]);
   await p.run('openAlbum("5")');
-  assert.equal((p.nodes.get("#album-page").innerHTML.match(/>Duplicated</g) || []).length, 3, "Every repeated position is marked, including a different title");
+  assert.equal((p.nodes.get("#album-page").innerHTML.match(/>Duplicated</g) || []).length, 5, "Every repeated title is marked (Teardrop x3, Unknown x2); a repeated number with a different title is not");
   assert.deepEqual(p.json('extraCopies([state.details.get("5")])'), ["599"], "Reprises and missing numbers are not selected");
   const sets = setPage();
   sets.run(`state.details.get("72").tracks.push({...state.details.get("72").tracks[0], id: 7299});
@@ -3021,7 +3022,7 @@ test("Quote variants agree across duplicate filters, badges and extra-copy selec
     ]}], "demo"); render()`);
   p.nodes.get("#filter").value = "duplicates";
   assert.deepEqual(p.json("filteredAlbums().map(a => a.id)"), ["91"]);
-  assert.equal(p.run('state.albums[0].duplicates'), 2);
+  assert.equal(p.run('state.albums[0].duplicates'), 3);
   await p.run('openAlbum("91")');
   assert.equal((p.nodes.get("#album-page").innerHTML.match(/>Duplicated</g) || []).length, 4);
   assert.deepEqual(p.json('extraCopies([state.details.get("91")])'), ["942", "943"]);
@@ -3033,7 +3034,7 @@ test("Quote variants agree across duplicate filters, badges and extra-copy selec
   assert.equal(p.run('duplicateTrackKey({track: 4, title: "\\\"\\\""})'), "", "Quote-only titles are not matched");
 });
 
-test('Repeated track numbers find soundtrack title variants, while extra-copy selection keeps different titles', async () => {
+test('Repeated titles find soundtrack title variants, while extra-copy selection keeps different titles', async () => {
   const p = page(); await settle();
   const first = 'Sous le soleil exactement', second = "C'est la cristallisation comme dit Stendhal";
   const tracks = [
@@ -3050,24 +3051,23 @@ test('Repeated track numbers find soundtrack title variants, while extra-copy se
   p.run(`useLocal([${JSON.stringify(album)}], "live"); playTracks(state.details.get("91")); render()`);
   const queue = p.json('player.queue'), source = p.nodes.get('#audio').src;
   const summary = p.json('state.albums[0]'), detail = p.json('state.details.get("91")');
-  assert.deepEqual([summary.repeated_numbers, summary.duplicates], [3, 1]);
+  assert.deepEqual([summary.repeated_numbers, summary.duplicates], [3, 4]);
   p.run('state.details = new Map()'); // The live album list has summaries only.
   const before = p.requests.length;
   p.nodes.get('#filter').value = 'duplicates'; p.run('render()');
   assert.deepEqual(p.json('filteredAlbums().map(a => a.id)'), ['91']);
   assert.equal(p.requests.length, before, 'Finding candidates never downloads album tracks');
-  assert.match(p.nodes.get('#page-subtitle').textContent, /repeated track numbers/);
+  assert.match(p.nodes.get('#page-subtitle').textContent, /same title appears more than once/);
   p.setFetch(url => {
     assert.equal(url, '/api/albums?ids=91');
     return {ok: true, json: async () => ({albums: [detail]})};
   });
   await p.run('openAlbum("91")');
   const html = p.nodes.get('#album-page').innerHTML;
-  assert.equal((html.match(/>Duplicated</g) || []).length, 6);
-  assert.equal((html.match(/title="This track number occurs more than once/g) || []).length, 4);
-  assert.equal((html.match(/title="This track number and title occur more than once/g) || []).length, 2);
-  assert.doesNotMatch(html.match(/<tr data-row="901"[\s\S]*?<\/tr>/)[0], /duplicate|Duplicate/,
-    'The same title at another track number is not flagged');
+  assert.equal((html.match(/>Duplicated</g) || []).length, 7, "901, 902, 908 (same title), 906, 907, 909, 910");
+  assert.equal((html.match(/title="This title appears more than once on this album/g) || []).length, 7);
+  assert.match(html.match(/<tr data-row="901"[\s\S]*?<\/tr>/)[0], />Duplicated</, 'The same title at another track number is flagged');
+  assert.doesNotMatch(html.match(/<tr data-row="903"[\s\S]*?<\/tr>/)[0], />Duplicated</, 'A different title at the same number is not');
   await p.click({'[data-trash-start]': {}});
   await p.click({'[data-trash-duplicates]': {}});
   assert.deepEqual(p.json('[...albumView.trash]'), ['907'], 'Only the matching title is preselected');
@@ -3078,16 +3078,19 @@ test('Repeated track numbers find soundtrack title variants, while extra-copy se
   assert.deepEqual(p.json('state.details.get("91").tracks.map(t => t.title)'), tracks.map(t => t.title));
 });
 
-test('Repeated track-number counts stay per disc when albums are merged', () => {
+test('Repeated-title counts stay per disc when albums are merged', () => {
   const p = setPage();
   p.run('state.albums = [...state.details.values()].map(summarize)');
   p.nodes.get('#filter').value = 'duplicates';
   assert.deepEqual(p.json('filteredAlbums().map(a => a.id)'), []);
-  p.run(`state.details.get("72").tracks.push({...state.details.get("72").tracks[0], id: 7299, title: "Different title"});
+  p.run(`state.details.get("72").tracks.push({...state.details.get("72").tracks[0], id: 7298, title: "Different title"});
+    state.albums = [...state.details.values()].map(summarize)`);
+  assert.deepEqual(p.json('filteredAlbums().map(a => a.id)'), [], "Same number, different title: not a duplicate");
+  p.run(`state.details.get("72").tracks.push({...state.details.get("72").tracks[0], id: 7299});
     state.albums = [...state.details.values()].map(summarize)`);
   assert.deepEqual(p.json('filteredAlbums().map(a => a.id)'), ['71']);
-  assert.deepEqual(p.json('[(albumShelf().find(a => a.id === "71")).repeated_numbers, (albumShelf().find(a => a.id === "71")).duplicates]'), [1, 0]);
-  assert.deepEqual(p.json('extraCopies([state.details.get("72"), state.details.get("73")])'), []);
+  assert.deepEqual(p.json('[(albumShelf().find(a => a.id === "71")).repeated_numbers, (albumShelf().find(a => a.id === "71")).duplicates]'), [2, 1]);
+  assert.deepEqual(p.json('extraCopies([state.details.get("72"), state.details.get("73")])'), ["7299"], "Only the exact same-number, same-title copy is a removable extra");
 });
 
 test('Native combined sets retain original disc boundaries for duplicate badges and selection', async () => {
@@ -3102,19 +3105,22 @@ test('Native combined sets retain original disc boundaries for duplicate badges 
   assert.deepEqual(p.json('extraCopies([state.details.get("91")])'), []);
   p.run(`state.details.get("91").tracks.push({id: 3, album_id: "82", track: 1, title: "Different title"});
     state.albums = [...state.details.values()].map(summarize); render()`);
+  assert.deepEqual(p.json('filteredAlbums().map(a => a.id)'), [], "A different title at the same number is not a duplicate");
+  p.run(`state.details.get("91").tracks.push({id: 4, album_id: "82", track: 2, title: "Same title"});
+    state.albums = [...state.details.values()].map(summarize); render()`);
   assert.deepEqual(p.json('filteredAlbums().map(a => a.id)'), ['91']);
   assert.equal((p.nodes.get('#album-page').innerHTML.match(/>Duplicated</g) || []).length, 2);
   assert.deepEqual(p.json('extraCopies([state.details.get("91")])'), []);
 });
 
-test('The album overview and track rows mark repeated numbers with the same Duplicated label', async () => {
+test('The album overview and track rows mark repeated titles with the same Duplicated label', async () => {
   const p = page(); await settle();
   p.run(`useLocal([{id: 91, name: "Listen", artist: "A Flock of Seagulls", year: 1983, disc: 1,
     tracks: [{id: 901, album_id: "91", track: 9, title: "The Fall", genre: "Pop"},
              {id: 902, album_id: "91", track: 10, title: "(It's Not Me) Talking", genre: "Pop"},
-             {id: 903, album_id: "91", track: 10, title: "(It's Not Me) Talking (Single Edit)", genre: "Pop"}]},
+             {id: 903, album_id: "91", track: 11, title: "(It's Not Me) Talking", genre: "Pop"}]},
     {id: 92, name: "No duplicates", artist: "Artist", year: 1980, disc: 1,
-     tracks: [{id: 904, track: 1, title: "Same title"}, {id: 905, track: 2, title: "Same title"}]}], "live"); render()`);
+     tracks: [{id: 904, track: 1, title: "First song"}, {id: 905, track: 1, title: "Second song"}]}], "live"); render()`);
   const detail = p.json('state.details.get("91")');
   p.run('state.details = new Map()');
   const before = p.requests.length;
@@ -10628,4 +10634,61 @@ test('fork v52: smart playlists save the view, reopen it, and delete', async () 
   const del = {dataset: {savedDelete: "0"}};
   await p.nodes.get("#saved-lists-dialog").emit("click", {target: {closest: s => s === "[data-saved-delete]" ? del : null}});
   assert.deepEqual(JSON.parse(storage["tagcast-saved-lists"]), []);
+});
+
+test('fork v53: a track row shows Queue, Next and Playlist… buttons and each works in one click', async () => {
+  const p = livePage({storage: {}}); await settle();
+  const album = p.run("state.albums[0].id"), track = p.json("state.details.get(state.albums[0].id).tracks[1]");
+  const html = p.run(`queueButton(${JSON.stringify(album)}, state.details.get(state.albums[0].id).tracks[1])`);
+  assert.match(html, /data-row-act="append"[\s\S]*data-row-act="next"[\s\S]*data-row-act="playlist"/);
+  assert.doesNotMatch(html, /queue-menu-trigger/);
+  const button = act => ({disabled: false, dataset: {rowAct: act, rowAlbum: String(album), rowTrack: String(track.id)}});
+  await p.click({"[data-row-act]": button("append")}); await settle(); await settle();
+  assert.deepEqual(p.json("player.queue.map(t => String(t.id))"), [String(track.id)]);
+  p.run(`playTracks(state.details.get(${JSON.stringify(String(album))}), ${JSON.stringify(String(p.json("state.details.get(state.albums[0].id).tracks[0].id")))})`);
+  await p.click({"[data-row-act]": button("next")}); await settle(); await settle();
+  assert.equal(String(p.json("player.queue[player.index + 1].id")), String(track.id));
+  assert.equal(p.json("player.queue[player.index + 1].upNext"), true);
+});
+
+test('fork v53: the heart also adds the song to the chosen playlist, once, without changing the ♫＋ target', async () => {
+  const storage = {"tagcast-heart-playlist": JSON.stringify({id: "55", name: "Mix Favourite"}), "tagcast-quick-playlist": JSON.stringify({id: "77", name: "Road trip"})};
+  const p = livePage({storage}); await settle();
+  const calls = [];
+  p.run(`const favTrack = state.details.get(state.albums[0].id).tracks[0]; favTrack.rating = 0; playTracks(state.details.get(state.albums[0].id), String(favTrack.id))`);
+  const id = p.run("String(favTrack.id)");
+  p.setFetch(async (url, options) => {
+    const body = options?.body ? JSON.parse(options.body) : null; calls.push({url, body});
+    if (url === "/api/favourite") return {ok: true, json: async () => ({job: "like-1", status: "sent", rating: 5})};
+    if (url === "/api/jobs/like-1") return {ok: true, json: async () => ({state: "done", results: [{id, rating: 5, status: "saved"}]})};
+    if (url.startsWith("/api/favourites?")) return {ok: true, json: async () => ({tracks: [], count: 1, total: 0, offset: 0})};
+    if (url.startsWith("/api/playlists?id=")) return {ok: true, json: async () => ({id: "55", name: "Mix Favourite", kind: "playlist", before_token: "t55", tracks: [], total: 0})};
+    if (url === "/api/playlist") return {ok: true, json: async () => ({id: "55", job: "pl-1"})};
+    if (url.startsWith("/api/jobs/")) return {ok: true, json: async () => ({state: "done", results: [{id: "55", status: "saved"}]})};
+    return {ok: true, json: async () => ({})};
+  });
+  const write = p.run("toggleFavourite(String(favTrack.id), 0, favTrack.title)");
+  await settle(); p.flushTimers(2000); await write; for (let i = 0; i < 8; i++) await settle();
+  const adds = calls.filter(c => c.url === "/api/playlist");
+  assert.equal(adds.length, 1);
+  assert.deepEqual([adds[0].body.action, adds[0].body.playlist, adds[0].body.tracks], ["append", "55", [Number(id)]]);
+  assert.match(toastText(p), /Added 1 track to “Mix Favourite”/);
+  assert.equal(JSON.parse(storage["tagcast-quick-playlist"]).id, "77", "The ♫＋ target is unchanged");
+});
+
+test('fork v53: with the heart playlist off, only the rating is written', async () => {
+  const p = livePage({storage: {"tagcast-heart-playlist": "off"}}); await settle();
+  const calls = [];
+  p.run(`const favTrack = state.details.get(state.albums[0].id).tracks[0]; favTrack.rating = 0; playTracks(state.details.get(state.albums[0].id), String(favTrack.id))`);
+  const id = p.run("String(favTrack.id)");
+  p.setFetch(async (url, options) => {
+    calls.push(url);
+    if (url === "/api/favourite") return {ok: true, json: async () => ({job: "like-1", status: "sent", rating: 5})};
+    if (url === "/api/jobs/like-1") return {ok: true, json: async () => ({state: "done", results: [{id, rating: 5, status: "saved"}]})};
+    return {ok: true, json: async () => ({tracks: [], count: 1, total: 0, offset: 0})};
+  });
+  const write = p.run("toggleFavourite(String(favTrack.id), 0, favTrack.title)");
+  await settle(); p.flushTimers(2000); await write; await settle();
+  assert.ok(!calls.includes("/api/playlist"));
+  assert.equal(p.run("favTrack.rating"), 5);
 });

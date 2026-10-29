@@ -1283,3 +1283,9 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 .saved-list-new{margin:12px 0}
 .album-actions{flex-wrap:wrap;gap:8px 10px;justify-content:flex-start}
 .album-actions #selection-help{flex:1 1 220px}
+
+.row-actions{display:inline-flex;gap:4px;align-items:center;flex-wrap:nowrap;white-space:nowrap}
+.row-act{display:inline-flex;align-items:center;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:6px;background:var(--palette-surface,#fff);color:var(--green);font-size:calc(12px*var(--ts));font-weight:600;white-space:nowrap;cursor:pointer}
+.row-act:hover{background:var(--palette-tint,#edf2e7)}
+.row-act:disabled{opacity:.4;cursor:default}
+.track-table td:has(.row-actions){white-space:nowrap}

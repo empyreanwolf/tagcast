@@ -156,6 +156,12 @@ function duplicateTrackPosition(track) {
   return position ? JSON.stringify([Number(track.album_id) || 0, position]) : "";
 }
 // A repeated title elsewhere in a track list is not an extra copy. Compare per disc.
+// Fork v53: the "Duplicated" tag means the same title twice on one album, whatever the track numbers.
+function duplicateTitleKey(track) {
+  const title = titleKey(track.title);
+  return title ? JSON.stringify([Number(track.album_id) || 0, title]) : "";
+}
+
 function duplicateTrackKey(track) {
   const position = duplicateTrackPosition(track), title = titleKey(track.title);
   return position && title ? JSON.stringify([position, title]) : "";
@@ -181,7 +187,7 @@ function summarize(album) {
     combined_genres: album.tracks.filter(t => hasCombined(trackGenres(t))).length,
     no_composer: album.tracks.filter(t => !(t.composers || []).length).length,
     track_gaps: (numbers => numbers.size ? Math.max(...numbers) - numbers.size : 0)(new Set(album.tracks.map(t => t.track).filter(Boolean))),
-    duplicates: (keys => keys.length - new Set(keys).size)(album.tracks.map(duplicateTrackKey).filter(Boolean)),
+    duplicates: (keys => keys.length - new Set(keys).size)(album.tracks.map(duplicateTitleKey).filter(Boolean)),
     repeated_numbers: (numbers => numbers.length - new Set(numbers).size)(album.tracks.map(duplicateTrackPosition).filter(Boolean)),
     no_cover: album.tracks.filter(t => !(t.artwork_id ?? album.artwork)).length};
 }
@@ -547,11 +553,11 @@ function badge(a) {
 }
 
 function hasDuplicateTracks(album) {
-  return album.repeated_numbers > 0 || album.duplicates > 0;
+  return album.duplicates > 0;
 }
 
 function duplicateAlbumBadge(album) {
-  return hasDuplicateTracks(album) ? '<span class="pill missing" title="Repeated track numbers on the same disc. Open the album to compare the tracks.">Duplicated</span>' : "";
+  return hasDuplicateTracks(album) ? '<span class="pill missing" title="The same title appears more than once on this album. Open the album to compare the tracks.">Duplicated</span>' : "";
 }
 
 function albumCardMetadata(a) {
@@ -598,7 +604,7 @@ function render() {
   $("#page-eyebrow").textContent = state.artist ? "ALBUM ARTIST" : "A LITTLE ORDER. ONE ALBUM AT A TIME.";
   renderArtistPanel();
   $("#page-subtitle").textContent = $("#filter").value === "duplicates"
-    ? "Albums with repeated track numbers on the same disc, including tracks whose titles differ. Open an album to compare the copies."
+    ? "Albums where the same title appears more than once. Track numbers alone do not count. Open an album to compare the copies."
     : state.artist ? "Open an album to listen, or select albums by this artist to edit, tag or move to the trash together." : live() ? "Browse your collection, play an album, or select albums to tag, merge or move to the trash together." : "Browse your collection, play an album, and edit its details when you choose.";
   $("#selection-help").textContent = state.artist ? "Selection is limited to this artist" : live() ? "Select albums to tag, merge or move to the trash together" : "Open an album to see its tracks and listen";
   $("#all-albums").classList.toggle("active", !state.artist && (!state.screen || state.screen === "albums"));

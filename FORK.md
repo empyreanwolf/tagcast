@@ -64,6 +64,13 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v53** **Duplicates, row buttons, heart playlist.**
+  - **Duplicated tag** now means the same title twice on one album (per disc of a set). Matching track numbers alone are not tagged.
+  - **Track rows** show "＋ Queue", "⏭ Next" and "☰ Playlist…" as buttons: one click each, no menu.
+  - **Heart also adds to a playlist**: after a heart (rating 5) is confirmed, the song is also added to a playlist you choose
+    (asked once on your first heart; change or turn off in Settings → Playback). Duplicates skipped; un-hearting does not remove it.
+    The ♫＋ quick-add target is not changed by this.
+  - Not tried in a real browser against the real library.
 - **v52** **Results, resume, crossfade, smart playlists.**
   - **Play / Shuffle / Add results**: three buttons above the albums list act on everything the current search, filter and artist show
     (all pages, first 400 albums). Add uses your quick playlist and skips songs already in it.

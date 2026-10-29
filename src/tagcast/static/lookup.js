@@ -156,6 +156,7 @@ function renderSettingsContent() {
     <p class="muted">Fullscreen fills the screen; In app window stays inside Tagcast. Applied the next time you open Now playing.</p></section>`
     + (typeof preloadSettings === "function" ? preloadSettings() : "")
     + (typeof crossfadeSettings === "function" ? crossfadeSettings() : "")
+    + (typeof heartPlaylistSettings === "function" ? heartPlaylistSettings() : "")
     + (typeof gaplessSettings === "function" ? gaplessSettings() : "")
     + sidebarSettingsPanel()
     + metadataExportPanel()

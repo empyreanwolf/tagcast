@@ -166,6 +166,8 @@ async function toggleFavourite(id, before, title = "this track", requestedRating
     // Fetch just one page to update the count and remove/add the changed row.
     await loadFavourites();
     if (epoch !== favourites.epoch) return;
+    if (rating === 5 && typeof heartAfterFavourite === "function") toast("Added to iBroadcast favourites (track rating 5).");
+    if (rating === 5 && typeof heartAfterFavourite === "function") { await heartAfterFavourite(String(id)); return; }
     toast(rating === 5 ? "Added to iBroadcast favourites (track rating 5)." : rating === 1 ? "Track disliked in iBroadcast (track rating 1)." : "Track rating cleared in iBroadcast.");
   } catch (error) {
     if (epoch !== favourites.epoch) return;

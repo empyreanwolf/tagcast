@@ -212,14 +212,12 @@ function albumYear(discs) {
 // Matching numbered positions and titles that appear more than once on one disc.
 function twice(album) {
   const seen = new Set(), doubled = new Set();
-  for (const key of album.tracks.map(duplicateTrackKey).filter(Boolean)) (seen.has(key) ? doubled : seen).add(key);
+  for (const key of album.tracks.map(duplicateTitleKey).filter(Boolean)) (seen.has(key) ? doubled : seen).add(key);
   return doubled;
 }
 
-function duplicateTrackBadge(track, titles, numbers) {
-  if (titles.has(duplicateTrackKey(track))) return ' <span class="pill missing" title="This track number and title occur more than once on this disc. Compare the tracks before choosing a copy.">Duplicated</span>';
-  if (numbers.has(duplicateTrackPosition(track))) return ' <span class="pill missing" title="This track number occurs more than once on this disc, with different titles. Compare the tracks before choosing a copy.">Duplicated</span>';
-  return "";
+function duplicateTrackBadge(track, titles) {
+  return titles.has(duplicateTitleKey(track)) ? ' <span class="pill missing" title="This title appears more than once on this album. Compare the tracks before choosing a copy.">Duplicated</span>' : "";
 }
 
 // The discs of a set open as one album page, under the address of the first disc.

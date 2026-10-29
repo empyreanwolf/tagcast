@@ -229,6 +229,8 @@
 :root[data-theme="dark"] .quick-playlist-choice{background:var(--palette-surface,#1b2520)}
 :root[data-theme="dark"] .quick-playlist-choice:hover,:root[data-theme="dark"] .quick-playlist-choice:focus-visible{background:var(--palette-tint,#2d2f2a)}
 :root[data-theme="dark"] .card-meta{color:var(--palette-muted,#b0bdb3)}
+:root[data-theme="dark"] .row-act{background:var(--palette-surface,#1b2520)}
+:root[data-theme="dark"] .row-act:hover{background:var(--palette-tint,#2d2f2a)}
 
 /* set by hand */
 :root[data-theme="dark"]{color-scheme:dark}
@@ -473,6 +475,8 @@
 :root:not([data-theme="light"]) .quick-playlist-choice{background:var(--palette-surface,#1b2520)}
 :root:not([data-theme="light"]) .quick-playlist-choice:hover,:root:not([data-theme="light"]) .quick-playlist-choice:focus-visible{background:var(--palette-tint,#2d2f2a)}
 :root:not([data-theme="light"]) .card-meta{color:var(--palette-muted,#b0bdb3)}
+:root:not([data-theme="light"]) .row-act{background:var(--palette-surface,#1b2520)}
+:root:not([data-theme="light"]) .row-act:hover{background:var(--palette-tint,#2d2f2a)}
 
 /* set by hand */
 :root:not([data-theme="light"]){color-scheme:dark}
