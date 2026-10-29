@@ -255,6 +255,39 @@ function queueTracks(album, tracks = album.tracks) {
     format: t.format || "", rating: t.rating || 0, length: t.length || 0, album: source}));
 }
 
+// Shuffle that keeps songs by the same artist apart (fork v51): a normal shuffle, then any song that
+// follows one by the same artist is swapped with a later song by someone else when there is one.
+function smartShuffle(tracks) {
+  for (let i = tracks.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
+  }
+  const who = track => String(track.artist || track.album?.artist || "").toLowerCase();
+  for (let i = 1; i < tracks.length; i += 1) {
+    if (!who(tracks[i]) || who(tracks[i]) !== who(tracks[i - 1])) continue;
+    const limit = Math.min(tracks.length, i + 200);
+    for (let k = i + 1; k < limit; k += 1) {
+      if (who(tracks[k]) !== who(tracks[i - 1]) && who(tracks[k]) !== who(tracks[i + 1] ?? {})) {
+        [tracks[i], tracks[k]] = [tracks[k], tracks[i]]; break;
+      }
+    }
+  }
+  // Second pass: a leftover pair (usually near the end) is swapped with any song that fits anywhere.
+  for (let i = 1; i < tracks.length; i += 1) {
+    if (!who(tracks[i]) || who(tracks[i]) !== who(tracks[i - 1])) continue;
+    const start = Math.floor(Math.random() * tracks.length);
+    for (let n = 0; n < tracks.length; n += 1) {
+      const k = (start + n) % tracks.length;
+      if (k === i || k === i - 1) continue;
+      const a = who(tracks[k]), left = who(tracks[k - 1] ?? {}), right = who(tracks[k + 1] ?? {}), mine = who(tracks[i]);
+      if (a !== who(tracks[i - 1]) && a !== who(tracks[i + 1] ?? {}) && mine !== left && mine !== right && Math.abs(k - i) > 1) {
+        [tracks[i], tracks[k]] = [tracks[k], tracks[i]]; break;
+      }
+    }
+  }
+  return tracks;
+}
+
 function playTracks(album, startId, shuffle = false, options = {}) {
   if (!live() || !album.tracks.length) return;
   if (typeof localPlaybackAllowed === "function" && !localPlaybackAllowed()) { toast("Use Devices to control the connected queue."); return; }
@@ -263,10 +296,7 @@ function playTracks(album, startId, shuffle = false, options = {}) {
   player.shuffle = shuffle;
   player.queue = queueTracks(album);
   if (typeof gaplessAlbumQueue === "function") gaplessAlbumQueue(player.queue, !shuffle && !options.random);
-  if (shuffle) for (let i = player.queue.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [player.queue[i], player.queue[j]] = [player.queue[j], player.queue[i]];
-  }
+  if (shuffle) smartShuffle(player.queue);
   player.index = shuffle ? 0 : Math.max(0, player.queue.findIndex(t => t.id === String(startId)));
   playCurrent();
 }
@@ -335,10 +365,7 @@ async function playShuffleGroup(albums) {
     if (request !== player.randomRequest || epoch !== player.epoch || details !== state.details || !live()) return;
     const tracks = discs.filter(d => d.tracks.length).flatMap(d => queueTracks(d));
     if (!tracks.length) throw Error("No playable tracks in this group.");
-    for (let i = tracks.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
-    }
+    smartShuffle(tracks);
     player.shuffle = true;
     player.queue = tracks;
     if (typeof gaplessAlbumQueue === "function") gaplessAlbumQueue(player.queue, false);
@@ -455,7 +482,7 @@ function renderNowPlaying() {
   renderLyrics("player", lyricsSelection(track));
   $("#now-playing-count").textContent = `${player.queue.length} ${player.queue.length === 1 ? "track" : "tracks"}`;
   $("#queue-clear").disabled = !player.queue.length;
-  list.innerHTML = player.queue.map((t, index) => `<li class="queue-row${editable ? " queue-editable" : ""}"><button type="button" class="queue-track ${index === player.index ? "current" : ""}" data-queue-index="${index}" ${index === player.index ? 'aria-current="true"' : ""}>
+  list.innerHTML = player.queue.map((t, index) => `<li class="queue-row${editable ? " queue-editable" : ""}" data-queue-row="${index}"${editable ? ' draggable="true"' : ""}><button type="button" class="queue-track ${index === player.index ? "current" : ""}" data-queue-index="${index}" ${index === player.index ? 'aria-current="true"' : ""}>
     <span class="queue-number" aria-hidden="true">${index === player.index ? audio.paused ? "Ⅱ" : "▶" : index + 1}</span><span class="queue-label"><strong>${escapeHtml(t.title)}</strong><small>${t.upNext ? "Up next · " : ""}<span class="role-artist">${escapeHtml(t.artist)}</span> · <span class="role-album">${escapeHtml(t.album.name)}</span></small></span><span class="queue-time">${trackDuration(t.length)}</span></button>${editable ? `<button type="button" class="queue-remove" data-queue-remove="${index}" data-queue-revision="${nowPlayingRows.revision}" aria-label="Remove ${escapeHtml(t.title)} from play queue, position ${index + 1}" title="Remove from play queue"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button>` : ""}</li>`).join("");
   if (focusedEntry) {
     const index = player.queue.indexOf(focusedEntry);
@@ -482,6 +509,42 @@ function removeQueueEntry(index, revision) {
     : $("#now-playing-close"))?.focus({preventScroll: true});
   toast(`Removed “${removed.title}” from the play queue.`);
 }
+
+// Move one queue entry (drag, or Alt+Up/Down). The playing track keeps playing; only the order changes.
+function moveQueueEntry(from, to) {
+  if (!live() || !Number.isInteger(from) || !Number.isInteger(to)) return false;
+  if (from < 0 || to < 0 || from >= player.queue.length || to >= player.queue.length || from === to) return false;
+  if (typeof localPlaybackAllowed === "function" && !localPlaybackAllowed()) return false;
+  const current = player.queue[player.index], [entry] = player.queue.splice(from, 1);
+  player.queue.splice(to, 0, entry);
+  if (current) player.index = player.queue.indexOf(current);
+  markPlaying();
+  renderNowPlaying();
+  return true;
+}
+
+const clearedQueue = {snapshot: null};
+function clearQueue() {
+  if (!player.queue.length) return;
+  clearedQueue.snapshot = {queue: player.queue.slice(), index: player.index};
+  const count = player.queue.length;
+  stopPlayer();
+  const toastBox = $("#toast");
+  toastBox.innerHTML = `Cleared the play queue (${count} ${count === 1 ? "track" : "tracks"}). <button type="button" class="button small" data-queue-undo>Undo</button>`;
+  toastBox.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastBox.hidden = true; clearedQueue.snapshot = null; }, 15000);
+}
+
+function undoClearQueue() {
+  const snapshot = clearedQueue.snapshot; clearedQueue.snapshot = null;
+  if (!snapshot || !live()) return;
+  if (player.queue.length) { toast("Something is already playing, so the old queue was not restored."); return; }
+  player.queue = snapshot.queue; player.index = Math.min(Math.max(snapshot.index, 0), player.queue.length - 1);
+  playCurrent(false);
+  toast(`Restored the play queue (${player.queue.length} tracks), paused.`);
+}
+document.addEventListener("click", event => { if (event.target.closest?.("[data-queue-undo]")) undoClearQueue(); });
 
 function appendToQueue(album, trackId = null, next = false) {
   if (typeof localPlaybackAllowed === "function" && !localPlaybackAllowed()) { toast("Use Devices to control the connected queue."); return; }
@@ -679,7 +742,7 @@ audio.addEventListener("error", () => {
 $("#player-prev").addEventListener("click", () => step(-1));
 $("#player-next").addEventListener("click", () => step(1));
 $("#player-close").addEventListener("click", stopPlayer);
-$("#queue-clear").addEventListener("click", stopPlayer);
+$("#queue-clear").addEventListener("click", clearQueue);
 $("#player-queue").addEventListener("click", () => setNowPlaying($("#now-playing-panel").hidden));
 $("#player-cover-button").addEventListener("click", () => setNowPlaying($("#now-playing-panel").hidden));
 $("#now-playing-close").addEventListener("click", () => { setNowPlaying(false); $("#player-queue").focus(); });
@@ -768,4 +831,29 @@ audio.addEventListener("play", () => {
     audio.pause(); playReporting.watch = null;
     toast("This browser is a controller. Use Devices to resume playback here or control the remote player.");
   }
+});
+
+// Drag a queue row onto another to move it; Alt+Up / Alt+Down on a focused row moves it one place.
+let queueDragFrom = -1;
+document.addEventListener("dragstart", event => {
+  const row = event.target.closest?.("[data-queue-row]"); if (!row) return;
+  queueDragFrom = Number(row.dataset.queueRow);
+  if (event.dataTransfer) { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", String(queueDragFrom)); }
+});
+document.addEventListener("dragover", event => {
+  if (queueDragFrom >= 0 && event.target.closest?.("[data-queue-row]")) event.preventDefault();
+});
+document.addEventListener("drop", event => {
+  const row = event.target.closest?.("[data-queue-row]");
+  if (queueDragFrom < 0 || !row) return;
+  event.preventDefault();
+  const from = queueDragFrom; queueDragFrom = -1;
+  moveQueueEntry(from, Number(row.dataset.queueRow));
+});
+document.addEventListener("dragend", () => { queueDragFrom = -1; });
+document.addEventListener("keydown", event => {
+  if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+  const button = event.target.closest?.("[data-queue-index]"); if (!button) return;
+  const from = Number(button.dataset.queueIndex), to = from + (event.key === "ArrowUp" ? -1 : 1);
+  if (moveQueueEntry(from, to)) { event.preventDefault(); $("#now-playing-list").querySelector(`[data-queue-index="${to}"]`)?.focus({preventScroll: true}); }
 });

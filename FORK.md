@@ -64,6 +64,14 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v51** **Queue and playlist helpers.**
+  - **Reorder the queue**: drag a row in Now Playing onto another, or Alt+↑ / Alt+↓ on a focused row. The playing song keeps playing.
+  - **Clear queue has Undo** (15 seconds): puts the whole queue back, paused.
+  - **Smart shuffle**: every shuffle keeps songs by the same artist apart where possible.
+  - **Add selected albums**: tick albums, then "♫＋ Add to playlist" in the selection bar adds all their tracks in one go.
+  - **Duplicates are skipped** when adding to a playlist (and it tells you how many); a playlist over 10,000 songs is not checked.
+  - **Recent playlists** are listed first in the playlist chooser.
+  - Not tried in a real browser against the real library. Still not built: crossfade, play from a filter, resume queue after restart, playlist from search, smart playlists.
 - **v50** **Smoother listening: next 2 songs are pre-loaded.**
   - While a track plays, the next two songs in the queue are downloaded one at a time into memory (never to disk).
     When one becomes current it plays from memory, so Next and track changes start instantly. Seeking works.

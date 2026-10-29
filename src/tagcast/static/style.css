@@ -1272,3 +1272,6 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 .album-card .album-card-meta-text{justify-content:flex-start}
 .track-results .role-album,.queue-label .role-album{font-weight:500}
 .album-artist-links .text-action{font-size:calc(17px*var(--ts));font-weight:600;color:var(--green)}
+
+.queue-editable{cursor:grab}
+.quick-playlist-heading{margin:8px 0 4px;font-weight:700}

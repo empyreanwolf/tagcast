@@ -18,8 +18,20 @@ function readQuickPlaylist() {
   return null;
 }
 
+const RECENT_PLAYLISTS_KEY = "tagcast-recent-playlists";
+function readRecentPlaylists() {
+  try {
+    const list = JSON.parse(localStorage.getItem(RECENT_PLAYLISTS_KEY) || "[]");
+    return Array.isArray(list) ? list.filter(p => p && /^\d+$/.test(String(p.id)) && typeof p.name === "string" && p.name).slice(0, 5).map(p => ({id: String(p.id), name: p.name})) : [];
+  } catch { return []; }
+}
+
 function rememberQuickPlaylist(value) {
   quickPlaylist.value = value;
+  if (value) {
+    const recent = [value, ...readRecentPlaylists().filter(p => p.id !== value.id)].slice(0, 5);
+    try { localStorage.setItem(RECENT_PLAYLISTS_KEY, JSON.stringify(recent)); } catch { /* optional */ }
+  }
   try { if (value) localStorage.setItem(QUICK_PLAYLIST_KEY, JSON.stringify(value)); else localStorage.removeItem(QUICK_PLAYLIST_KEY); }
   catch { /* the choice then lasts until the page is closed */ }
   refreshQuickAddLabels();
@@ -79,10 +91,12 @@ async function loadQuickPlaylistChoices(query) {
     const data = await api(`/api/playlists${query ? `?q=${encodeURIComponent(query)}` : ""}`);
     if (quickPlaylist.picker !== picker || request !== picker.request) return;
     const all = data.playlists || [], rows = all.filter(p => p.kind === "playlist");
-    $("#quick-playlist-list").innerHTML = rows.length
+    const recent = query ? [] : readRecentPlaylists();
+    const choice = (p, count) => `<button type="button" class="quick-playlist-choice${quickPlaylist.value?.id === String(p.id) ? " current" : ""}" data-quick-choose="${escapeHtml(p.id)}" data-quick-name="${escapeHtml(p.name)}"><strong>${escapeHtml(p.name)}</strong>${count === undefined ? "" : `<small>${Number(count || 0).toLocaleString("en")} ${count === 1 ? "track" : "tracks"}</small>`}</button>`;
+    $("#quick-playlist-list").innerHTML = (recent.length ? `<p class="muted quick-playlist-heading">Recent</p>${recent.map(p => choice(p)).join("")}<p class="muted quick-playlist-heading">All playlists</p>` : "") + (rows.length
       ? rows.map(p => `<button type="button" class="quick-playlist-choice${quickPlaylist.value?.id === String(p.id) ? " current" : ""}" data-quick-choose="${escapeHtml(p.id)}" data-quick-name="${escapeHtml(p.name)}"><strong>${escapeHtml(p.name)}</strong><small>${Number(p.count || 0).toLocaleString("en")} ${p.count === 1 ? "track" : "tracks"}</small></button>`).join("")
         + (data.total > all.length || all.some(p => p.kind === "folder") ? '<p class="muted">Playlists inside folders, and any beyond these, appear when you type part of their name.</p>' : "")
-      : `<p class="muted">${query ? "No playlist has that name." : "You have no playlists yet."}</p>`;
+      : `<p class="muted">${query ? "No playlist has that name." : "You have no playlists yet."}</p>`);
   } catch (error) {
     if (quickPlaylist.picker === picker) $("#quick-playlist-list").innerHTML = `<p class="error-box">${escapeHtml(error.message)}</p>`;
   }
@@ -109,18 +123,35 @@ $("#quick-playlist-dialog").addEventListener("click", event => {
 // -- the one-click add -------------------------------------------------------------------
 
 async function quickAdd(albumId, trackId, choose = false) {
+  return quickRun(async () => {
+    if (trackId) return [Number(trackId)];
+    await albumDetails(shelfIds(albumId));
+    return queueTracks(playableAlbum(albumId)).map(t => Number(t.id));
+  }, choose);
+}
+
+// Every album ticked on the albums page, in one go (fork v51).
+async function quickAddSelection(choose = false) {
+  const chosen = albumShelf().filter(a => itemIds(a).some(id => state.selected.has(id)));
+  if (!chosen.length) return;
+  return quickRun(async () => {
+    const ids = [];
+    for (const album of chosen) {
+      await albumDetails(shelfIds(album.id));
+      ids.push(...queueTracks(playableAlbum(album.id)).map(t => Number(t.id)));
+    }
+    return ids;
+  }, choose);
+}
+
+async function quickRun(collect, choose) {
   if (!live() || state.loading || quickPlaylist.busy || collectionsView.busy || document.querySelector("dialog[open]")) return;
   const details = state.details, session = state.connection.playback_session;
   const current = () => details === state.details && session === state.connection.playback_session && live();
   quickPlaylist.busy = true;
   try {
-    let ids;
-    if (trackId) ids = [Number(trackId)];
-    else {
-      await albumDetails(shelfIds(albumId));
-      if (!current()) return;
-      ids = queueTracks(playableAlbum(albumId)).map(t => Number(t.id));
-    }
+    const ids = await collect();
+    if (!current()) return;
     if (!ids.length) { toast("There are no tracks to add."); return; }
     let target = quickPlaylist.value;
     if (choose || !target) {
@@ -136,6 +167,7 @@ async function quickAdd(albumId, trackId, choose = false) {
 }
 
 async function quickAppend(target, ids, current) {
+  ids = ids.slice();
   let playlist;
   try { playlist = await api(`/api/playlists?id=${encodeURIComponent(target.id)}`); }
   catch (error) {
@@ -144,6 +176,16 @@ async function quickAppend(target, ids, current) {
     return;
   }
   if (!current()) return;
+  // Songs already in the playlist are skipped (a playlist over 10,000 songs is not checked).
+  const have = new Set(playlist.large ? [] : (playlist.tracks || []).map(String)), seen = new Set();
+  const fresh = ids.filter(id => !have.has(String(id)) && !seen.has(String(id)) && seen.add(String(id)));
+  const skipped = ids.length - fresh.length;
+  if (!fresh.length) {
+    rememberQuickPlaylist({id: String(playlist.id), name: playlist.name});
+    toast(`${ids.length === 1 ? "That track is" : "Those tracks are"} already in “${playlist.name}”. Nothing was added.`);
+    return;
+  }
+  ids = fresh;
   const body = {action: "append", tracks: ids, name: playlist.name, description: "", playlist: playlist.id, before_name: playlist.name,
     ...(playlist.before_token ? {before_token: playlist.before_token} : {before: playlist.before || playlist.tracks})};
   toast(`Adding to “${playlist.name}”…`);
@@ -153,7 +195,7 @@ async function quickAppend(target, ids, current) {
     const job = await collectionJob(response, current);
     if (job.results.some(r => r.status !== "saved")) throw Error("sent, but iBroadcast's list differs. Check the playlist before trying again.");
     rememberQuickPlaylist({id: String(playlist.id), name: playlist.name});
-    toast(`Added ${ids.length} ${ids.length === 1 ? "track" : "tracks"} to “${playlist.name}”.`);
+    toast(`Added ${ids.length} ${ids.length === 1 ? "track" : "tracks"} to “${playlist.name}”.${skipped ? ` ${skipped} already there, skipped.` : ""}`);
     if (state.screen === "playlists") renderCollections();
   } catch (error) {
     toast(`Check “${playlist.name}” before trying again: ${error.message}`);
@@ -199,3 +241,8 @@ function quickUseButton(data) {
   return active ? '<span class="pill">♫＋ target</span>'
     : `<button type="button" class="button small" data-quick-use="${escapeHtml(data.id)}" data-quick-name="${escapeHtml(data.name)}" title="The ♫＋ buttons on tracks and albums will add to this playlist">Use for ♫＋ quick add</button>`;
 }
+
+document.addEventListener("click", event => {
+  const button = event.target.closest?.("#quick-add-selection");
+  if (button && !button.disabled) quickAddSelection(event.shiftKey);
+});

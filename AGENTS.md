@@ -1186,6 +1186,10 @@ python3 tools/build_dark_css.py --check
   `docs/write-reliability.md`), edition-suffix album info. Not taken: year review, upload folder/day
   browsing, Mini Player. The fork's queued save (`saveDraft` in `app.js`) stays; the backend send-once
   policy applies underneath it.
+- Queue and playlist helpers (fork v51): `moveQueueEntry`, `clearQueue`/`undoClearQueue`, `smartShuffle` in `player.js`
+  (rows carry `data-queue-row`, draggable when editable); `quickRun`/`quickAddSelection` in `quick-playlist.js`
+  (duplicates skipped unless `playlist.large`; recents in `tagcast-recent-playlists`); `#quick-add-selection` in the
+  selection bar.
 - Pre-load (fork v50): `preload.js` keeps the next `PRELOAD_AHEAD` (2) queue tracks as blob URLs (one fetch of
   `/api/stream/<id>` at a time); `playCurrent` takes one via `preloadTake`, `markPlaying` calls `preloadSchedule`,
   the audio `error` handler falls back to normal streaming. Key `tagcast-preload` ("off" disables). The test

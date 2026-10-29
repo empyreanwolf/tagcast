@@ -10258,10 +10258,10 @@ test('fork v48: artist groups count an album once per name and keep the first im
 });
 
 // -- fork v49: one-click quick add to a playlist ---------------------------------------
-function quickAddPage(storage = {}) {
+function quickAddPage(storage = {}, listed = [1, 2, 3]) {
   const p = livePage({storage}); 
   const calls = [];
-  const playlist = {id: "77", name: "Road trip", kind: "playlist", count: 3, before_token: "tok-77", tracks: [1, 2, 3], total: 3};
+  const playlist = {id: "77", name: "Road trip", kind: "playlist", count: 3, before_token: "tok-77", tracks: listed, total: listed.length};
   p.setFetch(async (url, options) => {
     const body = options?.body ? JSON.parse(options.body) : null;
     calls.push({url, body});
@@ -10446,4 +10446,94 @@ test('fork v50: pre-load can be turned off, and failures fall back to normal str
   assert.equal(streams.length, 2, "each failed track is tried once, not in a loop");
   p.run("step(1)"); await settle();
   assert.match(p.nodes.get("#audio").src, /^\/api\/stream\//);
+});
+
+test('fork v51: smart shuffle keeps the same artist apart and loses no track', async () => {
+  const p = livePage({storage: {}}); await settle();
+  const tracks = [..."AAAABBBBCCCCDDDD"].map((artist, i) => ({id: i, artist}));
+  for (let round = 0; round < 30; round++) {
+    const out = p.json(`smartShuffle(${JSON.stringify(tracks)})`);
+    assert.deepEqual(out.map(t => t.id).sort((a, b) => a - b), tracks.map(t => t.id));
+    assert.equal(out.filter((t, i) => i && t.artist === out[i - 1].artist).length, 0, out.map(t => t.artist).join(""));
+  }
+  assert.equal(p.json("smartShuffle([{id: 1, artist: 'X'}, {id: 2, artist: 'X'}]).length"), 2);   // cannot be separated, still returned
+});
+
+test('fork v51: queue rows move by drag or Alt+arrow, the playing track keeps playing', async () => {
+  const p = livePage({storage: {}}); await settle();
+  p.run('playTracks(state.details.get("1")); setNowPlaying(true)');
+  const ids = () => p.json("player.queue.map(t => t.id)");
+  const before = ids(), audioSrc = p.nodes.get("#audio").src;
+  assert.equal(p.run("moveQueueEntry(2, 0)"), true);
+  assert.deepEqual(ids(), [before[2], before[0], before[1], ...before.slice(3)]);
+  assert.equal(p.json("player.queue[player.index].id"), before[0], "the first track is still the one playing");
+  assert.equal(p.nodes.get("#audio").src, audioSrc, "no restart");
+  const playing = p.run("player.queue[player.index].id");
+  p.run("moveQueueEntry(0, 3)");
+  assert.equal(p.run("player.queue[player.index].id"), playing);
+  assert.equal(p.run("moveQueueEntry(1, 1)"), false);
+  assert.equal(p.run("moveQueueEntry(0, 99)"), false);
+  // drag and drop path
+  const rows = p.run("$('#now-playing-list').innerHTML");
+  assert.match(rows, /data-queue-row="0" draggable="true"/);
+  const first = ids();
+  const rowAt = n => ({closest: s => String(s).includes("data-queue-row") ? {dataset: {queueRow: String(n)}} : null,
+    classList: {add() {}, remove() {}, toggle() {}, contains: () => false}, matches: () => false, dataset: {}});
+  await p.emitDocument("dragstart", {target: rowAt(0)});
+  await p.emitDocument("drop", {target: rowAt(2), preventDefault() {}});
+  assert.deepEqual(ids(), [first[1], first[2], first[0], ...first.slice(3)]);
+});
+
+test('fork v51: Clear queue can be undone once, and not over something new', async () => {
+  const p = livePage({storage: {}}); await settle();
+  p.run('playTracks(state.details.get("1")); setNowPlaying(true)');
+  const before = p.json("player.queue.map(t => t.id)"), index = p.run("player.index");
+  p.run("clearQueue()");
+  assert.equal(p.run("player.queue.length"), 0);
+  assert.match(p.nodes.get("#toast").innerHTML, /Cleared the play queue \(\d+ tracks\)[\s\S]*data-queue-undo/);
+  await p.click({"[data-queue-undo]": {}});
+  assert.deepEqual(p.json("player.queue.map(t => t.id)"), before);
+  assert.equal(p.run("player.index"), index);
+  assert.equal(p.run("audio.paused"), true);
+  await p.click({"[data-queue-undo]": {}});   // second press does nothing
+  assert.deepEqual(p.json("player.queue.map(t => t.id)"), before);
+  p.run("clearQueue(); playTracks(state.details.get('1'))");
+  const fresh = p.json("player.queue.map(t => t.id)");
+  await p.click({"[data-queue-undo]": {}});
+  assert.deepEqual(p.json("player.queue.map(t => t.id)"), fresh);
+});
+
+test('fork v51: quick add skips songs already in the playlist and says so', async () => {
+  const probe = livePage({storage: {}}); await settle();
+  const album = probe.run("state.albums[0].id"), tracks = probe.json("state.details.get(state.albums[0].id).tracks.map(t => t.id)");
+  const {p, calls} = quickAddPage({"tagcast-quick-playlist": JSON.stringify({id: "77", name: "Road trip"})}, [Number(tracks[0])]); await settle();
+  await p.run(`quickAdd(${JSON.stringify(album)}, ${JSON.stringify(String(tracks[0]))}, false)`);
+  for (let i = 0; i < 6; i++) await settle();
+  assert.equal(calls.filter(c => c.url === "/api/playlist").length, 0, "nothing sent when it is all duplicates");
+  assert.match(toastText(p), /already in “Road trip”/);
+  await p.run(`quickAdd(${JSON.stringify(album)}, "", false)`);
+  for (let i = 0; i < 8; i++) await settle();
+  const write = calls.find(c => c.url === "/api/playlist");
+  assert.ok(write, "album add sent");
+  assert.ok(!write.body.tracks.includes(Number(tracks[0])) && write.body.tracks.length === tracks.length - 1);
+  assert.match(toastText(p), /1 already there, skipped/);
+});
+
+test('fork v51: the chooser lists recent playlists first, and the selection bar adds every selected album', async () => {
+  const storage = {"tagcast-recent-playlists": JSON.stringify([{id: "9", name: "Gym"}, {id: "77", name: "Road trip"}])};
+  const {p, calls} = quickAddPage(storage); await settle();
+  p.run("quickAddButton");
+  const album = p.run("state.albums[0].id");
+  p.run(`pickQuickPlaylist({allowNew: true})`); await settle(); await settle();
+  const html = p.nodes.get("#quick-playlist-list").innerHTML;
+  assert.match(html, /Recent[\s\S]*data-quick-choose="9"[\s\S]*data-quick-choose="77"[\s\S]*All playlists/);
+  p.run("finishPicker(quickPlaylist.picker, null)");
+  p.run("rememberQuickPlaylist({id: '77', name: 'Road trip'})");
+  assert.equal(JSON.parse(storage["tagcast-recent-playlists"])[0].id, "77");
+  p.run(`for (const id of shelfIds(${JSON.stringify(album)})) state.selected.add(id); render()`);
+  assert.equal(p.run("$('#quick-add-selection').disabled"), false);
+  await p.click({"#quick-add-selection": {disabled: false}});
+  for (let i = 0; i < 8; i++) await settle();
+  const write = calls.find(c => c.url === "/api/playlist");
+  assert.ok(write && write.body.tracks.length === p.run("state.details.get(state.albums[0].id).tracks.length"));
 });
