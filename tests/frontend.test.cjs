@@ -10289,7 +10289,7 @@ test('fork v49: tracks and albums carry a one-click quick-add button next to the
   assert.match(html, new RegExp(`data-quick-add-album="${p.run("state.albums[0].id")}" data-quick-add-track="${track.id}"`));
   assert.match(html, /a playlist you choose once/);
   assert.match(p.run("albumCardActions(state.albums[0])"), /quick-add[\s\S]*queue-add queue-compact queue-menu-trigger/);
-  assert.match(p.run("queueButton(state.albums[0].id, state.details.get(state.albums[0].id).tracks[0])"), /queue-add/);
+  assert.match(p.run("queueButton(state.albums[0].id, state.details.get(state.albums[0].id).tracks[0])"), /row-act/);
   p.run("rememberQuickPlaylist({id: '77', name: 'Road trip'})");
   assert.match(p.run(`quickAddButton(state.albums[0].id, null, true)`), /Add this album to “Road trip”/);
 });
