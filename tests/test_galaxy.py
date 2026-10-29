@@ -504,3 +504,21 @@ class ArtistCardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SameNamedSinglesTests(unittest.TestCase):
+    def test_other_artists_singles_with_the_same_name_are_not_queued(self):
+        from tagcast.galaxy import fetch_album_exact
+
+        def track(i, artist):
+            return {"id": str(i), "source": "netease", "title": "I Don't Care", "artists": [artist],
+                    "album": "I Don't Care", "pic_id": ""}
+
+        class Api:
+            def search(self, source, q, count, page):
+                return [track(1, "Darassa"), track(2, "Nick Leway"), track(3, "Ed Sheeran")] if page == 1 else []
+
+        tracks, _ = fetch_album_exact(Api(), "netease", "I Don't Care", "Ed Sheeran")
+        self.assertEqual([t["artists"][0] for t in tracks], ["Ed Sheeran"])
+        tracks, _ = fetch_album_exact(Api(), "netease", "I Don't Care", None)
+        self.assertEqual(len(tracks), 1)

@@ -64,6 +64,7 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v55** **Fix: other artists' songs queued by mistake.** Singles by different artists that share one title and album name (e.g. "I Don't Care") were treated as one album, so asking for one queued them all. They are now split by artist.
 - **v54** **Galaxy depth, download manager on top, per-PC record, sorting.**
   - Galaxy tries album, song title and artist (traditional and simplified, deep results); a 403 firewall page means "blocked, retry later", not "Not found".
   - Every download goes Galaxy, then Bandcamp, then Soulseek.

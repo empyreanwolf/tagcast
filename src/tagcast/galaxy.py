@@ -407,6 +407,26 @@ class GDApi:
         return str(data.get("url") or "").strip() if isinstance(data, dict) else ""
 
 
+def _split_same_named(items, artist_hint):
+    """Different artists' singles often share one title and one album name ("I Don't Care" by twenty
+    artists). Grouped by album name alone they look like a 20-track album, and a request for one of them
+    queued them all (v54 fix). When the same song title is credited to different artists the group is
+    really separate releases, so it is split by artist first; with an artist given, only his or her
+    release is kept."""
+    titles = {}
+    for t in items:
+        titles.setdefault(fold(t["title"]), set()).add(fold((t["artists"] or [""])[0]))
+    if not any(len(artists) > 1 for artists in titles.values()):
+        return [items]
+    if artist_hint:
+        mine = [t for t in items if any(artist_matches(a, artist_hint) for a in t["artists"])]
+        return [mine] if mine else []
+    clusters = {}
+    for t in items:
+        clusters.setdefault(fold((t["artists"] or [""])[0]), []).append(t)
+    return list(clusters.values())
+
+
 def fetch_album_exact(api, source, album, artist_hint=None):
     """(tracks, found_name) for an album with exactly this name, else ([], "").
     Another edition ("X Plus" for "X") or loose songs are never offered.
@@ -429,7 +449,10 @@ def fetch_album_exact(api, source, album, artist_hint=None):
                 continue
             seen.add((t["source"], t["id"]))
             groups.setdefault(t["album"] or unnamed, []).append(t)
-        exact = [items for name, items in groups.items() if name and fold(name) == want]
+        exact = []
+        for name, items in groups.items():
+            if name and fold(name) == want:
+                exact.extend(_split_same_named(items, artist_hint))
         if artist_hint:
             # Another artist's album can share the exact same title ("Intro", a compilation
             # name, ...). Never fall back to "biggest same-named group" in that case -- that
