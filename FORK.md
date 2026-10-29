@@ -64,6 +64,18 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v48** **Faster loading, nothing removed.**
+  - **Scripts and styles are cached by the browser** under a tag made from each file's contents, so a reload
+    no longer downloads ~1.3 MB again. A new zip changes the tags, so an old copy is never used.
+  - **Everything is compressed** (page, scripts, styles and the library list): about 1.3 MB → 0.35 MB on
+    first open, and the 60k-song library list shrinks several times. Biggest help over Tailscale on the phone.
+  - **The library list is built once per library** instead of on every load (~0.8 s saved per reload on
+    5,000 albums), and it is prepared in the background as soon as the library arrives.
+  - **The library is requested together with the status check** when this browser was connected last time,
+    saving one round trip to iBroadcast on start-up.
+  - **Lighter redraws**: artist grouping and the "Uploaded today" filter do less work per click (about a third
+    faster on 5,000 albums), off-screen album cards are not laid out until you scroll near them, and covers
+    decode in the background.
 - **v47** **Picked from upstream Tagcast 1.0 (cyberdeliaAI/tagcast), everything from v46 kept.**
   - **Merge albums… (upstream's reviewed merge)**: tick 2–20 pieces of one disc, choose the album to keep,
     check every track and confirm. Your drag-one-album-onto-another merge stays, and selecting exactly two

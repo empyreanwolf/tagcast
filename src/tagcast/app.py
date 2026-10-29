@@ -11,6 +11,7 @@ default, so a normal install is exactly as closed as before this existed.
 """
 
 import argparse
+import io
 import json
 import logging
 import logging.handlers
@@ -26,7 +27,7 @@ from socketserver import TCPServer
 from urllib.parse import parse_qs, quote, urlparse
 from urllib.request import urlopen
 
-from . import __version__, activity, artist_match
+from . import __version__, activity, artist_match, static_assets
 from .album_info import AlbumInformationRetryError
 from .artist_bios import BiographyRetryError
 from .artwork import ArtworkError
@@ -70,10 +71,18 @@ class Handler(SimpleHTTPRequestHandler):
         return hostname in EXTRA_HOSTS
 
     def _json(self, status, payload):
-        body = json.dumps(payload).encode()
+        body = json.dumps(payload, separators=(",", ":")).encode()
+        # Big answers such as /api/library shrink several times over (fork v48).
+        packed = len(body) >= static_assets.MIN_GZIP \
+            and static_assets.accepts_gzip(self.headers.get("Accept-Encoding"))
+        if packed:
+            body = static_assets.compress(body)
         try:
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
+            if packed:
+                self.send_header("Content-Encoding", "gzip")
+                self.send_header("Vary", "Accept-Encoding")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -115,8 +124,9 @@ class Handler(SimpleHTTPRequestHandler):
         record_route(info["path"], info["method"], getattr(self, "_activity_body", None), status, payload, ms, crash)
 
     def end_headers(self):
-        if self._frontend_asset():
+        if self._frontend_asset() and not getattr(self, "_cache_header_sent", False):
             self.send_header("Cache-Control", "no-store")
+        self._cache_header_sent = False
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
@@ -129,11 +139,33 @@ class Handler(SimpleHTTPRequestHandler):
 
     def send_head(self):
         # Local source updates can retain the same release number or file timestamp.
-        # Always serve the current UI together instead of accepting an older cached script.
+        # The page is never cached; scripts and styles are cached only under the content
+        # hash the page links them with (fork v48, static_assets.py), so an older copy is
+        # never reused. Text is gzip-compressed when the browser accepts it.
         if self._frontend_asset():
             for header in ("If-Modified-Since", "If-None-Match"):
                 if header in self.headers:
                     del self.headers[header]
+            url = urlparse(self.path)
+            path = self.translate_path(url.path)
+            is_index = url.path in ("/", "/index.html")
+            if os.path.isdir(path):
+                path, is_index = os.path.join(path, "index.html"), True
+            wanted = parse_qs(url.query).get("v", [""])[0]
+            try:
+                body, headers = static_assets.respond(
+                    path, wanted, static_assets.accepts_gzip(self.headers.get("Accept-Encoding")), is_index)
+            except OSError:
+                self.send_error(404, "File not found")
+                return None
+            self.send_response(200)
+            self.send_header("Content-Type", self.guess_type(path))
+            for name, value in headers.items():
+                self.send_header(name, value)
+            self.send_header("Content-Length", str(len(body)))
+            self._cache_header_sent = True
+            self.end_headers()
+            return io.BytesIO(body)
         return super().send_head()
 
     # -- routes --------------------------------------------------------------

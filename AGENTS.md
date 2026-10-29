@@ -1186,3 +1186,10 @@ python3 tools/build_dark_css.py --check
   `docs/write-reliability.md`), edition-suffix album info. Not taken: year review, upload folder/day
   browsing, Mini Player. The fork's queued save (`saveDraft` in `app.js`) stays; the backend send-once
   policy applies underneath it.
+- Loading speed (fork v48): `static_assets.py` serves index.html with every local `src=`/`href=` .js/.css
+  tagged `?v=<sha1 of contents>`; a request whose `v` matches the file gets a one-year immutable cache,
+  anything else stays `no-store` (contents are always re-hashed, never trusted by mtime/size). Text and
+  `_json` bodies >= 1 KB are gzipped when `Accept-Encoding` allows. `Library.album_index()` is memoised
+  per Library (a Library is never mutated after it is built) and pre-built in `Studio._warm`. `boot()`
+  prefetches `/api/library` alongside `/api/status` when `localStorage["tagcast-was-connected"]` is set;
+  `loadLive()` consumes it once. New local scripts must be linked from index.html to get a tag.

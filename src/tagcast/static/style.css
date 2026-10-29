@@ -496,6 +496,8 @@ body.has-player .now-playing-panel{bottom:76px}
 .queue-add:not(.button){border:0;background:none;font-size:21px;width:30px;height:32px;padding:0;vertical-align:middle}
 .queue-add:disabled{opacity:.35;cursor:default}
 .album-card{display:flex;flex-direction:column}
+/* Fork v48: the browser skips laying out cards that are off screen until they scroll near. */
+.album-grid>.album-card{content-visibility:auto;contain-intrinsic-size:auto 340px}
 .album-card .card-meta{margin-top:auto;padding-top:11px;gap:7px}
 .album-card .card-meta>span:first-child{margin-right:auto;min-width:0}
 .album-card .card-meta>.pill{flex:none}

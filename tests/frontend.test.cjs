@@ -10206,3 +10206,52 @@ test('fork v47: Quick merge only shows for exactly two albums on an artist page'
   assert.match(html, /src="album-merge-review\.js"/);
   assert.equal((html.match(/id="merge-selection"/g) || []).length, 1);
 });
+
+test('fork v48: a browser that was connected asks for the library together with the status, once', async () => {
+  const storage = {"tagcast-was-connected": "1"};
+  const p = page({storage, deferReady: true});
+  let releaseStatus;
+  p.setStatusFetch(() => new Promise(resolve => { releaseStatus = resolve; }));
+  p.setFetch(async url => ({ok: true, json: async () => url.startsWith('/api/library')
+    ? {albums: [{id: "1", name: "Prefetched", artist: "A", album_artists: [{id: "1", name: "A"}], genres: [], track_count: 1, year: 2000}], artists: ["A"]}
+    : {}}));
+  const booted = p.emitDocument("DOMContentLoaded"); await settle();
+  // The library is already on its way while the status is still being checked.
+  assert.deepEqual(p.requests.filter(r => r.url.startsWith('/api/')).map(r => r.url).slice(0, 2).sort(), ['/api/library', '/api/status']);
+  releaseStatus({ok: true, json: async () => ({connected: true, configured: true, playback_session: "s"})});
+  await booted; for (let i = 0; i < 6; i++) await settle();
+  assert.equal(p.requests.filter(r => r.url.startsWith('/api/library')).length, 1);
+  assert.equal(p.run('state.albums[0].name'), "Prefetched");
+  assert.equal(storage["tagcast-was-connected"], "1");
+});
+
+test('fork v48: no early library request for a browser that was not connected, and signing out clears the hint', async () => {
+  const storage = {"tagcast-was-connected": "1"};
+  const p = page({storage, deferReady: true});
+  p.setStatusFetch(async () => ({ok: true, json: async () => ({connected: false, configured: true})}));
+  p.setFetch(async () => ({ok: false, status: 401, json: async () => ({error: "Not connected"})}));
+  await p.emitDocument("DOMContentLoaded"); await settle(); await settle();
+  assert.equal(storage["tagcast-was-connected"], undefined);
+  assert.equal(p.run('libraryPrefetch'), null);
+  const fresh = page({storage, deferReady: true});
+  fresh.setStatusFetch(async () => ({ok: true, json: async () => ({connected: false, configured: true})}));
+  await fresh.emitDocument("DOMContentLoaded"); await settle();
+  assert.equal(fresh.requests.filter(r => r.url.startsWith('/api/library')).length, 0);
+});
+
+test('fork v48: artist groups count an album once per name and keep the first image found', async () => {
+  const p = livePage(); await settle();
+  p.run(`state.albums = [
+    {id: "1", name: "One", artist: "A", artist_id: 5, artist_image: "", genres: [], track_count: 1, album_artists: [{id: "5", name: "A"}, {id: "6", name: "B", image: "b.jpg"}, {id: "7", name: "A"}]},
+    {id: "2", name: "Two", artist: "B", artist_id: 6, artist_image: "b2.jpg", genres: [], track_count: 1, album_artists: [{id: "6", name: "B"}]},
+    {id: "3", name: "Three", artist: "A", artist_id: 5, artist_image: "a.jpg", genres: [], track_count: 1, album_artists: []}]`);
+  const groups = Object.fromEntries(p.json('artistGroups()'));
+  assert.deepEqual(Object.keys(groups), ["A", "B"]);
+  assert.equal(groups.A.count, 2);
+  assert.equal(groups.B.count, 2);
+  assert.equal(groups.A.image, "a.jpg");
+  assert.equal(groups.B.image, "b.jpg");
+  assert.deepEqual(groups.A.ids, ["5", "7"]);
+  assert.match(p.run('todayLocalDate()'), /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(p.run('todayLocalDate() === todayLocalDate()'), true);
+});

@@ -250,15 +250,20 @@ function coverPreviewAttrs(album) {
 
 function cover(album, small = false, enlarge = false) {
   const initials = album.artist.split(/\s+/).map(s => s[0]).slice(0, 2).join("");
-  const art = album.artwork ? `<img src="${escapeHtml(album.artwork)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('has-art');this.remove()">` : "";
+  const art = album.artwork ? `<img src="${escapeHtml(album.artwork)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('has-art');this.remove()">` : "";
   return `<div class="cover ${art ? "has-art" : ""}" ${!small && enlarge ? coverPreviewAttrs(album) : ""} style="--cover-color:${album.color}">${art}<span class="cover-letter">${escapeHtml(initials)}</span>${small || art ? "" : '<span class="cover-caption">TAGCAST / PLACEHOLDER</span>'}</div>`;
 }
 
 const EDITION = /remaster|deluxe|anniversary|re-record|live|edition|expanded/i;
 // This computer's local date, "YYYY-MM-DD" -- matches how upload_dates below is built.
+// Filters ask once per album, so the formatted date is reused for a second (fork v48).
+let todayCache = {at: -Infinity, value: ""};
 function todayLocalDate() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const stamp = Date.now();
+  if (Math.abs(stamp - todayCache.at) < 1000) return todayCache.value;
+  const now = new Date(stamp);
+  todayCache = {at: stamp, value: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`};
+  return todayCache.value;
 }
 const FILTERS = {
   all: ["All albums", () => true],
@@ -476,21 +481,26 @@ const joinDiscs = albums => albums.length === 1 ? albums[0]
   : {...albums[0], artwork: albums.find(a => a.artwork)?.artwork || "", tracks: albums.flatMap(a => a.tracks)};
 
 function thumb(album) {
-  const art = album.artwork ? `<img src="${escapeHtml(album.artwork.replace(/-300$/, "-150"))}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : "";
+  const art = album.artwork ? `<img src="${escapeHtml(album.artwork.replace(/-300$/, "-150"))}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove()">` : "";
   return `<span class="thumb" style="--cover-color:${album.color}">${art}<span>${escapeHtml(initials(album.artist))}</span></span>`;
 }
 
 function avatar(name, image) {
-  const img = image ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : "";
+  const img = image ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove()">` : "";
   return `<span class="artist-avatar">${img}${escapeHtml(initials(name))}</span>`;
 }
 
 function artistGroups() {
   const groups = new Map(), ratings = new Map();
-  for (const album of albumShelf()) for (const name of new Set(albumArtistEntries(album).map(a => a.name))) {
-    const artist = albumArtistEntries(album).find(a => a.name === name);
-    const group = groups.get(name) || {count: 0, image: artist.image || "", ids: new Set()};
-    group.image ||= artist.image || ""; group.count += 1; groups.set(name, group);
+  // One pass per album; the first entry of each name counts once (fork v48: same result, fewer copies).
+  for (const album of albumShelf()) {
+    const entries = albumArtistEntries(album), seen = entries.length > 1 ? new Set() : null;
+    for (const artist of entries) {
+      if (seen) { if (seen.has(artist.name)) continue; seen.add(artist.name); }
+      const group = groups.get(artist.name);
+      if (group) { group.image ||= artist.image || ""; group.count += 1; }
+      else groups.set(artist.name, {count: 1, image: artist.image || "", ids: new Set()});
+    }
   }
   for (const album of state.albums) for (const artist of albumArtistEntries(album)) {
     if (Number(artist.id) > 0) { groups.get(artist.name)?.ids.add(String(artist.id)); ratings.set(String(artist.id), artist.rating || 0); }
@@ -1361,17 +1371,29 @@ function updateChrome() {
   $("#history-note").textContent = live() ? "Saved changes are listed with their read-back status. Export the changes if you want a record of this session." : "Export the changes before closing this tab. Preview drafts are not saved to iBroadcast.";
 }
 
+const CONNECTED_KEY = "tagcast-was-connected";
+let libraryPrefetch = null;  // fork v48: started by boot() alongside /api/status
+
 async function boot() {
   const params = new URLSearchParams(location.search);
   if (params.has("auth_error")) toast(`Sign-in failed: ${params.get("auth_error")}`);
   if (params.has("connected")) toast("Connected to iBroadcast.");
   if (params.size) history.replaceState(null, "", location.pathname);
+  // Fork v48: when this browser was connected last time, ask for the library at the same
+  // time as the status instead of after it; each one waits on iBroadcast separately.
+  let wasConnected = false;
+  try { wasConnected = localStorage.getItem(CONNECTED_KEY) === "1"; } catch { /* private window */ }
+  if (wasConnected) { libraryPrefetch = rawApi("/api/library"); libraryPrefetch.catch(() => {}); }
   try {
     state.connection = await api("/api/status");
   } catch {
+    libraryPrefetch = null;
     if (typeof restorePendingRoute === "function") restorePendingRoute();
     return; // opened without the Python server: the demo still works
   }
+  try { if (state.connection.connected) localStorage.setItem(CONNECTED_KEY, "1"); else localStorage.removeItem(CONNECTED_KEY); }
+  catch { /* private window */ }
+  if (!state.connection.connected) libraryPrefetch = null;
   updateChrome();
   checkForUpdates();
   if (state.connection.connected) loadLive();
@@ -1407,7 +1429,9 @@ async function loadLive(refresh = false) {
   $("#library-loading-detail").textContent = `${nextLibraryLoadingMessage()} ${refresh ? "Downloading a fresh copy of your collection. " : ""}Large libraries can take a little while.`;
   updateChrome(); render();
   try {
-    const data = await api(`/api/library${refresh ? "?refresh=1" : ""}`);
+    const early = refresh ? null : libraryPrefetch;
+    libraryPrefetch = null;
+    const data = await (early || api(`/api/library${refresh ? "?refresh=1" : ""}`));
     if (!current()) return;
     completed = true;
     state.albums = colorize(data.albums); state.artistNames = data.artists || [];

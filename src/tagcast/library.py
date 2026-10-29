@@ -271,6 +271,8 @@ class Library:
         self._upload_dates = {}
         self._genre_labels = None
         self._editor_names = None
+        self._album_index = None  # fork v48: built once per library; a changed library is a new object
+        self._album_index_lock = Lock()
 
     def to_cache(self):
         """Only what Tagcast needs: no account details or third-party session keys."""
@@ -617,6 +619,14 @@ class Library:
         }
 
     def album_index(self):
+        """Every album's summary for the browser. A Library never changes after it is built
+        (edits arrive as a fresh read-back), so the list is made once and shared (fork v48)."""
+        with self._album_index_lock:
+            if self._album_index is None:
+                self._album_index = self._build_album_index()
+            return self._album_index
+
+    def _build_album_index(self):
         names = {"genres": set(), "composers": set()} if self._editor_names is None else None
         albums = [self.album_summary(i, names) for i in self.album_ids()]
         if names is not None:

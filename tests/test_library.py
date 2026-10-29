@@ -729,5 +729,17 @@ class VerifyTests(unittest.TestCase):
         self.assertEqual(verify(after, plan, {"artist b": 5})[0]["status"], "saved")
 
 
+
+class AlbumIndexCacheTests(unittest.TestCase):
+    def test_the_album_list_is_built_once_per_library_and_a_changed_library_builds_its_own(self):
+        library = lib()
+        first = library.album_index()
+        self.assertIs(library.album_index(), first)
+        self.assertEqual(library.editor_names()["genres"], ["Jazz", "Pop", "Rock"])
+        changed = edited("albums", 10, "name", "Renamed")
+        self.assertIn("Renamed", [a["name"] for a in changed.album_index()])
+        self.assertNotIn("Renamed", [a["name"] for a in first])
+
+
 if __name__ == "__main__":
     unittest.main()

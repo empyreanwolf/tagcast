@@ -730,7 +730,7 @@ class Studio:
     @staticmethod
     def _warm(library):
         """Prepare the browse pages for a newly arrived library in the background (fork v33)."""
-        jobs = [getattr(library, name, None) for name in ("warm_browse", "_upload_index")]  # uploads: fork v42
+        jobs = [getattr(library, name, None) for name in ("album_index", "warm_browse", "_upload_index")]  # uploads: fork v42; album list: v48
 
         def warm():
             for job in jobs:
