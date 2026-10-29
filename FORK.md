@@ -64,6 +64,15 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v49** **Readable text and one-click add.**
+  - **Text size**: A− / A+ beside the theme button (and Theme menu → Text size: Small, Normal, Large, Extra large).
+    Remembered in the browser. No text is below about 12px at Normal.
+  - **Clear roles**: album name is bold and larger, artist is green, track title stays dark. Now Playing shows
+    labelled Track / Artist / Album lines. Muted greys are darker for contrast.
+  - **One-click add**: the ♫＋ button on any track, album card or album page adds straight to your quick playlist.
+    The first click asks which playlist (once); Shift-click chooses another; a playlist page has
+    "Use for ♫＋ quick add". The write is sent once and is never retried automatically.
+  - Not tried in a real browser against the real library.
 - **v48** **Faster loading, nothing removed.**
   - **Scripts and styles are cached by the browser** under a tag made from each file's contents, so a reload
     no longer downloads ~1.3 MB again. A new zip changes the tags, so an old copy is never used.

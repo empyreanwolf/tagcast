@@ -3384,7 +3384,7 @@ test("a connected library is searched by the server, and a found track plays its
   assert.deepEqual(asked.filter(u => u.startsWith("/api/tracks")), ["/api/tracks?q=welcome%20machine"]);
   assert.equal(p.nodes.get("#tracks-results").textContent, "1,500 tracks · showing the first 120. Add a word to narrow it down.");
   assert.equal((p.nodes.get("#tracks-list").innerHTML.match(/<tr data-row=/g) || []).length, 50);
-  assert.match(p.nodes.get("#tracks-list").innerHTML, /Pink Floyd · Roger Waters[\s\S]*7:31/);
+  assert.match(p.nodes.get("#tracks-list").innerHTML, /Pink Floyd(<\/span>)? · Roger Waters[\s\S]*7:31/);
   assert.match(p.nodes.get("#tracks-pagination").innerHTML, /Page 1 of 3/);
   p.nodes.get("#tracks-per-page").value = "100";
   await p.nodes.get("#tracks-per-page").emit("change", {target: p.nodes.get("#tracks-per-page")});
@@ -10254,4 +10254,157 @@ test('fork v48: artist groups count an album once per name and keep the first im
   assert.deepEqual(groups.A.ids, ["5", "7"]);
   assert.match(p.run('todayLocalDate()'), /^\d{4}-\d{2}-\d{2}$/);
   assert.equal(p.run('todayLocalDate() === todayLocalDate()'), true);
+});
+
+// -- fork v49: one-click quick add to a playlist ---------------------------------------
+function quickAddPage(storage = {}) {
+  const p = livePage({storage}); 
+  const calls = [];
+  const playlist = {id: "77", name: "Road trip", kind: "playlist", count: 3, before_token: "tok-77", tracks: [1, 2, 3], total: 3};
+  p.setFetch(async (url, options) => {
+    const body = options?.body ? JSON.parse(options.body) : null;
+    calls.push({url, body});
+    if (url.startsWith("/api/playlists?id=")) return {ok: true, json: async () => playlist};
+    if (url.startsWith("/api/playlists")) return {ok: true, json: async () => ({playlists: [playlist, {id: "5", name: "A folder", kind: "folder", count: 2}], total: 2})};
+    if (url === "/api/playlist") return {ok: true, json: async () => ({id: body.playlist || "88", job: "job-1"})};
+    if (url.startsWith("/api/jobs/")) return {ok: true, json: async () => ({state: "done", results: [{id: body?.playlist || "88", status: "saved"}]})};
+    if (url.startsWith("/api/albums")) return {ok: true, json: async () => ({albums: p.json("[...state.details.values()]")})};
+    return {ok: true, json: async () => ({})};
+  });
+  return {p, calls};
+}
+const toastText = p => p.nodes.get("#toast").textContent;
+
+test('fork v49: tracks and albums carry a one-click quick-add button next to the queue button', async () => {
+  const {p} = quickAddPage(); await settle();
+  const track = p.json("state.details.get(state.albums[0].id).tracks[0]");
+  const html = p.run(`quickAddButton(state.albums[0].id, state.details.get(state.albums[0].id).tracks[0])`);
+  assert.match(html, new RegExp(`data-quick-add-album="${p.run("state.albums[0].id")}" data-quick-add-track="${track.id}"`));
+  assert.match(html, /a playlist you choose once/);
+  assert.match(p.run("albumCardActions(state.albums[0])"), /quick-add[\s\S]*queue-add queue-compact queue-menu-trigger/);
+  assert.match(p.run("queueButton(state.albums[0].id, state.details.get(state.albums[0].id).tracks[0])"), /queue-add/);
+  p.run("rememberQuickPlaylist({id: '77', name: 'Road trip'})");
+  assert.match(p.run(`quickAddButton(state.albums[0].id, null, true)`), /Add this album to “Road trip”/);
+});
+
+test('fork v49: with a quick playlist chosen, one click adds the track with no dialog and one write', async () => {
+  const {p, calls} = quickAddPage({"tagcast-quick-playlist": JSON.stringify({id: "77", name: "Road trip"})}); await settle();
+  const album = p.run("state.albums[0].id"), trackId = p.run("state.details.get(state.albums[0].id).tracks[0].id");
+  await p.run(`quickAdd(${JSON.stringify(album)}, ${JSON.stringify(String(trackId))}, false)`);
+  for (let i = 0; i < 6; i++) await settle();
+  const writes = calls.filter(c => c.url === "/api/playlist");
+  assert.equal(writes.length, 1);
+  assert.deepEqual({...writes[0].body, tracks: undefined}, {action: "append", tracks: undefined, name: "Road trip", description: "", playlist: "77", before_name: "Road trip", before_token: "tok-77"});
+  assert.deepEqual(writes[0].body.tracks, [Number(trackId)]);
+  assert.equal(p.nodes.get("#playlist-dialog").open, undefined);
+  assert.equal(p.nodes.get("#quick-playlist-dialog").open, undefined);
+  assert.match(toastText(p), /Added 1 track to “Road trip”/);
+  assert.equal(p.run("quickPlaylist.busy"), false);
+  assert.equal(p.run("collectionsView.busy"), false);
+});
+
+test('fork v49: the first click asks which playlist once, then adds and remembers it', async () => {
+  const storage = {};
+  const {p, calls} = quickAddPage(storage); await settle();
+  const album = p.run("state.albums[0].id"), trackId = String(p.run("state.details.get(state.albums[0].id).tracks[0].id"));
+  const adding = p.run(`quickAdd(${JSON.stringify(album)}, ${JSON.stringify(trackId)}, false)`);
+  for (let i = 0; i < 4; i++) await settle();
+  assert.equal(p.nodes.get("#quick-playlist-dialog").open, true);
+  assert.equal(calls.filter(c => c.url === "/api/playlist").length, 0, "nothing is written before a playlist is chosen");
+  const list = p.nodes.get("#quick-playlist-list").innerHTML;
+  assert.match(list, /data-quick-choose="77"/);
+  assert.doesNotMatch(list, /A folder/, "folders cannot be a target");
+  await p.nodes.get("#quick-playlist-dialog").emit("click", {target: {closest: s => s.includes("data-quick-choose") ? {dataset: {quickChoose: "77", quickName: "Road trip"}} : null}});
+  await adding; for (let i = 0; i < 6; i++) await settle();
+  assert.equal(calls.filter(c => c.url === "/api/playlist").length, 1);
+  assert.deepEqual(JSON.parse(storage["tagcast-quick-playlist"]), {id: "77", name: "Road trip"});
+  assert.match(toastText(p), /Added 1 track to “Road trip”/);
+});
+
+test('fork v49: closing the chooser writes nothing; a missing playlist is forgotten with a clear message', async () => {
+  const {p, calls} = quickAddPage(); await settle();
+  const album = p.run("state.albums[0].id"), trackId = String(p.run("state.details.get(state.albums[0].id).tracks[0].id"));
+  const adding = p.run(`quickAdd(${JSON.stringify(album)}, ${JSON.stringify(trackId)}, false)`);
+  for (let i = 0; i < 4; i++) await settle();
+  p.nodes.get("#quick-playlist-dialog").close(); await p.nodes.get("#quick-playlist-dialog").emit("close");
+  await adding; await settle();
+  assert.equal(calls.filter(c => c.url === "/api/playlist").length, 0);
+  assert.equal(p.run("quickPlaylist.busy"), false);
+  // A playlist that was deleted in iBroadcast
+  p.run("rememberQuickPlaylist({id: '404', name: 'Gone'})");
+  p.setFetch(async url => url.startsWith("/api/playlists?id=") ? {ok: false, status: 400, json: async () => ({error: "This playlist is unavailable or managed by iBroadcast."})} : {ok: true, json: async () => ({})});
+  await p.run(`quickAdd(${JSON.stringify(album)}, ${JSON.stringify(trackId)}, false)`); await settle();
+  assert.equal(p.run("quickPlaylist.value"), null);
+  assert.match(toastText(p), /“Gone” is not available any more/);
+});
+
+test('fork v49: Shift-click chooses another playlist even when one is set, and a failed write says to check first', async () => {
+  const {p, calls} = quickAddPage({"tagcast-quick-playlist": JSON.stringify({id: "77", name: "Road trip"})}); await settle();
+  const album = p.run("state.albums[0].id"), trackId = String(p.run("state.details.get(state.albums[0].id).tracks[0].id"));
+  const choosing = p.run(`quickAdd(${JSON.stringify(album)}, ${JSON.stringify(trackId)}, true)`);
+  for (let i = 0; i < 4; i++) await settle();
+  assert.equal(p.nodes.get("#quick-playlist-dialog").open, true);
+  p.nodes.get("#quick-playlist-dialog").close(); await p.nodes.get("#quick-playlist-dialog").emit("close"); await choosing;
+  // an uncertain write is not repeated
+  const failing = [];
+  p.setFetch(async (url, options) => {
+    failing.push(url);
+    if (url.startsWith("/api/playlists?id=")) return {ok: true, json: async () => ({id: "77", name: "Road trip", before_token: "t", tracks: []})};
+    if (url === "/api/playlist") return {ok: false, status: 500, json: async () => ({error: "iBroadcast did not answer."})};
+    return {ok: true, json: async () => ({})};
+  });
+  await p.run(`quickAdd(${JSON.stringify(album)}, ${JSON.stringify(trackId)}, false)`);
+  for (let i = 0; i < 6; i++) await settle();
+  assert.equal(failing.filter(u => u === "/api/playlist").length, 1);
+  assert.match(toastText(p), /Check “Road trip” before trying again/);
+  assert.equal(p.run("collectionsView.busy"), false);
+});
+
+test('fork v49: creating a new playlist from the chooser adds the track to it and makes it the quick playlist', async () => {
+  const storage = {};
+  const {p, calls} = quickAddPage(storage); await settle();
+  const album = p.run("state.albums[0].id"), trackId = String(p.run("state.details.get(state.albums[0].id).tracks[0].id"));
+  const adding = p.run(`quickAdd(${JSON.stringify(album)}, ${JSON.stringify(trackId)}, false)`);
+  for (let i = 0; i < 4; i++) await settle();
+  p.nodes.get("#quick-playlist-new-name").value = "  Gym  ";
+  await p.nodes.get("#quick-playlist-dialog").emit("click", {target: {closest: s => s.includes("quick-playlist-new-go") ? {} : null}});
+  await adding; for (let i = 0; i < 6; i++) await settle();
+  const writes = calls.filter(c => c.url === "/api/playlist");
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].body.action, "create"); assert.equal(writes[0].body.name, "Gym");
+  assert.deepEqual(writes[0].body.tracks, [Number(trackId)]);
+  assert.deepEqual(JSON.parse(storage["tagcast-quick-playlist"]), {id: "88", name: "Gym"});
+});
+
+test('fork v49: the quick-add script is linked and the chooser dialog exists', async () => {
+  const html = readFileSync(path.join(staticDir, 'index.html'), 'utf8');
+  assert.match(html, /<script src="quick-playlist\.js" defer><\/script>/);
+  assert.match(html, /<dialog id="quick-playlist-dialog"/);
+  assert.match(html, /id="quick-playlist-new-go"/);
+});
+
+test('fork v49: text size buttons step through the sizes, persist and stop at the ends', async () => {
+  const storage = {}; const p = livePage({storage}); await settle();
+  const press = id => p.nodes.get("#" + id).emit("click");
+  assert.equal(p.run("currentTextSize()"), "normal");
+  await press("text-larger");
+  assert.equal(p.run("document.documentElement.dataset.textSize"), "large");
+  assert.equal(storage["tagcast-text-size"], "large");
+  await press("text-larger");
+  assert.equal(p.run("currentTextSize()"), "xlarge");
+  assert.equal(p.run("$('#text-larger').disabled"), true);
+  for (let i = 0; i < 3; i++) await press("text-smaller");
+  assert.equal(p.run("currentTextSize()"), "small");
+  assert.equal(p.run("$('#text-smaller').disabled"), true);
+  p.run("setTextSize('normal')");
+  assert.equal(p.run("document.documentElement.dataset.textSize"), undefined);
+  assert.equal(p.run("setTextSize('bogus')"), "normal");
+});
+
+test('fork v49: Now Playing labels track, artist and album separately', async () => {
+  const p = livePage({storage: {}}); await settle();
+  p.run('playTracks(state.details.get("1")); setNowPlaying(true)');
+  const html = p.nodes.get("#now-playing-current").innerHTML;
+  assert.match(html, /role-label">Track<[\s\S]*role-label">Artist<[\s\S]*role-artist[\s\S]*role-label">Album<[\s\S]*role-album/);
+  assert.match(html, /quick-add/);
 });

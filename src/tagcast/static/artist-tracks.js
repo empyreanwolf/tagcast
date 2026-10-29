@@ -81,10 +81,10 @@ function renderArtistTracks() {
     : !rows.length ? `<div class="empty">${all ? "No tracks match this search." : "No tracks on this artist's albums."}</div>`
     : `<table class="album-tracks album-tracklist track-results artist-track-table"><thead><tr><th class="track-number"><span class="track-number-label">#</span></th><th>Title / Artist</th><th>Album</th><th class="track-time">Time</th><th aria-label="Queue"></th></tr></thead><tbody>${rows.map(({album, track}) => `<tr data-row="${escapeHtml(track.id)}">
       <td class="track-number">${trackNumberControl(track, track.track || "–", `data-artist-track-play="${escapeHtml(track.id)}"`, live())}</td>
-      <td><strong>${escapeHtml(track.title)}</strong><small>${escapeHtml(track.artist || "")}</small></td>
-      <td><button class="text-action" data-album="${escapeHtml(album.id)}">${escapeHtml(album.name)}</button>${album.year ? ` <small class="muted">${escapeHtml(album.year)}</small>` : ""}</td>
+      <td><strong>${escapeHtml(track.title)}</strong><small class="role-artist">${escapeHtml(track.artist || "")}</small></td>
+      <td><button class="text-action role-album" data-album="${escapeHtml(album.id)}">${escapeHtml(album.name)}</button>${album.year ? ` <small class="muted">${escapeHtml(album.year)}</small>` : ""}</td>
       <td class="track-time">${trackDuration(track.length)}${trackFormatLabel(track)}</td>
-      <td>${queueButton(album.id, track)}</td></tr>`).join("")}</tbody></table>`;
+      <td>${quickAddButton(album.id, track)}${queueButton(album.id, track)}</td></tr>`).join("")}</tbody></table>`;
   const focused = document.activeElement?.id === "artist-tracks-search";
   box.innerHTML = head + line + body;
   if (focused) { const input = $("#artist-tracks-search"); input.focus?.(); input.setSelectionRange?.(input.value.length, input.value.length); }

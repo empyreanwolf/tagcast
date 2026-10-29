@@ -1186,6 +1186,11 @@ python3 tools/build_dark_css.py --check
   `docs/write-reliability.md`), edition-suffix album info. Not taken: year review, upload folder/day
   browsing, Mini Player. The fork's queued save (`saveDraft` in `app.js`) stays; the backend send-once
   policy applies underneath it.
+- Readable text and quick add (fork v49): `--ts` (from `data-text-size` on <html>, key `tagcast-text-size`) scales
+  every font size; write sizes as `calc(Npx*var(--ts))` (`tools/scale_text.py` converts plain px). Role classes:
+  `.role-album`/`.album-name`, `.role-artist`/`.performer-link`/`.album-artist`, `.np-line`. `quick-playlist.js`
+  holds the one-click add (`quickAddButton`, `quickAdd`, key `tagcast-quick-playlist`); it reuses `/api/playlist`
+  "append" with `before_token`, `collectionJob`, and never retries automatically.
 - Loading speed (fork v48): `static_assets.py` serves index.html with every local `src=`/`href=` .js/.css
   tagged `?v=<sha1 of contents>`; a request whose `v` matches the file gets a one-year immutable cache,
   anything else stays `no-store` (contents are always re-hashed, never trusted by mtime/size). Text and

@@ -1755,6 +1755,32 @@ document.addEventListener("click", event => {
   openEditor(set.map(a => String(a.id)));
 });
 
+// Text size (fork v49): one level up or down per click, also in the Theme menu. Local-only, like the theme.
+const TEXT_SIZES = ["small", "normal", "large", "xlarge"];
+const TEXT_SIZE_NAMES = {small: "Small", normal: "Normal", large: "Large", xlarge: "Extra large"};
+function currentTextSize() {
+  const size = document.documentElement.dataset.textSize;
+  return TEXT_SIZES.includes(size) ? size : "normal";
+}
+function setTextSize(value, save = true) {
+  const size = TEXT_SIZES.includes(value) ? value : "normal";
+  if (size === "normal") delete document.documentElement.dataset.textSize;
+  else document.documentElement.dataset.textSize = size;
+  if (save) { try { localStorage.setItem("tagcast-text-size", size); } catch { /* private window */ } }
+  showTextSize();
+  return size;
+}
+function showTextSize() {
+  const size = currentTextSize(), index = TEXT_SIZES.indexOf(size);
+  for (const value of TEXT_SIZES) $("#text-size-" + value).checked = size === value;
+  $("#text-smaller").disabled = index === 0; $("#text-larger").disabled = index === TEXT_SIZES.length - 1;
+  $("#text-smaller").title = index === 0 ? "Smallest text size" : `Smaller text (now ${TEXT_SIZE_NAMES[size]})`;
+  $("#text-larger").title = index === TEXT_SIZES.length - 1 ? "Largest text size" : `Larger text (now ${TEXT_SIZE_NAMES[size]})`;
+}
+$("#text-smaller").addEventListener("click", () => setTextSize(TEXT_SIZES[Math.max(0, TEXT_SIZES.indexOf(currentTextSize()) - 1)]));
+$("#text-larger").addEventListener("click", () => setTextSize(TEXT_SIZES[Math.min(TEXT_SIZES.length - 1, TEXT_SIZES.indexOf(currentTextSize()) + 1)]));
+try { setTextSize(localStorage.getItem("tagcast-text-size"), false); } catch { setTextSize("normal", false); }
+
 // Appearance and colour palette are independent, local-only preferences.
 function showTheme() {
   const theme = document.documentElement.dataset.theme || "auto";
@@ -1782,6 +1808,8 @@ $("#theme-menu").addEventListener("change", event => {
     else document.documentElement.dataset.theme = value;
     try { localStorage.setItem("tagcast-theme", value); } catch { /* private window */ }
     showTheme();
+  } else if (event.target.dataset.textSizeChoice !== undefined) {
+    setTextSize(event.target.value);
   } else if (event.target.dataset.paletteChoice !== undefined) {
     const palette = setColourPalette(event.target.value);
     try { localStorage.setItem("tagcast-palette", palette); } catch { /* private window */ }

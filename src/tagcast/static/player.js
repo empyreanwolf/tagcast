@@ -448,13 +448,14 @@ function renderNowPlaying() {
   nowPlayingRows.entries = player.queue.slice();
   const track = player.queue[player.index], album = track?.album;
   $("#now-playing-current").innerHTML = track ? `<div class="now-playing-cover">${cover(album)}</div>
-    <h3>${escapeHtml(track.title)}</h3><p class="muted">${performerLinks(track)}</p>
-    <button class="text-action" data-album="${escapeHtml(album.id)}">${escapeHtml(album.name)}</button><p><button class="button small" data-playlist-track="${escapeHtml(track.id)}" data-playlist-source="${escapeHtml(album.id)}">Add this track to playlist…</button></p><section id="now-playing-lyrics" class="track-lyrics" hidden></section>` : player.queue.length ? '<p class="empty">Choose a queued track to start playing.</p>' : '<p class="empty">Play a track or add an album to your queue.</p>';
+    <div class="np-line"><span class="role-label">Track</span><h3>${escapeHtml(track.title)}</h3></div>
+    <div class="np-line"><span class="role-label">Artist</span><p class="role-artist">${performerLinks(track)}</p></div>
+    <div class="np-line"><span class="role-label">Album</span><button class="text-action role-album" data-album="${escapeHtml(album.id)}">${escapeHtml(album.name)}</button></div><p>${quickAddButton(album.id, track, true)} <button class="button small" data-playlist-track="${escapeHtml(track.id)}" data-playlist-source="${escapeHtml(album.id)}">Add this track to playlist…</button></p><section id="now-playing-lyrics" class="track-lyrics" hidden></section>` : player.queue.length ? '<p class="empty">Choose a queued track to start playing.</p>' : '<p class="empty">Play a track or add an album to your queue.</p>';
   renderLyrics("player", lyricsSelection(track));
   $("#now-playing-count").textContent = `${player.queue.length} ${player.queue.length === 1 ? "track" : "tracks"}`;
   $("#queue-clear").disabled = !player.queue.length;
   list.innerHTML = player.queue.map((t, index) => `<li class="queue-row${editable ? " queue-editable" : ""}"><button type="button" class="queue-track ${index === player.index ? "current" : ""}" data-queue-index="${index}" ${index === player.index ? 'aria-current="true"' : ""}>
-    <span class="queue-number" aria-hidden="true">${index === player.index ? audio.paused ? "Ⅱ" : "▶" : index + 1}</span><span class="queue-label"><strong>${escapeHtml(t.title)}</strong><small>${t.upNext ? "Up next · " : ""}${escapeHtml(t.artist)} · ${escapeHtml(t.album.name)}</small></span><span class="queue-time">${trackDuration(t.length)}</span></button>${editable ? `<button type="button" class="queue-remove" data-queue-remove="${index}" data-queue-revision="${nowPlayingRows.revision}" aria-label="Remove ${escapeHtml(t.title)} from play queue, position ${index + 1}" title="Remove from play queue"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button>` : ""}</li>`).join("");
+    <span class="queue-number" aria-hidden="true">${index === player.index ? audio.paused ? "Ⅱ" : "▶" : index + 1}</span><span class="queue-label"><strong>${escapeHtml(t.title)}</strong><small>${t.upNext ? "Up next · " : ""}<span class="role-artist">${escapeHtml(t.artist)}</span> · <span class="role-album">${escapeHtml(t.album.name)}</span></small></span><span class="queue-time">${trackDuration(t.length)}</span></button>${editable ? `<button type="button" class="queue-remove" data-queue-remove="${index}" data-queue-revision="${nowPlayingRows.revision}" aria-label="Remove ${escapeHtml(t.title)} from play queue, position ${index + 1}" title="Remove from play queue"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button>` : ""}</li>`).join("");
   if (focusedEntry) {
     const index = player.queue.indexOf(focusedEntry);
     if (index >= 0) list.querySelector(`[data-queue-${removeFocused ? "remove" : "index"}="${index}"]`)?.focus({preventScroll: true});
@@ -525,7 +526,7 @@ function queueButton(albumId, track = null, compact = false, plainLabel = false)
 
 function albumCardActions(album) {
   const label = `Play album ${album.name}`;
-  return `<div class="album-card-actions"><button type="button" class="album-card-play" data-card-play="${escapeHtml(album.id)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" ${!live() || state.loading || !album.track_count ? "disabled" : ""}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5 12 8l-7 4.5z"/></svg></button>${queueButton(album.id, null, true)}</div>`;
+  return `<div class="album-card-actions"><button type="button" class="album-card-play" data-card-play="${escapeHtml(album.id)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" ${!live() || state.loading || !album.track_count ? "disabled" : ""}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5 12 8l-7 4.5z"/></svg></button>${quickAddButton(album.id, null, false)}${queueButton(album.id, null, true)}</div>`;
 }
 
 async function playCardAlbum(id) {
