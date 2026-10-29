@@ -1,6 +1,6 @@
 """Wishlist with retry (fork v17).
 
-Albums and songs that "Get the missing" could not find on Bandcamp, Galaxy or Soulseek (including
+Albums and songs that "Get the missing" could not find on Galaxy, Bandcamp or Soulseek (including
 a Soulseek job that failed, after Galaxy had already found nothing) go on the wishlist. While
 Tagcast is open it tries them again every 3 days (adjustable), in the same source order; Soulseek
 especially changes as people come online. A found item leaves the wishlist and goes to the queue

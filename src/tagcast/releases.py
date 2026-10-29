@@ -4,7 +4,7 @@ For the artists you pick, plus (when switched on) every album artist with 3 or m
 your iBroadcast library, Tagcast checks Deezer and Apple Music for new releases once every 7 days
 (adjustable) while it is running, and on request. A release is new when it came out after that
 artist's previous check; the first check of an artist counts the last 90 days. New releases you
-don't fully have are listed with their status, for "Get the missing" (Bandcamp → Galaxy →
+don't fully have are listed with their status, for "Get the missing" (Galaxy → Bandcamp →
 Soulseek). State: ``releases.json`` in the settings folder.
 """
 

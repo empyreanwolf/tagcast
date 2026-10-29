@@ -95,12 +95,14 @@ function renderDownloads() {
   $("#downloads-tabs").innerHTML = downloadsTabsHtml();
   const body = {galaxy: galaxyHtml, bandcamp: bandcampHtml, soulseek: soulseekHtml, discography: discographyHtml, missing: missingHtml, tagclean: tagcleanHtml, check: downloadsCheckHtml, pagelist: pagelistHtml, decide: downloadsDecideHtml, queue: downloadsQueueHtml, settings: downloadsSettingsHtml}[view.tab]();
   $("#downloads-content").innerHTML = body;
+  // The download manager always sits at the top of the page (v54), whichever tab is open.
+  if ($("#dl-queue-box")) $("#dl-queue-box").innerHTML = downloadsQueueBoxHtml();
 }
 
 function downloadsYouHave(rows) {
   return (rows || []).map(r => r.where === "folder" ? `<span>In your download folder: ${escapeHtml(r.path || r.title)}</span>` : r.where === "ibroadcast"
     ? `<span>iBroadcast: ${escapeHtml(r.title)} · ${escapeHtml(r.artist)}${r.album ? ` · <i>${escapeHtml(r.album)}</i>` : ""}${r.tracks ? ` · ${r.tracks} ${r.tracks === 1 ? "track" : "tracks"}` : ""}</span>`
-    : `<span>Downloaded ${escapeHtml(downloadsDate(r.when) || "before")} via ${escapeHtml(downloadsSourceLabels[r.source] || r.source || "?")}: ${escapeHtml(r.title)}${r.artist ? ` · ${escapeHtml(r.artist)}` : ""}${r.songs ? ` (${r.songs} songs)` : ""}</span>`).join("");
+    : `<span>Downloaded ${escapeHtml(downloadsDate(r.when) || "before")} via ${escapeHtml(downloadsSourceLabels[r.source] || r.source || "?")}${r.pc ? ` at <b>${escapeHtml(r.pc)}</b>` : ""}, not uploaded yet: ${escapeHtml(r.title)}${r.artist ? ` · ${escapeHtml(r.artist)}` : ""}${r.songs ? ` (${r.songs} songs)` : ""}</span>`).join("");
 }
 
 function downloadsItemLabel(item) {
@@ -148,7 +150,7 @@ function downloadsSeconds(s) {
   return s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`;
 }
 
-// Albums being looked up on Bandcamp → Galaxy → Soulseek (v46), from Discography, Missing, From a page...
+// Albums being looked up on Galaxy → Bandcamp → Soulseek (v46), from Discography, Missing, From a page...
 // Once a source has them they move into the queue below.
 function downloadsFindingHtml() {
   const jobs = downloadsView.finding || [];
@@ -203,14 +205,13 @@ function downloadsQueueHtml() {
   const h = downloadsView.history, data = h.data;
   const sources = Object.entries(downloadsView.info?.history_sources || {});
   const pages = data ? Math.ceil(data.total / 50) : 0, page = Math.floor(h.offset / 50);
-  return `<h3>Queue</h3><div id="dl-queue-box">${downloadsQueueBoxHtml()}</div>
-    <h3>History <span class="muted">${downloadsView.info ? `${downloadsView.info.history.toLocaleString("en")} songs` : ""}</span></h3>
+  return `<h3>History <span class="muted">${downloadsView.info ? `${downloadsView.info.history.toLocaleString("en")} songs` : ""}</span></h3>
     <div class="toolbar dl-history-tools"><div class="search"><span aria-hidden="true">⌕</span><input id="downloads-history-search" maxlength="200" placeholder="Search the history" aria-label="Search the download history" value="${escapeHtml(h.query)}"></div>
       <select id="downloads-history-source" aria-label="Source"><option value="">All sources</option>${sources.map(([s, n]) => `<option value="${escapeHtml(s)}" ${h.source === s ? "selected" : ""}>${escapeHtml(downloadsSourceLabels[s] || s)} (${n})</option>`).join("")}</select></div>
     ${!data ? '<p class="muted">Loading…</p>' : !data.total ? '<p class="muted">No songs yet. Downloads from Galaxy appear here; you can also import old histories under Settings.</p>'
-      : `<table class="dl-table"><thead><tr><th>Song</th><th>Artist</th><th>Album</th><th>Source</th><th>Date</th></tr></thead><tbody>${data.entries.map(e => `<tr>
+      : `<table class="dl-table"><thead><tr><th>Song</th><th>Artist</th><th>Album</th><th>Source</th><th>PC</th><th>Date</th></tr></thead><tbody>${data.entries.map(e => `<tr>
         <td>${escapeHtml(e.title)}</td><td>${escapeHtml((e.artists || []).join(", ") || "—")}</td><td>${escapeHtml(e.album || "—")}</td>
-        <td>${escapeHtml(downloadsSourceLabels[e.source] || e.source || "")}</td><td>${escapeHtml(downloadsDate(e.when))}</td></tr>`).join("")}</tbody></table>
+        <td>${escapeHtml(downloadsSourceLabels[e.source] || e.source || "")}</td><td>${escapeHtml(e.pc || "—")}</td><td>${escapeHtml(downloadsDate(e.when))}</td></tr>`).join("")}</tbody></table>
       <div class="pagination">${pages > 1 ? `<button type="button" class="button small" data-downloads-page="${page - 1}" ${page ? "" : "disabled"}>← Previous</button>
         <span>Page ${page + 1} of ${pages} · ${data.total.toLocaleString("en")} songs</span>
         <button type="button" class="button small" data-downloads-page="${page + 1}" ${page + 1 < pages ? "" : "disabled"}>Next →</button>` : ""}</div>`}`;
@@ -233,6 +234,13 @@ function downloadsSettingsHtml() {
       <div class="dl-actions"><input id="downloads-folder" class="dl-path" maxlength="400" value="${escapeHtml(info?.folder || "")}" aria-label="Download folder">
       <button type="button" class="button primary" data-downloads-folder>Save folder</button></div>
       ${info && !info.folder_set ? '<p class="muted">Not saved yet: this is the default.</p>' : ""}</section>
+    <section class="dl-card"><h3>This PC and the other PC</h3>
+      <p class="muted">Every download is recorded with the name of the PC that made it, so a song fetched at the office shows “downloaded at Office, not uploaded yet” at home. To share this between your PCs, pick the same shared folder on both (OneDrive, Dropbox or a network folder); each PC writes its own small file there.</p>
+      <div class="dl-settings"><label>Name of this PC <span><input id="downloads-pc" class="dl-path" maxlength="40" value="${escapeHtml(info?.pc || "")}"></span></label>
+        <label>Shared folder (optional) <span><input id="downloads-sync" class="dl-path" maxlength="400" value="${escapeHtml(info?.sync_folder || "")}" placeholder="C:\\Users\\you\\OneDrive\\Tagcast"></span></label></div>
+      <div class="dl-actions"><button type="button" class="button primary" data-downloads-pc>Save</button></div>
+      ${info?.sync_error ? `<p class="error-text">${escapeHtml(info.sync_error)}</p>` : ""}
+      ${info?.other_pcs?.length ? `<p class="muted">Also seen here: ${info.other_pcs.map(escapeHtml).join(", ")}.</p>` : info?.sync_folder ? '<p class="muted">No other PC has written to this folder yet.</p>' : ""}</section>
     <section class="dl-card"><h3>Import the Galaxy history</h3>
       <p class="muted">The Galaxy app keeps <code>history.json</code> in its own folder, next to <code>app.py</code> and <code>run.bat</code>.</p>
       <div class="dl-actions"><input id="downloads-galaxy-path" class="dl-path" maxlength="400" placeholder="C:\\Users\\you\\Documents\\gd-music-downloader\\history.json" aria-label="Galaxy history.json">
@@ -327,6 +335,13 @@ document.addEventListener("click", event => {
     downloadsRun(async () => {
       downloadsView.info = await api("/api/downloads/folder", {folder: $("#downloads-folder").value});
       renderDownloads(); downloadsNote(`Downloads go to ${downloadsView.info.folder}.`);
+    });
+    return;
+  }
+  if (target.closest("[data-downloads-pc]")) {
+    downloadsRun(async () => {
+      downloadsView.info = await api("/api/downloads/pc", {pc: $("#downloads-pc").value, sync_folder: $("#downloads-sync").value});
+      renderDownloads(); downloadsNote(`This PC is called ${downloadsView.info.pc}.`);
     });
     return;
   }

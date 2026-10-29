@@ -40,6 +40,7 @@ OPEN_SOURCES = ["netease", "joox", "bilibili"]
 OTHER_SOURCES = ["tencent", "kuwo", "tidal", "qobuz", "apple", "ytmusic", "spotify"]
 FALLBACK_SOURCES = ["netease", "joox"]  # tried when the chosen source has no link
 SEARCH_COUNT = 30
+BLOCK_PAUSE = 90.0   # seconds every Galaxy call waits after a 403 firewall page (fork v54)
 ALBUM_COUNT = 99   # the API rejects count > 99 (HTTP 422)
 ARTIST_TOP = 50
 BITRATE = 320
@@ -57,6 +58,10 @@ STATE_FILE = "galaxy.json"
 
 class GalaxyError(LibraryError):
     pass
+
+
+class GalaxyBlocked(GalaxyError):
+    """GD Studio answered with its firewall's 403 web page instead of data (fork v54)."""
 
 
 class TransientHTTPError(Exception):
@@ -96,6 +101,11 @@ def to_int(v, default=0):
 
 def norm(s):
     s = unicodedata.normalize("NFKC", str(s or "")).casefold()
+    try:
+        from .artist_match import simplified   # 逆風 and 逆风 are the same title (fork v54)
+        s = simplified(s)
+    except Exception:  # the character table is optional here
+        pass
     return " ".join(s.split())
 
 
@@ -359,7 +369,13 @@ class GDApi:
 
         r = request_with_backoff(call, on_retry=on_retry)
         if r.status_code != 200:
-            body = " ".join(str(r.text).split())[:160]
+            raw = str(r.text)
+            if r.status_code == 403 and re.search(r"<\s*(?:!doctype|html)", raw[:400], re.I):
+                # A web-firewall page, not "no results": pause every call and tell the caller (fork v54).
+                self.limiter.penalize(BLOCK_PAUSE)
+                raise GalaxyBlocked("GD Studio blocked this request (HTTP 403 firewall page). "
+                                    "Galaxy is paused for a while; this item goes on the wishlist and is tried again later.")
+            body = " ".join(raw.split())[:160]
             src = str(params.get("source", "")).replace("_album", "")
             hint = (f" - source “{src}” is probably closed right now, try netease / joox / bilibili"
                     if r.status_code in (400, 403, 404, 422) and src not in OPEN_SOURCES else "")
@@ -439,27 +455,48 @@ def fetch_album_exact(api, source, album, artist_hint=None):
     return [], ""
 
 
-def find_song(api, sources, artist, title):
+def find_song(api, sources, artist, title, deep=False):
     """The best match for one song across these sources, or None (v32).
 
     Tries "Artist Title" first, then without "(feat. X)" / brackets, then the title alone
     (what a person would type on the site), stopping at the first good match. The
     artist must still match, ignoring accents, so "Empire State Of Mind" alone can't
-    turn up somebody's cover."""
+    turn up somebody's cover.
+
+    deep=True (fork v54) is "try every way": 99 results per search (a second page for the
+    title-alone search), traditional and simplified Chinese count as the same title, and when
+    no search by title finds it, the artist's own songs (up to 3 pages) are checked as well."""
     simple = plain_title(title)
     folded = fold(artist)
     queries = []
     for q in (f"{artist} {title}", f"{artist} {simple}", f"{folded} {simple}" if folded != norm(artist) else "", simple):
         if q and q.strip() and q not in queries:
             queries.append(q)
+    count = ALBUM_COUNT if deep else SEARCH_COUNT
+
+    def score(t):
+        ts = max(sim(t["title"], title), sim(plain_title(t["title"]), simple))
+        ar = max((1.0 if artist_matches(a, artist) else sim(fold(a), folded) for a in t["artists"]), default=0.0)
+        return (ts + ar) if ts >= 0.8 and ar >= 0.7 else 0.0
+
     for source in dict.fromkeys(sources):
-        for q in queries:
-            best, score = None, 0.0
-            for t in api.search(source, q, SEARCH_COUNT, 1):
-                ts = max(sim(t["title"], title), sim(plain_title(t["title"]), simple))
-                ar = max((1.0 if artist_matches(a, artist) else sim(fold(a), folded) for a in t["artists"]), default=0.0)
-                if ts >= 0.8 and ar >= 0.7 and ts + ar > score:
-                    best, score = t, ts + ar
+        for number, q in enumerate(queries):
+            results = list(api.search(source, q, count, 1))
+            if deep and number == len(queries) - 1 and len(results) >= count:
+                results += api.search(source, q, count, 2)
+            best, top = None, 0.0
+            for t in results:
+                s = score(t)
+                if s > top:
+                    best, top = t, s
+            if best:
+                return best
+        if deep:
+            best, top = None, 0.0
+            for t in artist_tracks(api, source, artist):
+                s = score(t)
+                if s > top:
+                    best, top = t, s
             if best:
                 return best
     return None

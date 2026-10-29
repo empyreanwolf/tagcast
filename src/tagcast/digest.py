@@ -114,6 +114,27 @@ class Digest:
         return {"new_releases": new_releases, "wishlist_found": wishlist_found, "charts": charts,
                 "recommendations": recommendations}
 
+    def part(self, name):
+        """One section at a time (v54), so the page can load them in a queue instead of waiting for all of them."""
+        kind, _, arg = str(name).partition(":")
+        if kind == "list":
+            return {"parts": self.parts()}
+        if kind == "new_releases":
+            section = self._safe(self._new_releases)
+        elif kind == "wishlist_found":
+            section = self._safe(self._wishlist_found)
+        elif kind == "chart" and arg in CHARTS:
+            section = self._safe(lambda: self._chart_movement(arg))
+        elif kind == "recs" and arg in ("deezer",):
+            section = self._safe(lambda: self._recommendations(arg))
+        else:
+            raise LibraryError("Unknown Daily Digest part.")
+        self._persist()
+        return {"part": name, "section": section}
+
+    def parts(self):
+        return ["new_releases", "wishlist_found", *(f"chart:{c}" for c in CHARTS), "recs:deezer"]
+
     def mark_found_seen(self):
         with self.lock:
             self.state["found_seen"] = time.time()

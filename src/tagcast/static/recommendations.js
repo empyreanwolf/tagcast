@@ -2,7 +2,7 @@
 
 // Recommendations (fork v23, on the Charts page since v44): artists related (per Deezer) to the
 // ones New releases already tracks, no AI. Every song is checked against the library and
-// history first; "Get it" queues it the same Bandcamp -> Galaxy -> Soulseek order as Charts,
+// history first; "Get it" queues it the same Galaxy -> Bandcamp -> Soulseek order as Charts,
 // one at a time, landing on the wishlist if nothing has it. It is the "Recommended for you"
 // tab of the Charts page: this file only builds that tab's content.
 const recommendationsView = {tab: "deezer", data: {}, picked: new Set(), jobs: null, timer: null, jobTimer: null, busy: false};

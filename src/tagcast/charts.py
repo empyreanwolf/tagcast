@@ -14,7 +14,7 @@ Sources, grouped by what actually exists online:
   the wrong genre), Apple Music/iTunes' Hip-Hop/Rap "Top Songs" feed, and a public Spotify playlist
   (RapCaviar by default; Browse takes any public playlist link). Shazam and Billboard were
   removed in v44: their pages no longer carry readable chart data. These give title + artist only (no platform id), so
-  "Get it" goes through the same Bandcamp -> Galaxy -> Soulseek order as Discography's "Get
+  "Get it" goes through the same Galaxy -> Bandcamp -> Soulseek order as Discography's "Get
   the missing", one song at a time; songs not found anywhere land on the wishlist.
 - **Underground hip-hop**: no platform publishes this as an actual, fetchable chart --
   everything calling itself one (Spotify/Apple editorial playlists, blog "best of" posts) is
@@ -290,6 +290,8 @@ class Charts:
             results = [{"status": "new"}] * len(rows)
         for row, result in zip(rows, results):
             row["status"] = result["status"]
+            if result["status"] == "downloaded":   # v54: which PC fetched it, so it is not downloaded twice
+                row["pc"] = next((h.get("pc") for h in result.get("you_have") or [] if h.get("pc")), "")
         return rows
 
     # -- fetching one chart ------------------------------------------------------------
@@ -437,7 +439,7 @@ class Charts:
 
     def get(self, chart_id, ranks):
         """"Get it": queue the chosen rows. NetEase rows go straight through Galaxy (a real
-        track id); everything else tries Bandcamp -> Galaxy -> Soulseek, one at a time."""
+        track id); everything else tries Galaxy -> Bandcamp -> Soulseek, one at a time."""
         with self.lock:
             hit = self.cache.get(chart_id)
         if not hit or not hit["rows"]:

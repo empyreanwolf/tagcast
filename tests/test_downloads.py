@@ -301,3 +301,33 @@ class WatchdogTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PcRecordTests(unittest.TestCase):
+    def make(self, folder, pc):
+        from tagcast.downloads import Downloads
+        studio = type("S", (), {"_read": staticmethod(lambda name: None), "_write": staticmethod(lambda name, data: None)})()
+        manager = Downloads(studio)
+        manager.state["pc"] = pc
+        manager.state["sync_folder"] = str(folder)
+        return manager
+
+    def test_a_download_is_stamped_with_this_pc_and_seen_by_the_other_pc(self):
+        import tempfile
+        from tagcast.downloads import check_item
+        with tempfile.TemporaryDirectory() as folder:
+            office, home = self.make(folder, "Office"), self.make(folder, "Home")
+            office.record({"title": "Yellow", "artists": ["Coldplay"], "album": "Parachutes", "source": "galaxy"})
+            _, index = home._index(need_library=False)
+            result = check_item({"kind": "song", "title": "Yellow", "artist": "Coldplay"}, None, index)
+            self.assertEqual(result["status"], "downloaded")
+            self.assertEqual(result["you_have"][0]["pc"], "Office")
+            self.assertEqual(home.view()["other_pcs"], ["Office"])
+
+    def test_renaming_the_pc_renames_its_earlier_rows(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            pc = self.make(folder, "Old")
+            pc.record({"title": "A", "artists": ["B"], "source": "galaxy"})
+            pc.set_pc("New", folder)
+            self.assertEqual(pc.state["history"][0]["pc"], "New")

@@ -64,6 +64,14 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v54** **Galaxy depth, download manager on top, per-PC record, sorting.**
+  - Galaxy tries album, song title and artist (traditional and simplified, deep results); a 403 firewall page means "blocked, retry later", not "Not found".
+  - Every download goes Galaxy, then Bandcamp, then Soulseek.
+  - The download manager (Pause, Retry, Clear, Activity log, API line, overall progress, items) is at the top of the Downloads page.
+  - Downloads are recorded per PC. Settings > "This PC and the other PC": name this PC and optionally pick a shared folder (OneDrive/Dropbox) on both PCs; rows then read "downloaded at Office, not uploaded yet" in Downloads, Charts, Recommendations and the Daily Digest.
+  - Changing an album's year sets every track's year (like genre).
+  - Every table header sorts when clicked (A to Z, reverse, original order). Paged tables sort the page shown.
+  - Daily Digest sections load one after another, and start quietly 8 seconds after login.
 - **v53** **Duplicates, row buttons, heart playlist.**
   - **Duplicated tag** now means the same title twice on one album (per disc of a set). Matching track numbers alone are not tagged.
   - **Track rows** show "＋ Queue", "⏭ Next" and "☰ Playlist…" as buttons: one click each, no menu.

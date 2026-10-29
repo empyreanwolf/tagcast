@@ -1186,6 +1186,10 @@ python3 tools/build_dark_css.py --check
   `docs/write-reliability.md`), edition-suffix album info. Not taken: year review, upload folder/day
   browsing, Mini Player. The fork's queued save (`saveDraft` in `app.js`) stays; the backend send-once
   policy applies underneath it.
+- Fork v54: `table-sort.js` (IIFE, MutationObserver adds sort to any `<table>` with a thead; opt out with `data-no-sort`);
+  Digest loads `/api/digest?part=...` one at a time (`digestLoad`, `digestPrefetch` from boot); `Downloads.record` stamps `pc`,
+  optional `sync_folder` holds `tagcast-downloads-<pc>.json` per PC (`_sync_write`, `_other_rows`); `_galaxy_block` pauses Galaxy after a 403.
+  Editing an album year puts `albumPatch.year` on all tracks.
 - Fork v53: `duplicateTitleKey` (album_id + title) drives the Duplicated tag and `summary.duplicates`; `hasDuplicateTracks`
   ignores `repeated_numbers`; trash.js still uses the number-based keys. `queueButton(albumId, track)` returns
   `trackRowActions` (`data-row-act` append/next/playlist, handled in player.js's document click). `heart-playlist.js`

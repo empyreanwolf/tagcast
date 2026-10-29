@@ -10692,3 +10692,38 @@ test('fork v53: with the heart playlist off, only the rating is written', async 
   assert.ok(!calls.includes("/api/playlist"));
   assert.equal(p.run("favTrack.rating"), 5);
 });
+
+test("changing the album year sets every track year by itself", async () => {
+  const p = page(); await settle();
+  await p.run("openEditor([state.albums[0].id])");
+  const input = {type: "number", value: "2000", disabled: false, dataset: {originalYear: "2000"},
+    classList: {remove() {}, add() {}}, setCustomValidity() {}};
+  p.nodes.get("#metadata-form").elements = {year: input, namedItem: name => name === "year" ? input : null};
+  p.run('setFormField("year", "2026"); buildReview()');
+  assert.equal(p.run('pending.changes.some(c => c.kind === "track" && c.fields.year && c.fields.year.after === 2026)'), true);
+});
+
+test("the Daily Digest loads its sections one after another and shows the rest as loading", async () => {
+  const p = page(); await settle();
+  const seen = [], reply = body => ({ok: true, json: async () => body});
+  p.setFetch(async url => {
+    seen.push(url);
+    if (url.includes("part=list")) return reply({parts: ["new_releases", "chart:x"]});
+    if (url.includes("part=new_releases")) return reply({part: "new_releases", section: {ok: true, results: [], unseen: 0, total: 0}});
+    return reply({part: "chart:x", section: {ok: true, label: "X", first_scan: true, new_entries: []}});
+  });
+  p.run("digestView.data = null; digestView.loading = null; digestView.loadedAt = 0");
+  const pending = p.run("digestLoad()");
+  let done = false; pending.then(() => { done = true; });
+  for (let i = 0; i < 20 && !done; i++) { await settle(); p.flushTimers(400); }
+  await pending;
+  assert.deepEqual(seen.map(u => u.replace(/.*part=/, "")), ["list", "new_releases", "chart%3Ax"]);
+  assert.equal(p.run("Object.keys(digestView.data.charts).join()"), "x");
+  assert.match(p.run("digestBodyHtml({new_releases: null, wishlist_found: null, charts: {}, recommendations: {}})"), /Loading…/);
+});
+
+test("a download made at another PC reads 'downloaded at <PC>, not uploaded yet'", async () => {
+  const p = page(); await settle();
+  const html = p.run(`downloadsYouHave([{where: "history", title: "Yellow", artist: "Coldplay", source: "galaxy", when: 1700000000, pc: "Office"}])`);
+  assert.match(html, /at <b>Office<\/b>, not uploaded yet/);
+});

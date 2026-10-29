@@ -23,6 +23,7 @@ import io
 import json
 import logging
 import os
+import platform
 import re
 import secrets
 import threading
@@ -188,7 +189,8 @@ def check_item(item, library_index, history_index):
 
 def _history_hit(entry):
     return {"where": "history", "title": entry.get("title", ""), "artist": ", ".join(entry.get("artists", [])),
-            "album": entry.get("album", ""), "source": entry.get("source", ""), "when": entry.get("when")}
+            "album": entry.get("album", ""), "source": entry.get("source", ""), "when": entry.get("when"),
+            "pc": entry.get("pc", "")}
 
 
 # -- Activity log (fork v35) ------------------------------------------------------------------
@@ -402,7 +404,10 @@ class Downloads:
                       "queue": [i for i in data.get("queue") or [] if isinstance(i, dict)],
                       "held": [i for i in data.get("held") or [] if isinstance(i, dict)],
                       "history": [i for i in data.get("history") or [] if isinstance(i, dict)],
-                      "imports": data.get("imports") if isinstance(data.get("imports"), dict) else {}}
+                      "imports": data.get("imports") if isinstance(data.get("imports"), dict) else {},
+                      "pc": text(data.get("pc")).strip()[:40], "sync_folder": text(data.get("sync_folder")).strip()}
+        self.sync_error = ""
+        self._others = {}   # file name -> (mtime, rows) from the other PCs in the shared folder (v54)
         self._history_index = None
         self._library_index = (None, None)
         self.state["paused"] = bool(data.get("paused"))
@@ -430,23 +435,108 @@ class Downloads:
             library, _ = self.studio._library()
         if library is not None and self._library_index[0] is not library:
             self._library_index = (library, LibraryIndex(library))
-        if self._history_index is None:
-            self._history_index = HistoryIndex(self.state["history"])
+        others = self._other_rows()
+        signature = tuple(sorted((name, mtime) for name, (mtime, _) in self._others.items()))
+        if self._history_index is None or getattr(self, "_history_sig", None) != signature:
+            self._history_index = HistoryIndex(self.state["history"] + others)
+            self._history_sig = signature
         return (self._library_index[1] if library is not None else None), self._history_index
 
     def folder(self):
         return self.state["folder"] or default_folder()
 
+    # -- Which PC downloaded what (fork v54) ----------------------------------------------------
+    # Every download is stamped with this PC's name. With a shared folder (OneDrive, Dropbox, a network
+    # share) each PC writes its own file there and reads the others', so a song fetched at the office
+    # still reads "downloaded at Office, not uploaded yet" at home, instead of being downloaded twice.
+
+    def pc_name(self):
+        return self.state.get("pc") or text(platform.node()).strip()[:40] or "this PC"
+
+    def _sync_dir(self):
+        value = self.state.get("sync_folder")
+        return Path(value) if value else None
+
+    def _sync_file(self):
+        safe = re.sub(r"[^\w .-]", "_", self.pc_name())
+        return f"tagcast-downloads-{safe}.json"
+
+    def _sync_write(self):
+        folder = self._sync_dir()
+        if not folder:
+            return
+        try:
+            mine = [e for e in self.state["history"] if e.get("pc") == self.pc_name()]
+            target = folder / self._sync_file()
+            temp = target.with_suffix(".tmp")
+            temp.write_text(json.dumps({"version": 1, "pc": self.pc_name(), "entries": mine}), encoding="utf-8")
+            os.replace(temp, target)
+            self.sync_error = ""
+        except OSError as error:
+            self.sync_error = f"Could not write to the shared folder ({error.strerror or error})."
+            log.info("Download sync write failed: %s", error)
+
+    def _other_rows(self):
+        """Rows other PCs wrote into the shared folder, re-read only when a file changed."""
+        folder = self._sync_dir()
+        if not folder:
+            self._others = {}
+            return []
+        mine = self._sync_file()
+        try:
+            files = {f.name: f for f in folder.glob("tagcast-downloads-*.json") if f.name != mine}
+            seen = {}
+            for name, path in files.items():
+                mtime = path.stat().st_mtime
+                old = self._others.get(name)
+                if old and old[0] == mtime:
+                    seen[name] = old
+                    continue
+                data = json.loads(path.read_text(encoding="utf-8"))
+                pc = text(data.get("pc")) or name
+                rows = [{**e, "pc": pc} for e in data.get("entries") or [] if isinstance(e, dict)]
+                seen[name] = (mtime, rows)
+            self._others = seen
+            self.sync_error = ""
+        except (OSError, ValueError) as error:
+            self.sync_error = f"Could not read the shared folder ({getattr(error, 'strerror', None) or error})."
+        return [row for _, rows in self._others.values() for row in rows]
+
+    def set_pc(self, name, sync_folder):
+        name, folder = text(name).strip()[:40], text(sync_folder).strip().strip('"')
+        if folder:
+            path = Path(os.path.expandvars(os.path.expanduser(folder)))
+            if not path.is_absolute():
+                raise LibraryError("Enter a full folder path for the shared folder, for example C:\\Users\\you\\OneDrive\\Tagcast.")
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+            except OSError as error:
+                raise LibraryError(f"Tagcast cannot create or use that folder ({error.strerror or error}).") from None
+            folder = str(path)
+        with self.lock:
+            old = self.pc_name()
+            self.state["pc"], self.state["sync_folder"] = name, folder
+            for row in self.state["history"]:   # earlier downloads of this PC follow the new name
+                if row.get("pc") == old:
+                    row["pc"] = self.pc_name()
+            self._history_index = None
+            self._persist()
+            self._sync_write()
+        return self.view()
+
     # -- reading ---------------------------------------------------------------
 
     def view(self):
         with self.lock:
+            self._other_rows()
             sources = Counter(e.get("source", "") for e in self.state["history"])
             return {"folder": self.folder(), "folder_set": bool(self.state["folder"]),
                     "queue": len([i for i in self.state["queue"] if i.get("state") == "queued"]),
                     "held": len(self.state["held"]), "history": len(self.state["history"]),
                     "history_sources": dict(sources), "imports": self.state["imports"],
-                    "telegram_folder": str(telegram_folder())}
+                    "telegram_folder": str(telegram_folder()),
+                    "pc": self.pc_name(), "pc_set": bool(self.state["pc"]), "sync_folder": self.state["sync_folder"],
+                    "sync_error": self.sync_error, "other_pcs": sorted({r.get("pc", "") for _, rows in self._others.values() for r in rows})}
 
     def queue_view(self):
         self._watchdog()
@@ -738,11 +828,12 @@ class Downloads:
         """Add a finished download to the history (used by the sources from v10 on)."""
         row = {"title": match.clean(entry.get("title")), "artists": [match.clean(a) for a in entry.get("artists") or []],
                "album": match.clean(entry.get("album")), "source": entry.get("source", "manual"),
-               "when": entry.get("when") or time.time(), "path": text(entry.get("path"))}
+               "when": entry.get("when") or time.time(), "path": text(entry.get("path")), "pc": self.pc_name()}
         with self.lock:
             self.state["history"].append(row)
             self._history_index = None
             self._persist()
+            self._sync_write()
         return row
 
     def set_folder(self, folder):

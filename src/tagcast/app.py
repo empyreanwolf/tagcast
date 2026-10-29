@@ -344,7 +344,7 @@ class Handler(SimpleHTTPRequestHandler):
         elif url.path == "/api/recommendations/jobs":
             self._run(self.studio.recommendations.jobs_view)
         elif url.path == "/api/digest":
-            self._run(self.studio.digest.view)
+            self._run((lambda: self.studio.digest.part(query["part"])) if query.get("part") else self.studio.digest.view)
         elif url.path == "/api/wishlist":
             self._run(self.studio.wishlist.view)
         elif url.path == "/api/releases":
@@ -414,6 +414,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/downloads/decide": lambda b: self.studio.download_manager.decide(b.get("ids"), b.get("action")),
             "/api/downloads/remove": lambda b: self.studio.download_manager.remove(b.get("ids")),
             "/api/downloads/folder": lambda b: self.studio.download_manager.set_folder(b.get("folder")),
+            "/api/downloads/pc": lambda b: self.studio.download_manager.set_pc(b.get("pc"), b.get("sync_folder")),
             "/api/downloads/import": lambda b: self.studio.download_manager.import_history(b.get("kind"), b.get("path")),
             "/api/galaxy/search": lambda b: self.studio.galaxy.search(b.get("mode"), b.get("q"), b.get("source")),
             "/api/galaxy/album": lambda b: self.studio.galaxy.album(b.get("album"), b.get("artist"), b.get("source")),

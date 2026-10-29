@@ -62,6 +62,7 @@
   <script src="results-actions.js" defer></script>
   <script src="resume.js" defer></script>
   <script src="heart-playlist.js" defer></script>
+  <script src="table-sort.js" defer></script>
   <script src="saved-lists.js" defer></script>
   <script src="playlist-tools.js" defer></script>
   <script src="playlist-order.js" defer></script>
@@ -142,6 +143,7 @@
     <section id="overview-page" class="overview" hidden aria-live="polite"></section>
     <section id="downloads-page" hidden aria-label="Downloads">
       <div class="page-intro"><div><div class="eyebrow">CHECK FIRST, THEN DOWNLOAD</div><h1>Downloads<span>.</span> <span class="ac-version" id="downloads-version"></span></h1><p>Every song and album is checked against your iBroadcast library and your download history first. Possible duplicates wait for your decision; nothing is uploaded to iBroadcast.</p></div></div>
+      <div id="dl-queue-box" class="dl-manager" aria-label="Download manager"></div>
       <div id="downloads-tabs" class="favourites-tabs dl-tabs" role="tablist" aria-label="Downloads"></div>
       <p id="downloads-status" class="error-text" role="status"></p>
       <div id="downloads-content" role="tabpanel"></div>

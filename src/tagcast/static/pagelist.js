@@ -2,7 +2,7 @@
 
 // "From a page" on the Downloads page (fork v45): give Tagcast a link (or pasted text) and it
 // lists every album on that page, says Have / Partly / New for each, and downloads the ticked
-// ones through Bandcamp → Galaxy → Soulseek. Albums it isn't sure about can be edited and checked again.
+// ones through Galaxy → Bandcamp → Soulseek. Albums it isn't sure about can be edited and checked again.
 const pagelistView = {link: "", text: "", textOpen: false, job: null, picked: new Set(), editing: null, busy: false, timer: null, getJobs: [], getIds: [], getCount: 0, touched: new Set(), autoTicked: false, getTimer: null, error: ""};
 
 function pagelistHtml() {

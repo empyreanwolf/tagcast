@@ -11,7 +11,7 @@ tallied across all your seeds, so someone related to several of your artists ran
 someone related to only one, then each kept artist's current Deezer top track is looked up so
 there is a real song to get. (The Gemini-based list was removed in v44 along with Ask Gemini.)
 
-Songs you pick go through the same Bandcamp -> Galaxy -> Soulseek order as Charts/Discography,
+Songs you pick go through the same Galaxy -> Bandcamp -> Soulseek order as Charts/Discography,
 one at a time; not found anywhere lands on the wishlist. State: in-memory cache only
 (``CACHE_SECONDS``), nothing persisted -- the seed list and the API results are cheap enough to
 redo on request via "Refresh".
@@ -99,6 +99,8 @@ class Recommendations:
             results = [{"status": "new"}] * len(rows)
         for row, result in zip(rows, results):
             row["status"] = result["status"]
+            if result["status"] == "downloaded":   # v54: which PC fetched it, so it is not downloaded twice
+                row["pc"] = next((h.get("pc") for h in result.get("you_have") or [] if h.get("pc")), "")
         return rows
 
     # -- Deezer: deterministic, no AI -----------------------------------------------------

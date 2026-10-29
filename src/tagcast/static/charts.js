@@ -101,7 +101,7 @@ async function browseLoad(refresh) {
 }
 
 function chartsRowHtml(r) {
-  const status = r.status && r.status !== "new" ? `<span class="pill ${r.status === "have" ? "" : "missing"}">${escapeHtml(downloadsStatusLabels[r.status] || r.status)}</span>` : "";
+  const status = r.status && r.status !== "new" ? `<span class="pill ${r.status === "have" ? "" : "missing"}">${escapeHtml(downloadsStatusLabels[r.status] || r.status)}${r.status === "downloaded" && r.pc ? ` at ${escapeHtml(r.pc)}, not uploaded yet` : ""}</span>` : "";
   return `<li><input type="checkbox" data-charts-pick="${r.rank}" aria-label="Select ${escapeHtml(r.title)}" ${chartsView.picked.has(r.rank) ? "checked" : ""}>
       <div><b>#${r.rank}</b> ${escapeHtml(r.title)} · ${escapeHtml(r.artist)}${r.album ? ` · <i>${escapeHtml(r.album)}</i>` : ""} ${status}</div></li>`;
 }

@@ -10,7 +10,7 @@ only partly there:
 
 Discs of one set count together; Various Artists albums are left out. The report lists what you
 have and what the album should have; the missing titles come from Deezer when you open an album.
-"Get the missing" sends albums through Bandcamp → Galaxy (a partly owned album skips Soulseek),
+"Get the missing" sends albums through Galaxy → Bandcamp (a partly owned album skips Soulseek),
 and every song still passes the duplicate check. State: ``completion.json``.
 """
 

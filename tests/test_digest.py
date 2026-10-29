@@ -91,6 +91,22 @@ class NewReleasesSectionTests(unittest.TestCase):
         self.assertEqual(data["new_releases"]["total"], 0)
 
 
+class DigestPartTests(unittest.TestCase):
+    def test_every_section_can_be_read_on_its_own(self):
+        studio = LocalStudio()
+        parts = studio.digest.part("list")["parts"]
+        self.assertIn("new_releases", parts)
+        self.assertIn("wishlist_found", parts)
+        self.assertTrue(any(p.startswith("chart:") for p in parts))
+        one = studio.digest.part("new_releases")
+        self.assertEqual(one["part"], "new_releases")
+        self.assertTrue(one["section"]["ok"])
+
+    def test_an_unknown_part_is_refused(self):
+        with self.assertRaises(Exception):
+            LocalStudio().digest.part("chart:nope")
+
+
 class WishlistFoundSectionTests(unittest.TestCase):
     def test_items_found_before_the_last_mark_seen_are_not_new(self):
         studio = LocalStudio()

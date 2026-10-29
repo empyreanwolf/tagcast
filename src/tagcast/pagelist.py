@@ -6,7 +6,7 @@ list items, headings, table rows, schema.org lists), then checks each candidate 
 MusicBrainz first, then Deezer -- to fix the spelling and fill in the year and cover. A line
 neither knows is kept and marked "Not sure"; you can edit it and check it again. Each album is
 compared with your library and download history (Have / Partly / New). The albums you tick are
-fetched through the same Bandcamp -> Galaxy -> Soulseek chain as Discography; anything no source
+fetched through the same Galaxy -> Bandcamp -> Soulseek chain as Discography; anything no source
 has goes on the wishlist. Nothing is written to iBroadcast.
 
 The page text is read, never executed. Only http(s) links are fetched, and never to addresses on

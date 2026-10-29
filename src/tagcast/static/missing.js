@@ -2,7 +2,7 @@
 
 // "Missing" on the Downloads page (fork v16+): New releases of the artists you follow,
 // albums in your library that are only partly there, and the wishlist of things no source had.
-// "Get the missing" sends each artist's albums through Bandcamp → Galaxy → Soulseek.
+// "Get the missing" sends each artist's albums through Galaxy → Bandcamp → Soulseek.
 const missingView = {complete: null, completeQuery: "", completeOpen: new Map(), wishlist: null, wishKind: "album", settingsOpen: false, sub: "releases", releases: null, picked: new Set(), jobs: [], timer: null, jobTimer: null};
 const missingSubs = [["releases", "New releases"], ["complete", "Complete my albums"], ["wishlist", "Wishlist"]];
 
@@ -59,7 +59,7 @@ function releasesHtml() {
         <label><input type="checkbox" data-releases-all ${r.results.every(x => missingView.picked.has(x.id)) ? "checked" : ""}> Select all (${r.results.length})</label>
         <button type="button" class="button primary" data-releases="get" ${picked ? "" : "disabled"}>⬇ Get the missing (${picked})</button>
         <button type="button" class="button" data-releases="dismiss" ${picked ? "" : "disabled"}>Hide selected</button>
-        <span class="muted">Order: Bandcamp → Galaxy → Soulseek.</span></div>
+        <span class="muted">Order: Galaxy → Bandcamp → Soulseek.</span></div>
       <ul class="discography-list">${r.results.map(x => `<li>
         <input type="checkbox" data-releases-pick="${x.id}" aria-label="Select ${escapeHtml(x.title)}" ${missingView.picked.has(x.id) ? "checked" : ""}>
         ${bandcampThumb(x.cover, "galaxy-album-art")}
@@ -96,7 +96,7 @@ function completeHtml() {
     <div class="dl-actions"><div class="search"><span aria-hidden="true">⌕</span><input id="complete-search" maxlength="200" placeholder="Filter artists or albums" aria-label="Filter the report" value="${escapeHtml(missingView.completeQuery)}"></div>
       <label><input type="checkbox" data-complete-all ${rows.length && rows.every(a => missingView.picked.has(a.key)) ? "checked" : ""}> Select all (${rows.length})</label>
       <button type="button" class="button primary" data-complete="get" ${picked ? "" : "disabled"}>⬇ Get the missing (${picked})</button>
-      <span class="muted">Order: Bandcamp → Galaxy (whole albums from Soulseek would bring back what you have).</span></div>
+      <span class="muted">Order: Galaxy → Bandcamp (whole albums from Soulseek would bring back what you have).</span></div>
     <ul class="discography-list">${rows.map(a => {
       const open = missingView.completeOpen.get(a.key);
       const holes = Object.entries(a.gaps || {}).map(([disc, n]) => `${Object.keys(a.gaps).length > 1 ? `disc ${disc}: ` : ""}#${n.join(", #")}`).join("; ");

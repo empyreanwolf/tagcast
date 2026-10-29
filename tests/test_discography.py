@@ -74,6 +74,10 @@ def wait_job(d, job):
 
 
 class DiscographyTests(unittest.TestCase):
+    def setUp(self):
+        from tagcast import discography
+        discography._galaxy_block["until"] = 0.0
+
     def test_merged_discography_with_statuses(self):
         studio = LocalStudio()
         data = studio.discography.view("Coldplay")
@@ -112,7 +116,7 @@ class DiscographyTests(unittest.TestCase):
         top = studio.discography.top("Coldplay", 1)
         self.assertEqual((top["source"], [s["title"] for s in top["songs"]]), ("Galaxy", ["Clocks"]))
 
-    def test_get_missing_uses_bandcamp_then_galaxy(self):
+    def test_get_missing_uses_galaxy_then_bandcamp(self):
         studio = LocalStudio()
         studio.gd.search_results[("netease_album", "X&Y", 1)] = [gd_song(31, "Square One", "Coldplay", "X&Y")]
         studio.gd.search_results[("netease_album", "Viva", 1)] = []
@@ -158,6 +162,57 @@ class DiscographyTests(unittest.TestCase):
         self.assertEqual((shown["state"], shown["current"]), ("done", ""))
         self.assertEqual(len(shown["log"]), 4)
         self.assertEqual(studio.discography.dismiss(), {"jobs": []})
+
+    def test_galaxy_is_tried_before_bandcamp_even_when_bandcamp_has_the_album(self):
+        studio = LocalStudio()
+        studio.gd.search_results[("netease_album", "Ghost Stories", 1)] = [gd_song(51, "Magic", "Coldplay", "Ghost Stories")]
+        result = wait_job(studio.discography, studio.discography.get("Coldplay", albums=[{"title": "Ghost Stories", "status": "missing"}]))
+        self.assertEqual({e["title"]: e["source"] for e in result["log"]}, {"Ghost Stories": "Galaxy"})
+        self.assertEqual({i["source"] for i in studio.download_manager.state["queue"]}, {"galaxy"})
+
+    def test_an_album_galaxy_only_lists_as_a_song_is_found_by_title_in_either_chinese_script(self):
+        # Fork v54: the album search finds nothing, but Galaxy lists a song with this title (simplified
+        # characters, full-width brackets) under another album name.
+        studio = LocalStudio()
+        wanted = "逆風 (傳說對決 GCS 2026 主題曲)"
+        studio.gd.search_results[("netease", f"玖壹壹 {wanted}", 1)] = [
+            gd_song(61, "逆风（传说对决 GCS 2026 主题曲）", "玖壹壹", "逆风 单曲")]
+        result = wait_job(studio.discography, studio.discography.get("玖壹壹", albums=[{"title": wanted, "status": "missing"}]))
+        entry = result["log"][0]
+        self.assertEqual(entry["source"], "Galaxy")
+        self.assertIn("found by song title", entry["note"])
+        self.assertEqual([i["source"] for i in studio.download_manager.state["queue"]], ["galaxy"])
+
+    def test_the_artists_own_songs_are_searched_when_no_title_search_finds_it(self):
+        studio = LocalStudio()
+        studio.gd.search_results[("netease", "连麻Swimming", 1)] = [
+            gd_song(71, "國產專區", "连麻Swimming", "國產專區FT. BOBBYN")]
+        result = wait_job(studio.discography, studio.discography.get("连麻Swimming", albums=[{"title": "國產專區", "status": "missing"}]))
+        self.assertEqual(result["log"][0]["source"], "Galaxy")
+
+    def test_a_403_firewall_page_is_not_not_found_and_pauses_galaxy(self):
+        from tagcast import galaxy as galaxy_mod
+        from test_galaxy import FakeResponse
+        studio = LocalStudio()
+        old = galaxy_mod.BLOCK_PAUSE
+        galaxy_mod.BLOCK_PAUSE = 0.01
+        try:
+            page = FakeResponse(403)
+            page.text = '<!doctype html><html><head><title>blocked</title></head></html>'
+            calls = []
+            studio.galaxy.api.get = lambda params, timeout: (calls.append(params), page)[1]
+            result = wait_job(studio.discography, studio.discography.get(
+                "Snowgoons", albums=[{"title": "Feels Like I'm Dying", "status": "missing"},
+                                     {"title": "Another One", "status": "missing"}]))
+        finally:
+            galaxy_mod.BLOCK_PAUSE = old
+        first, second = result["log"]
+        self.assertIsNone(first["source"])
+        self.assertIn("blocked", first["note"])
+        self.assertNotIn("<html", first["note"].lower())
+        self.assertNotIn("Not found on Galaxy", first["note"])
+        self.assertEqual(len(calls), 1, "after one block Galaxy is not asked again for a while")
+        self.assertIn("paused", second["note"])
 
 
 if __name__ == "__main__":

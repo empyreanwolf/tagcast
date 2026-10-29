@@ -1289,3 +1289,8 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 .row-act:hover{background:var(--palette-tint,#edf2e7)}
 .row-act:disabled{opacity:.4;cursor:default}
 .track-table td:has(.row-actions){white-space:nowrap}
+
+/* v54: sortable table headers */
+th.sortable-th{cursor:pointer;user-select:none}
+th.sortable-th:hover,th.sortable-th:focus-visible{text-decoration:underline}
+th.sortable-th .sort-arrow{font-size:calc(10px*var(--ts));color:var(--accent,currentColor)}

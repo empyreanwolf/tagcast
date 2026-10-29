@@ -10,8 +10,9 @@ Top 30 songs come from Deezer's ranking (with 30-second previews); when Deezer i
 Galaxy's search order is used. Each song shows Have / Missing.
 
 "Get the missing" runs in the background and tries the sources in the agreed order:
-**Bandcamp → Galaxy → Soulseek** (Galaxy before Soulseek since v45: it is the steadier of the two).
-Bandcamp is used when the artist has the album there; then Galaxy; if Galaxy has nothing, Soulseek
+**Galaxy → Bandcamp → Soulseek** (fork v54; v45-v53 were Galaxy → Bandcamp → Soulseek).
+Galaxy tries every way (album, song title, the artist's songs, traditional and simplified Chinese); then
+Bandcamp when the artist has the album there; if both have nothing, Soulseek
 when Sockseek is set up (an album that is only partly owned skips Soulseek, which would fetch the
 whole album again); a Soulseek job that fails goes on the wishlist. Every song still passes the
 duplicate check, so anything you may have waits in Needs your decision.
@@ -26,12 +27,14 @@ from collections import Counter
 
 from . import artist_match as match
 from .downloads import album_key
-from .galaxy import FALLBACK_SOURCES, find_song
+from .galaxy import FALLBACK_SOURCES, GalaxyBlocked, find_song, sim
 from .library import LibraryError
 from .sources import PACING, Http, SourceError
 
 log = logging.getLogger("tagcast")
-NOT_FOUND = "Not found on Bandcamp, Galaxy or Soulseek"
+NOT_FOUND = "Not found on Galaxy, Bandcamp or Soulseek"
+GALAXY_PAUSE = 600.0   # after GD Studio blocks a request, Galaxy is skipped this long (fork v54)
+_galaxy_block = {"until": 0.0}
 CACHE_FILE = "discography_cache.json"
 CACHE_DAYS = 7
 DEEZER = "https://api.deezer.com"
@@ -280,7 +283,7 @@ class Discography:
         ctx = {"bandcamp": None, "bandcamp_checked": False, "job": job}
         for a in albums:
             title = match.clean((a or {}).get("title"))
-            self._step(ctx, f"{title}: looking on Bandcamp…")
+            self._step(ctx, f"{title}: searching Galaxy…")
             try:
                 source, note = self._album(job["name"], title, a.get("status"), a.get("deezer_id"), ctx)
             except Exception as error:  # one album never stops the rest
@@ -342,22 +345,24 @@ class Discography:
         return reason
 
     def _album(self, name, title, status, deezer_id, ctx):
-        # 1. Bandcamp: the artist's page first, then Bandcamp's own album search (v46)
-        why = self._bandcamp_album(name, title, ctx)
-        if isinstance(why, tuple):
-            return why
-        # 2. Galaxy
+        # 1. Galaxy: every way (album, then the title as a song, then the artist's songs)
         self._step(ctx, f"{title}: searching Galaxy…")
         source, note = self._galaxy_album(name, title)
         if source:
-            return source, f"{note} (Bandcamp: {why})"
+            return source, note
+        galaxy_note = note
+        # 2. Bandcamp: the artist's page first, then Bandcamp's own album search (v46)
+        self._step(ctx, f"{title}: looking on Bandcamp…")
+        why = self._bandcamp_album(name, title, ctx)
+        if isinstance(why, tuple):
+            return why
         # 3. Soulseek (whole albums only; a partly owned album would be fetched again)
         soulseek = getattr(self.studio, "soulseek", None)
         if soulseek is not None and soulseek.configured() and status != "partly":
             self._step(ctx, f"{title}: asking Soulseek…")
             result = soulseek.add([{"kind": "album", "artist": name, "album": title, "fallback": True}])
             return "Soulseek", self._summary(result) + " (wishlist if Soulseek has nothing)"
-        return None, NOT_FOUND
+        return None, galaxy_note if "blocked" in str(galaxy_note) else NOT_FOUND
 
     def _galaxy_sources(self):
         """The chosen source first, then the other open ones (v32): one source missing a song
@@ -365,15 +370,40 @@ class Discography:
         chosen = self.studio.galaxy.state.get("source") or "netease"
         return list(dict.fromkeys([chosen, *FALLBACK_SOURCES]))
 
+    @staticmethod
+    def _galaxy_paused():
+        return _galaxy_block["until"] > time.time()
+
     def _galaxy_album(self, name, title):
+        if self._galaxy_paused():
+            return None, "Galaxy was blocked by GD Studio a moment ago and is paused"
         galaxy = self.studio.galaxy
-        for source in self._galaxy_sources():
-            data = galaxy.album(title, name, source)
-            if data.get("found"):
-                return "Galaxy", self._summary(galaxy.add(data["tracks"], data["album_artist"], len(data["tracks"])))
+        try:
+            for source in self._galaxy_sources():
+                data = galaxy.album(title, name, source)
+                if data.get("found"):
+                    return "Galaxy", self._summary(galaxy.add(data["tracks"], data["album_artist"], len(data["tracks"])))
+            # The album search found nothing: the title may be a song (a single, or an album that
+            # shares its name with its first song), listed under another album name on Galaxy.
+            best = find_song(galaxy.api, self._galaxy_sources(), name, title, deep=True)
+            if best:
+                own = best.get("album") or ""
+                if own and sim(own, title) < 0.9:   # the song's own album may be the whole thing
+                    data = galaxy.album(own, name, best["source"])
+                    if data.get("found"):
+                        return "Galaxy", self._summary(galaxy.add(data["tracks"], data["album_artist"], len(data["tracks"]))) + f" (album “{own}”)"
+                return "Galaxy", self._summary(galaxy.add([best])) + " (found by song title)"
+        except GalaxyBlocked as error:
+            _galaxy_block["until"] = time.time() + GALAXY_PAUSE
+            log.warning("Galaxy blocked: %s", error)
+            return None, str(error)
         return None, NOT_FOUND
 
     def _song(self, name, title, album, ctx):
+        source, note = self._galaxy_song(name, title)
+        if source:
+            return source, note
+        galaxy_note = note
         base = self._bandcamp_base(name, ctx, [album] if album else [])
         if base and album:
             try:
@@ -383,18 +413,22 @@ class Discography:
                     return "Bandcamp", self._summary(self.studio.bandcamp.add(release["url"], [track["num"]]))
             except LibraryError as error:
                 log.info("Bandcamp song failed: %s", error)
-        source, note = self._galaxy_song(name, title)
-        if source:
-            return source, note
         soulseek = getattr(self.studio, "soulseek", None)
         if soulseek is not None and soulseek.configured():
             result = soulseek.add([{"kind": "song", "artist": name, "title": title, "album": album, "fallback": True}])
             return "Soulseek", self._summary(result) + " (wishlist if Soulseek has nothing)"
-        return None, NOT_FOUND
+        return None, galaxy_note if "blocked" in str(galaxy_note) else NOT_FOUND
 
     def _galaxy_song(self, name, title):
+        if self._galaxy_paused():
+            return None, "Galaxy was blocked by GD Studio a moment ago and is paused"
         galaxy = self.studio.galaxy
-        best = find_song(galaxy.api, self._galaxy_sources(), name, title)
+        try:
+            best = find_song(galaxy.api, self._galaxy_sources(), name, title, deep=True)
+        except GalaxyBlocked as error:
+            _galaxy_block["until"] = time.time() + GALAXY_PAUSE
+            log.warning("Galaxy blocked: %s", error)
+            return None, str(error)
         if not best:
             return None, NOT_FOUND
         return "Galaxy", self._summary(galaxy.add([best]))

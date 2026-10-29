@@ -49,7 +49,7 @@ class WishlistTests(unittest.TestCase):
         item = studio.wishlist.add("song", "Coldplay", "Unreleased Demo")
         (studio.wishlist.retry([item["id"]]), wait(studio.wishlist))[1]
         again = studio.wishlist.view()["items"][0]
-        self.assertEqual((again["tries"], again["note"]), (2, "Not found on Bandcamp, Galaxy or Soulseek"))
+        self.assertEqual((again["tries"], again["note"]), (2, "Not found on Galaxy, Bandcamp or Soulseek"))
 
     def test_something_you_have_now_is_removed(self):
         studio = LocalStudio()
