@@ -64,6 +64,12 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v50** **Smoother listening: next 2 songs are pre-loaded.**
+  - While a track plays, the next two songs in the queue are downloaded one at a time into memory (never to disk).
+    When one becomes current it plays from memory, so Next and track changes start instantly. Seeking works.
+  - On by default; switch off in Settings → Playback → "Pre-load next songs". Not used with experimental gapless.
+  - If a download fails or the copy cannot play, that track streams normally. No sleep timer (not wanted).
+  - Not tried in a real browser against the real library; the other v50 ideas (queue reorder, smart shuffle, etc.) are not built yet.
 - **v49** **Readable text and one-click add.**
   - **Text size**: A− / A+ beside the theme button (and Theme menu → Text size: Small, Normal, Large, Extra large).
     Remembered in the browser. No text is below about 12px at Normal.

@@ -1186,6 +1186,10 @@ python3 tools/build_dark_css.py --check
   `docs/write-reliability.md`), edition-suffix album info. Not taken: year review, upload folder/day
   browsing, Mini Player. The fork's queued save (`saveDraft` in `app.js`) stays; the backend send-once
   policy applies underneath it.
+- Pre-load (fork v50): `preload.js` keeps the next `PRELOAD_AHEAD` (2) queue tracks as blob URLs (one fetch of
+  `/api/stream/<id>` at a time); `playCurrent` takes one via `preloadTake`, `markPlaying` calls `preloadSchedule`,
+  the audio `error` handler falls back to normal streaming. Key `tagcast-preload` ("off" disables). The test
+  harness defaults it to off so request-counting tests stay exact.
 - Readable text and quick add (fork v49): `--ts` (from `data-text-size` on <html>, key `tagcast-text-size`) scales
   every font size; write sizes as `calc(Npx*var(--ts))` (`tools/scale_text.py` converts plain px). Role classes:
   `.role-album`/`.album-name`, `.role-artist`/`.performer-link`/`.album-artist`, `.np-line`. `quick-playlist.js`

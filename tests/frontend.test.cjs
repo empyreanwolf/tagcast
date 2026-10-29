@@ -15,6 +15,7 @@ const LEGACY_PAGE_SIZES = {"tagcast-artists-per-page": "24", "tagcast-favourite-
   "tagcast-browse-per-page": "24", "tagcast-favourites-per-page": "50", "tagcast-tracks-per-page": "50",
   "tagcast-recently-played-per-page": "50", "tagcast-guide-per-page": "24"};
 function page({hash = "", storage = {}, server = true, browserNavigator = {}, metadataClass, setupAudio, deferReady = false, freshPageSizes = false} = {}) {
+  if (!("tagcast-preload" in storage)) storage["tagcast-preload"] = "off";   // fork v50 tests turn it on
   if (!freshPageSizes && !("tagcast-page-size-v33" in storage)) {
     storage["tagcast-page-size-v33"] = "1";
     for (const [key, value] of Object.entries(LEGACY_PAGE_SIZES)) if (!(key in storage)) storage[key] = value;
@@ -10407,4 +10408,42 @@ test('fork v49: Now Playing labels track, artist and album separately', async ()
   const html = p.nodes.get("#now-playing-current").innerHTML;
   assert.match(html, /role-label">Track<[\s\S]*role-label">Artist<[\s\S]*role-artist[\s\S]*role-label">Album<[\s\S]*role-album/);
   assert.match(html, /quick-add/);
+});
+
+function preloadPage(streams, storage = {}) {
+  const p = livePage({storage});
+  p.setFetch(async url => {
+    if (url.startsWith("/api/stream/")) {
+      streams.push(url);
+      if (streams.fail) return {ok: false, status: 502, headers: {get: () => null}, blob: async () => ({})};
+      return {ok: true, headers: {get: () => "10"}, blob: async () => ({size: 10})};
+    }
+    return {ok: true, json: async () => ({})};
+  });
+  return p;
+}
+
+test('fork v50: the next two queued tracks are pre-loaded one at a time and play from memory', async () => {
+  const streams = []; const p = preloadPage(streams, {"tagcast-preload": "on"}); await settle();
+  p.run('playTracks(state.details.get("1")); player.queue.push(...player.queue.map(t => ({...t, id: t.id + 1000})), ...player.queue.map(t => ({...t, id: t.id + 2000}))); markPlaying()'); await settle(); await settle(); await settle();
+  const queue = p.json("player.queue.map(t => t.id)");
+  assert.equal(streams.filter(u => u.includes("/api/stream/")).length, 2);
+  assert.ok(streams[0].includes(`/api/stream/${queue[1]}`) && streams[1].includes(`/api/stream/${queue[2]}`), streams.join());
+  assert.equal(p.run("[...preload.items.values()].every(i => i.url.startsWith('blob:'))"), true);
+  p.run("step(1)"); await settle(); await settle(); await settle();
+  assert.ok(p.nodes.get("#audio").src.startsWith("blob:"), "second track plays from the pre-loaded copy");
+  assert.equal(p.run("preload.items.size"), 2);   // the one after is now being kept
+  assert.equal(streams.filter(u => u.includes(`/api/stream/${queue[3]}`)).length, 1);
+});
+
+test('fork v50: pre-load can be turned off, and failures fall back to normal streaming', async () => {
+  const off = []; const q = preloadPage(off, {"tagcast-preload": "off"}); await settle();
+  q.run('playTracks(state.details.get("1"))'); await settle(); await settle();
+  assert.equal(off.length, 0);
+  const streams = []; streams.fail = true;
+  const p = preloadPage(streams, {"tagcast-preload": "on"}); await settle();
+  p.run('playTracks(state.details.get("1")); player.queue.push(...player.queue.map(t => ({...t, id: t.id + 1000})), ...player.queue.map(t => ({...t, id: t.id + 2000}))); markPlaying()'); await settle(); await settle(); await settle();
+  assert.equal(streams.length, 2, "each failed track is tried once, not in a loop");
+  p.run("step(1)"); await settle();
+  assert.match(p.nodes.get("#audio").src, /^\/api\/stream\//);
 });

@@ -375,10 +375,10 @@ function playCurrent(autoPlay = true) {
   if (visualPlayer.open) $("#visual-player-status").textContent = "";
   player.quality = lookup.streamQuality || "128";
   if (!state.connection.premium && player.quality !== "128") player.quality = "128";
-  player.fallback = false;
+  player.fallback = false; player.preloadFailed = false;
   const prepared = typeof gaplessBegin === "function" && gaplessBegin(track, autoPlay);
   if (!prepared) {
-    audio.src = `/api/stream/${encodeURIComponent(track.id)}?quality=${player.quality}`;
+    audio.src = (typeof preloadTake === "function" && preloadTake(track)) || `/api/stream/${encodeURIComponent(track.id)}?quality=${player.quality}`;
     const offset = typeof gaplessTrial !== "undefined" ? gaplessTrial.offset : 0;
     if (typeof gaplessTrial !== "undefined") gaplessTrial.offset = 0;
     if (offset) audio.addEventListener("loadedmetadata", () => { if (player.queue[player.index] === track) audio.currentTime = Math.min(offset, audio.duration || offset); }, {once: true});
@@ -413,6 +413,7 @@ function renderCurrentPlayerTrack() {
 }
 
 function markPlaying() {
+  if (typeof preloadSchedule === "function") preloadSchedule();
   if (typeof gaplessQueueChanged === "function") gaplessQueueChanged();
   if (typeof syncSystemPlayback === "function") syncSystemPlayback();
   if (typeof scheduleQueuePublish === "function") scheduleQueuePublish();
@@ -657,6 +658,14 @@ audio.addEventListener("pause", markPlaying);
 audio.addEventListener("error", () => {
   if (typeof gaplessAudioError === "function" && gaplessAudioError()) return;
   if (!audio.getAttribute("src")) return;
+  if (preload.playingUrl && audio.getAttribute("src") === preload.playingUrl && !player.preloadFailed) {
+    // The pre-loaded copy could not be played: stream the same track normally.
+    player.preloadFailed = true;
+    const position = audio.currentTime;
+    audio.src = `/api/stream/${encodeURIComponent(player.queue[player.index].id)}?quality=${player.quality}`;
+    if (position) audio.addEventListener("loadedmetadata", () => { audio.currentTime = position; }, {once: true});
+    audio.play().catch(() => {}); return;
+  }
   if (player.quality === "orig" && !player.fallback) {
     player.fallback = true; player.quality = "128";
     audio.src = `/api/stream/${encodeURIComponent(player.queue[player.index].id)}?quality=128`;
