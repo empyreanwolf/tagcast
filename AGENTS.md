@@ -66,7 +66,7 @@ The application consists of a Python server and a plain JavaScript frontend.
   on the `tagcast` logger (INFO+; root handlers stay at WARNING). Page: `static/activity.js` (GET /api/activity,
   /api/activity/export; POST /api/activity/client for script errors, rate-limited, one sender at a time).
   Fork v33: `static/artist-tracks.js` (album artist page Albums | Tracks tabs, one cross-album queue);
-  `static/album-merge.js` (drag or select two → album name/year change via the Review dialog; iBroadcast joins
+  `static/album-merge.js` (fork "Quick merge": drag, or button `#quick-merge-selection` for two → album name/year change via the Review dialog; iBroadcast joins
   same title + album artist; `library._joined()` lets `verify()` follow the moved tracks). `DEFAULT_PAGE_SIZE`
   (200) in app.js, old saved sizes reset once (`tagcast-page-size-v33`). `Library.warm_browse()` runs in a thread
   from `Studio._warm()` whenever a new library is installed; `Table.__contains__` avoids building Records.
@@ -1180,3 +1180,9 @@ python3 tools/build_dark_css.py --check
 - Preserve explicit MIME types for static files and platform-specific
   port handling.
 - `.bat` uses CRLF; `.sh` and `.command` use LF as specified in `.gitattributes`.
+- Upstream sync (fork v47): upstream commits are cherry-picked, not merged (remote `upstream` =
+  cyberdeliaAI/tagcast). Taken: reviewed album merge (`album_merge.py`, `static/album-merge-review.js`,
+  button `#merge-selection`, page-wide `#select-page`), send-once writes (`UncertainWrite`, see
+  `docs/write-reliability.md`), edition-suffix album info. Not taken: year review, upload folder/day
+  browsing, Mini Player. The fork's queued save (`saveDraft` in `app.js`) stays; the backend send-once
+  policy applies underneath it.

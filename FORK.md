@@ -64,6 +64,16 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v47** **Picked from upstream Tagcast 1.0 (cyberdeliaAI/tagcast), everything from v46 kept.**
+  - **Merge albums… (upstream's reviewed merge)**: tick 2–20 pieces of one disc, choose the album to keep,
+    check every track and confirm. Your drag-one-album-onto-another merge stays, and selecting exactly two
+    albums on an artist page still offers it as **Quick merge**.
+  - **Select all on this page** checkbox above the albums.
+  - **Saves are never sent twice**: if iBroadcast's reply is lost or it answers 429/5xx, Tagcast reads the
+    library back instead of resending; unconfirmed changes show "Not confirmed". Your instant background
+    save (v36) is unchanged.
+  - **Album information** finds TheAudioDB text for "Deluxe Edition", "Remastered" and similar titles.
+  - Not taken (you chose to skip): album/track year review, upload folder & day browsing, Mini Player.
 - **v46** **Tags after every download, genres into your own list, Soulseek live numbers, Bandcamp album search.**
   - **Every download is tagged right after it is saved** (Galaxy, Bandcamp and Soulseek): the artist is
     one field "A; B", the album artist is the first artist, and the genre is placed in one of *your*
