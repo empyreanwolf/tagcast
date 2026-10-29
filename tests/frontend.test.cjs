@@ -10537,3 +10537,95 @@ test('fork v51: the chooser lists recent playlists first, and the selection bar 
   const write = calls.find(c => c.url === "/api/playlist");
   assert.ok(write && write.body.tracks.length === p.run("state.details.get(state.albums[0].id).tracks.length"));
 });
+
+test('fork v52: Play / Shuffle results use the search and filter, not just the current page', async () => {
+  const p = livePage({storage: {}}); await settle();
+  const all = p.json("resultsAlbums().map(a => a.id)");
+  assert.ok(all.length > 2);
+  assert.equal(p.run("$('#results-play').disabled"), false);
+  p.run("playResults(false)"); for (let i = 0; i < 6; i++) await settle();
+  const expected = p.json("resultsAlbums().flatMap(a => state.details.get(a.id).tracks.map(t => String(t.id)))");
+  assert.deepEqual(p.json("player.queue.map(t => String(t.id))"), expected);
+  assert.equal(p.run("player.shuffle"), false);
+  assert.match(toastText(p), /Playing \d+ songs from the current list/);
+  p.run("playResults(true)"); for (let i = 0; i < 6; i++) await settle();
+  assert.deepEqual(p.json("player.queue.map(t => String(t.id))").sort(), [...expected].sort());
+  assert.equal(p.run("player.shuffle"), true);
+  p.run("$('#search').value = 'zzzz-no-match'; render()");
+  assert.equal(p.run("$('#results-play').disabled"), true);
+});
+
+test('fork v52: Add results to playlist sends every result track once through the quick playlist', async () => {
+  const {p, calls} = quickAddPage({"tagcast-quick-playlist": JSON.stringify({id: "77", name: "Road trip"})}); await settle();
+  const expected = p.json("resultsAlbums().flatMap(a => state.details.get(a.id).tracks.map(t => Number(t.id)))");
+  await p.run("addResults(false)"); for (let i = 0; i < 10; i++) await settle();
+  const writes = calls.filter(c => c.url === "/api/playlist");
+  assert.equal(writes.length, 1);
+  assert.deepEqual(writes[0].body.tracks, expected);
+});
+
+test('fork v52: the play queue is remembered and resumed paused at the same track and position', async () => {
+  const storage = {};
+  const first = livePage({storage}); await settle();
+  first.run('playTracks(state.details.get("1"), 3); audio.currentTime = 42; resumeSave()');
+  first.flushTimers(800);
+  const saved = JSON.parse(storage["tagcast-resume-queue"]);
+  const ids = first.json("player.queue.map(t => String(t.id))"), index = first.run("player.index");
+  assert.deepEqual(saved.queue.map(e => e.id), ids);
+  assert.equal(saved.index, index); assert.equal(saved.position, 42);
+  const second = livePage({storage}); await settle(); second.run("render()");
+  assert.equal(second.run("$('#resume-queue').hidden"), false);
+  assert.match(second.nodes.get("#toast").innerHTML, /data-resume-queue/);
+  second.run("resumeQueue()"); for (let i = 0; i < 8; i++) await settle();
+  assert.deepEqual(second.json("player.queue.map(t => String(t.id))"), ids);
+  assert.equal(second.run("player.index"), index);
+  assert.equal(second.run("audio.paused"), true);
+  assert.equal(second.run("$('#resume-queue').hidden"), true);
+});
+
+test('fork v52: crossfade starts the next track under a fading-out copy of the ending one', async () => {
+  const p = livePage({storage: {"tagcast-crossfade": "4"}}); await settle();
+  const made = [];
+  p.run("crossfade.makeAudio = () => globalThis.__fake = {volume: 1, playbackRate: 1, played: 0, play() { this.played++; return Promise.resolve(); }, pause() { this.paused = true; }, removeAttribute() { this.cleared = true; }, load() {}}");
+  p.run('playTracks(state.details.get("1")); audio.volume = 1'); await settle();
+  assert.equal(p.run("crossfade.seconds"), 4);
+  const before = p.json("player.queue[player.index].id");
+  p.run("Object.defineProperty(audio, 'duration', {value: 100, configurable: true}); audio.currentTime = 50; audio.paused = false; crossfadeTick()");
+  assert.equal(p.run("player.index"), 0, "not near the end yet");
+  p.run("audio.currentTime = 97; audio.paused = false; crossfadeTick()");
+  assert.equal(p.run("player.index"), 1);
+  assert.notEqual(p.json("player.queue[player.index].id"), before);
+  assert.equal(p.run("globalThis.__fake.played"), 1);
+  assert.equal(p.run("audio.volume"), 0);
+  assert.ok(p.run("crossfade.active"));
+  p.run("crossfadeTick()");   // no second fade while one runs
+  assert.equal(p.run("player.index"), 1);
+  p.run("finishCrossfade(crossfade.active)");
+  assert.equal(p.run("audio.volume"), 1);
+  assert.equal(p.run("globalThis.__fake.paused"), true);
+  assert.equal(p.run("crossfade.active"), null);
+});
+
+test('fork v52: crossfade stays off for repeat-one, gapless, the last track and when set to Off', async () => {
+  const p = livePage({storage: {"tagcast-crossfade": "4"}}); await settle();
+  p.run('playTracks(state.details.get("1"))');
+  assert.equal(p.run("crossfadeEligible()"), true);
+  p.run("player.repeat = 'track'"); assert.equal(p.run("crossfadeEligible()"), false);
+  p.run("player.repeat = 'none'; player.index = player.queue.length - 1"); assert.equal(p.run("crossfadeEligible()"), false);
+  p.run("player.index = 0; crossfade.seconds = 0"); assert.equal(p.run("crossfadeEligible()"), false);
+});
+
+test('fork v52: smart playlists save the view, reopen it, and delete', async () => {
+  const storage = {}; const p = livePage({storage}); await settle();
+  p.run("$('#search').value = 'a'; $('#filter').value = 'year'; $('#sort').value = 'artist'; renderSavedLists()");
+  p.run("$('#saved-lists-name').value = 'No year'; saveCurrentList()");
+  const saved = JSON.parse(storage["tagcast-saved-lists"]);
+  assert.deepEqual(saved.map(l => [l.name, l.search, l.filter, l.sort]), [["No year", "a", "year", "artist"]]);
+  p.run("$('#search').value = ''; $('#filter').value = 'all'; render()");
+  p.run("applySavedList(readSavedLists()[0])");
+  assert.equal(p.run("$('#search').value"), "a"); assert.equal(p.run("$('#filter').value"), "year");
+  assert.match(p.run("$('#saved-lists-list').innerHTML") + p.run("renderSavedLists(), $('#saved-lists-list').innerHTML"), /No year/);
+  const del = {dataset: {savedDelete: "0"}};
+  await p.nodes.get("#saved-lists-dialog").emit("click", {target: {closest: s => s === "[data-saved-delete]" ? del : null}});
+  assert.deepEqual(JSON.parse(storage["tagcast-saved-lists"]), []);
+});

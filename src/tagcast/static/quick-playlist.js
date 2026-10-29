@@ -132,11 +132,15 @@ async function quickAdd(albumId, trackId, choose = false) {
 
 // Every album ticked on the albums page, in one go (fork v51).
 async function quickAddSelection(choose = false) {
-  const chosen = albumShelf().filter(a => itemIds(a).some(id => state.selected.has(id)));
-  if (!chosen.length) return;
+  return quickAddAlbums(albumShelf().filter(a => itemIds(a).some(id => state.selected.has(id))), choose);
+}
+
+// A list of albums (ticked, or every search result: fork v52).
+async function quickAddAlbums(albums, choose = false) {
+  if (!albums.length) return;
   return quickRun(async () => {
     const ids = [];
-    for (const album of chosen) {
+    for (const album of albums) {
       await albumDetails(shelfIds(album.id));
       ids.push(...queueTracks(playableAlbum(album.id)).map(t => Number(t.id)));
     }

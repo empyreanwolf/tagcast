@@ -64,6 +64,16 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v52** **Results, resume, crossfade, smart playlists.**
+  - **Play / Shuffle / Add results**: three buttons above the albums list act on everything the current search, filter and artist show
+    (all pages, first 400 albums). Add uses your quick playlist and skips songs already in it.
+  - **Resume last queue**: the queue, position and repeat mode are remembered in this browser; after a restart a
+    "↺ Resume last queue" button (and a message) brings it back, paused.
+  - **Crossfade** (Settings → Playback, Off by default, 2–12 s): the next song fades in while the ending one fades out.
+    Not used with gapless, repeat-one or the last song. Best with Pre-load on.
+  - **★ Smart playlists**: save a search + filter + sort (+ artist) under a name; opening it re-checks your library, so it
+    stays current. Open, ▶ play or 🔀 shuffle from the list. Kept in this browser only; nothing is written to iBroadcast.
+  - Not tried in a real browser against the real library. Crossfade is the riskiest: try it with Pre-load on first.
 - **v51** **Queue and playlist helpers.**
   - **Reorder the queue**: drag a row in Now Playing onto another, or Alt+↑ / Alt+↓ on a focused row. The playing song keeps playing.
   - **Clear queue has Undo** (15 seconds): puts the whole queue back, paused.

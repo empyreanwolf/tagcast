@@ -1186,6 +1186,10 @@ python3 tools/build_dark_css.py --check
   `docs/write-reliability.md`), edition-suffix album info. Not taken: year review, upload folder/day
   browsing, Mini Player. The fork's queued save (`saveDraft` in `app.js`) stays; the backend send-once
   policy applies underneath it.
+- Fork v52: `results-actions.js` (`resultsAlbums`, `playResults`, `addResults`, uses `playShuffleGroup(albums,{ordered,label})`
+  and `quickAddAlbums`); `resume.js` (key `tagcast-resume-queue`, `resumeSave` from `markPlaying`/timeupdate, `resumeQueue`);
+  `crossfade.js` (key `tagcast-crossfade`; second temporary Audio for the ending track; `crossfade.makeAudio` is injectable
+  for tests); `saved-lists.js` (key `tagcast-saved-lists`, dialog `#saved-lists-dialog`). `updateResultsActions()` runs from `render()`.
 - Queue and playlist helpers (fork v51): `moveQueueEntry`, `clearQueue`/`undoClearQueue`, `smartShuffle` in `player.js`
   (rows carry `data-queue-row`, draggable when editable); `quickRun`/`quickAddSelection` in `quick-playlist.js`
   (duplicates skipped unless `playlist.large`; recents in `tagcast-recent-playlists`); `#quick-add-selection` in the

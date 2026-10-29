@@ -618,6 +618,7 @@ function render() {
   if (typeof updateAlbumMergeControls === "function") updateAlbumMergeControls();
   if (typeof updateQuickMergeControls === "function") updateQuickMergeControls();
   if (typeof updateSelectedAlbumTagControls === "function") updateSelectedAlbumTagControls();
+  if (typeof updateResultsActions === "function") updateResultsActions();
   $("#quick-add-selection").disabled = !live() || !state.selected.size;
   $("#trash-selection").hidden = !live();
   $("#trash-selection").disabled = saving || checking > 0 || !state.selected.size;

@@ -353,25 +353,25 @@ async function playRandomAlbum(albums) {
 
 // Shuffles every song from every matching album into one playlist (fork v29), rather than
 // playing just one random album at a time -- e.g. "shuffle all of Chinese Hip Hop".
-async function playShuffleGroup(albums) {
+async function playShuffleGroup(albums, {ordered = false, label: given = ""} = {}) {
   if (!live() || state.loading || player.shuffleLoading) return;
   const eligible = albums.filter(a => a.track_count > 0);
   if (!eligible.length) return;
   const ids = eligible.map(a => a.id), details = state.details;
-  const request = ++player.randomRequest, epoch = ++player.epoch, label = browseView.label || "this group";
+  const request = ++player.randomRequest, epoch = ++player.epoch, label = given || browseView.label || "this group";
   player.shuffleLoading = true; updateRandomControls();
   try {
     const discs = await albumDetails(ids);
     if (request !== player.randomRequest || epoch !== player.epoch || details !== state.details || !live()) return;
     const tracks = discs.filter(d => d.tracks.length).flatMap(d => queueTracks(d));
     if (!tracks.length) throw Error("No playable tracks in this group.");
-    smartShuffle(tracks);
-    player.shuffle = true;
+    if (!ordered) smartShuffle(tracks);
+    player.shuffle = !ordered;
     player.queue = tracks;
     if (typeof gaplessAlbumQueue === "function") gaplessAlbumQueue(player.queue, false);
     player.index = 0;
     playCurrent();
-    toast(`Shuffling ${tracks.length} songs from ${label}`);
+    toast(`${ordered ? "Playing" : "Shuffling"} ${tracks.length} songs from ${label}`);
   } catch (error) {
     if (request === player.randomRequest && details === state.details) toast(`Could not shuffle ${label}: ${error.message}`);
   } finally {
@@ -441,6 +441,7 @@ function renderCurrentPlayerTrack() {
 
 function markPlaying() {
   if (typeof preloadSchedule === "function") preloadSchedule();
+  if (typeof resumeSave === "function") resumeSave();
   if (typeof gaplessQueueChanged === "function") gaplessQueueChanged();
   if (typeof syncSystemPlayback === "function") syncSystemPlayback();
   if (typeof scheduleQueuePublish === "function") scheduleQueuePublish();
