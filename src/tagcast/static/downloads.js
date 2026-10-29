@@ -64,7 +64,9 @@ function downloadsPoll() {
     if (state.screen !== "downloads") return;
     try {
       const before = downloadsView.held?.length || 0;
-      const [queue, galaxy, finding] = await Promise.all([api("/api/downloads/queue"), api("/api/galaxy/status"), api("/api/discography/active")]);
+      const [queue, galaxy, finding, info] = await Promise.all([api("/api/downloads/queue"), api("/api/galaxy/status"), api("/api/discography/active"), api("/api/downloads")]);
+      const waitingBefore = downloadsView.info?.genre_waiting || 0;
+      if (info && downloadsView.info) downloadsView.info.genre_waiting = info.genre_waiting || 0;
       downloadsView.finding = finding.jobs;
       const failed = (downloadsView.queue || []).filter(i => i.state === "failed").length;
       downloadsView.queue = queue.queue; downloadsView.held = queue.held; downloadsView.galaxy = galaxy;
@@ -72,16 +74,18 @@ function downloadsPoll() {
       if (queue.queue.filter(i => i.state === "failed").length > failed) artistCleanupAlarm();
       if ($("#dl-queue-box")) $("#dl-queue-box").innerHTML = downloadsQueueBoxHtml();
       if ($("#galaxy-status")) $("#galaxy-status").innerHTML = galaxyStatusHtml();
-      if (before !== queue.held.length) $("#downloads-tabs").innerHTML = downloadsTabsHtml();
+      if (before !== queue.held.length || waitingBefore !== (downloadsView.info?.genre_waiting || 0)) $("#downloads-tabs").innerHTML = downloadsTabsHtml();
     } catch { /* the next full load shows the error */ }
     downloadsPoll();
   }, 1500);
 }
 
 function downloadsTabsHtml() {
-  const view = downloadsView, held = view.held?.length || 0;
-  return downloadsTabs.map(([key, label]) => `<button type="button" role="tab" data-downloads-tab="${key}"
-    aria-selected="${view.tab === key}" tabindex="${view.tab === key ? 0 : -1}">${label}${key === "decide" && held ? ` <b class="dl-count">${held}</b>` : ""}${key === "missing" && typeof missingView !== "undefined" && missingView.releases?.unseen ? ` <b class="dl-count">${missingView.releases.unseen}</b>` : ""}</button>`).join("");
+  const view = downloadsView, held = view.held?.length || 0, waiting = view.info?.genre_waiting || 0;
+  const banner = waiting && view.tab !== "tagclean" ? `<p class="dl-genre-banner" role="status"><b>${waiting}</b> downloaded ${waiting === 1 ? "song needs" : "songs need"} a genre from you (Tagcast was not sure).
+    <button type="button" class="button small primary" data-downloads-tab="tagclean">Choose genres</button></p>` : "";
+  return banner + downloadsTabs.map(([key, label]) => `<button type="button" role="tab" data-downloads-tab="${key}"
+    aria-selected="${view.tab === key}" tabindex="${view.tab === key ? 0 : -1}">${label}${key === "tagclean" && view.info?.genre_waiting ? ` <b class="dl-count">${view.info.genre_waiting}</b>` : ""}${key === "decide" && held ? ` <b class="dl-count">${held}</b>` : ""}${key === "missing" && typeof missingView !== "undefined" && missingView.releases?.unseen ? ` <b class="dl-count">${missingView.releases.unseen}</b>` : ""}</button>`).join("");
 }
 
 async function loadDownloadsHistory() {

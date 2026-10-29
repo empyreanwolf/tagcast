@@ -10727,3 +10727,11 @@ test("a download made at another PC reads 'downloaded at <PC>, not uploaded yet'
   const html = p.run(`downloadsYouHave([{where: "history", title: "Yellow", artist: "Coldplay", source: "galaxy", when: 1700000000, pc: "Office"}])`);
   assert.match(html, /at <b>Office<\/b>, not uploaded yet/);
 });
+
+test("downloads that need a genre from you show a count and a banner", async () => {
+  const p = page(); await settle();
+  p.run('downloadsView.info = {genre_waiting: 3}; downloadsView.tab = "galaxy"');
+  const html = p.run("downloadsTabsHtml()");
+  assert.match(html, /<b>3<\/b> downloaded songs need a genre/);
+  assert.match(html, /Clean up <b class="dl-count">3<\/b>/);
+});

@@ -536,7 +536,16 @@ class Downloads:
                     "history_sources": dict(sources), "imports": self.state["imports"],
                     "telegram_folder": str(telegram_folder()),
                     "pc": self.pc_name(), "pc_set": bool(self.state["pc"]), "sync_folder": self.state["sync_folder"],
+                    "genre_waiting": self._genre_waiting(),
                     "sync_error": self.sync_error, "other_pcs": sorted({r.get("pc", "") for _, rows in self._others.values() for r in rows})}
+
+    def _genre_waiting(self):
+        """Downloaded files whose genre Tagcast could not place and is waiting for you to choose (v56)."""
+        tagclean = getattr(self.studio, "tagclean", None)
+        try:
+            return sum(1 for r in tagclean.state.get("rows", []) if r.get("needs_genre")) if tagclean else 0
+        except Exception:
+            return 0
 
     def queue_view(self):
         self._watchdog()

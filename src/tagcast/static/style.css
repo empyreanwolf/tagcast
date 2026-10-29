@@ -1294,3 +1294,5 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 th.sortable-th{cursor:pointer;user-select:none}
 th.sortable-th:hover,th.sortable-th:focus-visible{text-decoration:underline}
 th.sortable-th .sort-arrow{font-size:calc(10px*var(--ts));color:var(--accent,currentColor)}
+
+.dl-genre-banner{flex-basis:100%;margin:0 0 8px;padding:8px 12px;border:1px solid var(--line,#8884);border-radius:8px}
