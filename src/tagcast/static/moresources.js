@@ -1,6 +1,6 @@
 "use strict";
 
-// More sources (fork v60): one search bar for SoundCloud, plus a box for SoundCloud and Audiomack links.
+// More sources (fork v60): one search bar for SoundCloud, plus a box for YouTube (v61), SoundCloud and Audiomack links.
 // Audiomack and mixtape sites have no search Tagcast can use, so their links are pasted instead.
 const moreView = {query: "", lines: "", results: null, queued: new Set(), linkResults: null, busy: false, linkBusy: false, error: ""};
 
@@ -14,18 +14,24 @@ function moreHtml() {
       ${have ? `<div class="dl-have">Already in your library</div>` : ""}</div>
       <button type="button" class="button" data-more="get" data-index="${i}" ${done || v.busy ? "disabled" : ""}>⬇ Download</button></li>`;
   }).join("");
-  return `<p class="muted">Search SoundCloud, then download with one click. Files are lossy (MP3 or AAC from the site). Audiomack and mixtape sites cannot be searched from here: paste a link below.</p>
+  return `<p class="muted">Search SoundCloud, then download with one click. Files are lossy (MP3 or AAC from the site). Audiomack and mixtape sites cannot be searched from here: paste a link below. Files are saved as MP3 with cover art.</p>
     <form class="dl-actions" data-more="search-form"><input id="more-query" type="search" class="dl-search" value="${escapeHtml(v.query)}" placeholder="Artist or song" aria-label="Search SoundCloud" maxlength="200">
     <button type="submit" class="button primary" ${v.busy ? "disabled" : ""}>${v.busy ? "Searching…" : "Search"}</button></form>
     ${v.error ? `<p class="dl-have">${escapeHtml(v.error)}</p>` : ""}
     ${v.results ? (v.results.length ? `<div class="dl-actions"><button type="button" class="button" data-more="get-all" ${v.busy ? "disabled" : ""}>⬇ Download all new (${v.results.filter((r, i) => r.status !== "have" && !v.queued.has(i)).length})</button></div><ul class="dl-list">${rows}</ul>` : `<p class="muted">Nothing found.</p>`) : ""}
-    <h3>Paste links</h3>
-    <p class="muted">SoundCloud or Audiomack links, one per line (a song, an album or a set).</p>
-    <textarea id="more-lines" class="dl-lines" rows="4" maxlength="20000" aria-label="SoundCloud or Audiomack links" placeholder="https://soundcloud.com/…">${escapeHtml(v.lines)}</textarea>
+    ${moreLinksHtml()}
+    <p class="muted">Downloading copyrighted music can break the sites' terms and the law where you live.</p>`;
+}
+
+// The shared link box (v61): YouTube, SoundCloud and Audiomack links and playlists. Shown on this tab and the YouTube tab.
+function moreLinksHtml() {
+  const v = moreView;
+  return `<h3>Paste links</h3>
+    <p class="muted">YouTube, SoundCloud or Audiomack links, one per line: a song, an album, a set or a playlist. A playlist downloads every song as one album (album = playlist name, tracks in order).</p>
+    <textarea id="more-lines" class="dl-lines" rows="4" maxlength="20000" aria-label="YouTube, SoundCloud or Audiomack links" placeholder="https://www.youtube.com/playlist?list=…">${escapeHtml(v.lines)}</textarea>
     <div class="dl-actions"><button type="button" class="button primary" data-more="links" ${v.linkBusy ? "disabled" : ""}>${v.linkBusy ? "Reading…" : "⬇ Download links"}</button></div>
     ${v.linkResults ? `<ul class="dl-list">${v.linkResults.map(r => `<li><span class="dl-badge ${r.ok ? "have" : "partly"}">${r.ok ? "Queued" : "Failed"}</span>
-      <div><b>${escapeHtml(r.line)}</b><div class="dl-have">${escapeHtml(r.note)}</div></div></li>`).join("")}</ul>` : ""}
-    <p class="muted">Downloading copyrighted music can break the sites' terms and the law where you live.</p>`;
+      <div><b>${escapeHtml(r.line)}</b><div class="dl-have">${escapeHtml(r.note)}</div></div></li>`).join("")}</ul>` : ""}`;
 }
 
 async function moreQueue(indexes) {

@@ -10791,3 +10791,18 @@ test("the More sources tab searches, marks what you have and queues with one cli
   assert.match(html, /Download all new \(0\)/);
   assert.match(html, /Paste links/);
 });
+
+test("the YouTube tab searches an artist's albums and singles, folds them and shares the link box", async () => {
+  const p = page(); await settle();
+  p.run(`youtubeView.status = {enabled: true, installed: true, version: "1"}; youtubeView.releases = {artist: "X", where: "youtube", fell_back: true,
+    albums: [{title: "LP", status: "have", tracks: [{id: "a", title: "S1"}, {id: "b", title: "S2"}, {id: "c", title: "S3"}, {id: "d", title: "S4"}]}],
+    singles: [{title: "Hit", status: "new", tracks: [{id: "e", title: "Hit"}]}]}`);
+  const html = p.run("youtubeHtml()");
+  assert.match(html, /data-youtube-where="music"/);
+  assert.match(html, /YouTube Music found nothing/);
+  assert.match(html, /Download all albums \(0 new\)/);
+  assert.match(html, /Download all singles \(1 new\)/);
+  assert.match(html, /Have it<\/span> <b>LP<\/b>/);
+  assert.match(html, /Paste links[\s\S]*YouTube, SoundCloud or Audiomack/);
+  assert.doesNotMatch(p.run("downloadsCollapsify(youtubeArtistHtml(), 'x')"), /data-dl-fold=/);
+});

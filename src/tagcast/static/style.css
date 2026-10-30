@@ -1062,6 +1062,7 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 .dl-lines{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--palette-surface,#fff);color:var(--ink)}
 .dl-search{flex:1;min-width:200px;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--palette-surface,#fff);color:var(--ink)}
 .dl-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:10px 0}
+.dl-seg{display:inline-flex;gap:4px}
 .dl-path{flex:1 1 320px;min-width:0;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--palette-surface,#fff);color:var(--ink)}
 .dl-list{list-style:none;margin:8px 0 20px;padding:0;border-top:1px solid var(--line)}
 .dl-list li{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}

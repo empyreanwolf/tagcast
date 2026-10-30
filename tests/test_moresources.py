@@ -61,3 +61,19 @@ class MoreTests(unittest.TestCase):
         charts.cache["soundcloud_hiphop"] = {"rows": rows, "when": 9e12, "error": ""}
         self.assertEqual(charts.get("soundcloud_hiphop", [1])["queued"], 1)
         self.assertEqual(len([i for i in studio.download_manager.state["queue"] if i.get("source") == "more"]), 1)
+
+
+class YouTubeLinkTests(unittest.TestCase):
+    def test_a_youtube_playlist_is_one_album_in_order(self):
+        studio = LocalStudio()
+        flat = [{"id": "aaaaaaa1", "url": "aaaaaaa1", "title": "Jay - One (Official Video)", "channel": "Jay", "playlist_title": "Mix"},
+                {"id": "aaaaaaa2", "url": "aaaaaaa2", "title": "Two", "channel": "Kay - Topic"}]
+        studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None, extract=lambda url: flat)
+        studio.moresources.ensure_worker = lambda: None
+        out = studio.moresources.add_links("https://www.youtube.com/playlist?list=PL1")["results"]
+        self.assertTrue(out[0]["ok"])
+        q = [i["payload"] for i in studio.download_manager.state["queue"] if i.get("source") == "more"]
+        self.assertEqual([(p["album"], p["album_artist"], p["track_no"], p["url"]) for p in q],
+                         [("Mix", "Various Artists", 1, "https://www.youtube.com/watch?v=aaaaaaa1"),
+                          ("Mix", "Various Artists", 2, "https://www.youtube.com/watch?v=aaaaaaa2")])
+        self.assertEqual([i["title"] for i in studio.download_manager.state["queue"] if i.get("source") == "more"], ["One", "Two"])

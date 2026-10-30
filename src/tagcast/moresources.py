@@ -5,7 +5,10 @@
   paste their links instead (Audiomack song and album links work through yt-dlp).
 - **Chart**: SoundCloud's own Top chart for Hip-hop & Rap, from the same undocumented web API that
   soundcloud.com uses (a public client id is read through yt-dlp). It appears on the Charts page.
-- Songs are saved like every other download (tagged, tidied, history). Files are lossy; the note says so.
+- **Links (v61)**: YouTube links too. A YouTube playlist downloads every video, tagged as one album
+  (album = playlist name, tracks in playlist order).
+- Songs are saved like every other download (tagged, tidied, history), as MP3 with the page's cover art
+  and tags when ffmpeg is available (v61). Files are lossy; the note says so.
 """
 
 import logging
@@ -20,7 +23,9 @@ from .youtube import YtdlpWorker
 
 log = logging.getLogger("tagcast")
 SEARCH_RESULTS = 20
-SITES = {"soundcloud.com": "SoundCloud", "audiomack.com": "Audiomack"}
+SITES = {"soundcloud.com": "SoundCloud", "audiomack.com": "Audiomack", "youtube.com": "YouTube", "youtu.be": "YouTube"}
+# Decorations in YouTube video titles that are not part of the song title (v61).
+DECOR = re.compile(r"(?i)\s*[\(\[]\s*(official\s*)?(music\s*video|video|audio|lyric\s*video|lyrics?|visuali[sz]er|hd|4k|mv|m/v)\s*[\)\]]")
 CHART_URL = "https://api-v2.soundcloud.com/charts"
 
 
@@ -38,12 +43,23 @@ def site_of(url):
 
 def split_title(title, uploader):
     """("Artist", "Title"): "Artist - Title" uploads are split, otherwise the uploader is the artist."""
-    title = match.clean(title)
+    title = match.clean(DECOR.sub("", str(title or "")))
+    uploader = re.sub(r"(?i)\s*-\s*topic$", "", str(uploader or ""))
     if " - " in title:
         artist, _, song = title.partition(" - ")
         if artist.strip() and song.strip():
             return artist.strip(), song.strip()
     return match.clean(uploader), title
+
+
+def _entry_url(entry, url, site):
+    """A playlist entry's own page: YouTube's flat entries give a bare video id."""
+    own = entry.get("webpage_url") or entry.get("url") or ""
+    if site == "YouTube" and own and not own.startswith("http"):
+        own = f"https://www.youtube.com/watch?v={own}"
+    if site == "YouTube" and not own and entry.get("id"):
+        own = f"https://www.youtube.com/watch?v={entry['id']}"
+    return own or url
 
 
 def _entry_row(entry, site):
@@ -58,7 +74,7 @@ class MoreSources(YtdlpWorker):
     source = "more"
     track_delay = 2.0
     formats = "bestaudio[ext=mp3]/bestaudio[ext=m4a]/bestaudio"
-    lossy_note = "lossy, from SoundCloud/Audiomack"
+    lossy_note = "lossy, from YouTube/SoundCloud/Audiomack"
     wait_text = "Reading the page…"
 
     def __init__(self, studio, search=None, extract=None, chart_fetch=None, fetch_audio=None):
@@ -130,10 +146,12 @@ class MoreSources(YtdlpWorker):
             site = site_of(url)
             title, artist = match.clean(r.get("title")), match.clean(r.get("artist"))
             if not site or not title:
-                raise MoreError("Only SoundCloud and Audiomack links can be downloaded here.")
+                raise MoreError("Only YouTube, SoundCloud and Audiomack links can be downloaded here.")
             items.append({"kind": "song", "title": title, "artist": artist, "album": title,
                           "payload": {"id": url, "source": "more", "site": site, "url": url, "artists": [artist or "Unknown Artist"],
-                                      "album_artist": artist or "Unknown Artist", "album": match.clean(r.get("album")) or title,
+                                      "album_artist": match.clean(r.get("album_artist")) or artist or "Unknown Artist",
+                                      "album": match.clean(r.get("album")) or title, "page_meta": True,
+                                      "single": not match.clean(r.get("album")),
                                       "track_no": int(r.get("track_no") or 1), "track_total": int(r.get("track_total") or 1),
                                       "duration": r.get("duration") or 0}})
 
@@ -148,29 +166,38 @@ class MoreSources(YtdlpWorker):
         return result
 
     def add_links(self, text):
-        """SoundCloud and Audiomack links, one per line (a song, an album or a set)."""
+        """YouTube, SoundCloud and Audiomack links, one per line (a song, an album, a set or a playlist).
+        A playlist is tagged as one album: album = the playlist's name, tracks in playlist order (v61)."""
         out = []
         for url in [u for u in re.findall(r"https?://\S+", str(text or ""))][:20]:
             site = site_of(url)
             try:
                 if not site:
-                    raise MoreError("Only soundcloud.com and audiomack.com links work here.")
+                    raise MoreError("Only youtube.com, youtu.be, soundcloud.com and audiomack.com links work here.")
                 entries = [e for e in self._extract(url) if e]
-                rows = [r for r in (_entry_row({**e, "url": e.get("webpage_url") or e.get("url") or url}, site) for e in entries) if r]
+                rows = [r for r in (_entry_row({**e, "url": _entry_url(e, url, site)}, site) for e in entries) if r]
+                cut = len(rows) > 200
+                rows = rows[:200]
                 total = len(rows)
+                album = match.clean(entries[0].get("playlist_title") or entries[0].get("playlist") or "") if entries else ""
+                artists = {match.match_key(r["artist"]) for r in rows}
+                album_artist = rows[0]["artist"] if len(artists) == 1 and rows else "Various Artists"
                 for i, r in enumerate(rows):
                     r.update(track_no=i + 1, track_total=total)
                     if total > 1:
-                        r["album"] = match.clean(entries[0].get("playlist_title") or "") or ""
+                        r["album"] = album or ""
+                        r["album_artist"] = album_artist
                 if not rows:
                     raise MoreError("No songs found at this link.")
                 result = self.add(rows)
                 out.append({"line": url, "ok": True, "note": f"{result.get('queued', 0)} queued"
-                            + (f", {result['held']} waiting in Needs your decision" if result.get("held") else "")})
+                            + (f" ({album})" if total > 1 and album else "")
+                            + (f", {result['held']} waiting in Needs your decision" if result.get("held") else "")
+                            + (" · only the first 200 songs" if cut else "")})
             except LibraryError as error:
                 out.append({"line": url, "ok": False, "note": str(error)})
         if not out:
-            raise MoreError("Paste at least one SoundCloud or Audiomack link.")
+            raise MoreError("Paste at least one YouTube, SoundCloud or Audiomack link.")
         return {"results": out}
 
     # -- the SoundCloud chart ---------------------------------------------------------------

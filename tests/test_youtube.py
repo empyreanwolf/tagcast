@@ -96,3 +96,48 @@ class QueueTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class V61Tests(unittest.TestCase):
+    def test_page_meta_cover_choice_and_tags(self):
+        from tagcast.youtube import YtdlpWorker, page_meta, pick_thumbnail
+        info = {"track": "Yellow", "artist": "Coldplay, Guest", "album": "Parachutes", "release_year": 2000,
+                "thumbnails": [{"url": "wide", "width": 1280, "height": 720}, {"url": "sq", "width": 544, "height": 544}]}
+        self.assertEqual(page_meta(info)["artists"], ["Coldplay", "Guest"])
+        self.assertEqual(page_meta(info)["year"], "2000")
+        self.assertEqual(pick_thumbnail(info), "sq")
+        self.assertEqual(pick_thumbnail({"thumbnails": [{"url": "a", "width": 120, "height": 90}, {"url": "b", "width": 1280, "height": 720}]}), "b")
+        job = {"title": "yellow (official video)", "payload": {"artists": ["X"], "album_artist": "X", "album": "yellow",
+                                                               "track_no": 1, "track_total": 1, "page_meta": True, "single": True}}
+        tags = YtdlpWorker.tags_for(job, info)
+        self.assertEqual((tags["title"], tags["album"], tags["album_artist"], tags["year"]), ("Yellow", "Parachutes", "Coldplay", "2000"))
+        job["payload"]["page_meta"] = False
+        self.assertEqual(YtdlpWorker.tags_for(job, info)["title"], "yellow (official video)")
+
+    def test_artist_releases_split_albums_and_singles_and_fall_back(self):
+        album = [{"id": f"vid{i}xx", "title": f"Song {i}"} for i in range(8)]
+        single = [{"id": "vidsingle", "title": "Hit"}]
+
+        def search(query, playlists=False):
+            if "music.youtube.com" in query:
+                return []
+            if "sp=EgIQAg" in query:
+                return [{"title": "Coldplay - Topic", "url": "https://www.youtube.com/channel/UC1"}]
+            if query.endswith("/releases"):
+                return [{"title": "Parachutes", "url": "https://www.youtube.com/playlist?list=PA"},
+                        {"title": "Hit", "url": "https://www.youtube.com/playlist?list=PS"}]
+            return album if query.endswith("PA") else single if query.endswith("PS") else []
+
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=search, fetch_audio=lambda *a: None)
+        studio.youtube.ensure_worker = lambda: None
+        out = studio.youtube.artist_releases("Coldplay", "music")
+        self.assertTrue(out["fell_back"])
+        self.assertEqual([r["title"] for r in out["albums"]], ["Parachutes"])
+        self.assertEqual([r["title"] for r in out["singles"]], ["Hit"])
+        studio.youtube.add_releases("Coldplay", [out["albums"][0]])
+        q = [i["payload"] for i in studio.download_manager.state["queue"] if i.get("source") == "youtube"]
+        self.assertEqual([(p["album"], p["track_no"], p["track_total"]) for p in q][:2], [("Parachutes", 1, 8), ("Parachutes", 2, 8)])
+        self.assertTrue(all(p["page_meta"] for p in q))
+        with self.assertRaises(YouTubeError):
+            studio.youtube.artist_releases("  ")

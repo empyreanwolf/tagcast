@@ -13,7 +13,9 @@ Downloading copyrighted music from YouTube can break YouTube's terms and the law
 
 import logging
 import re
+import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import quote
 
@@ -33,6 +35,56 @@ OTHER_VERSIONS = ("live", "remix", "cover", "karaoke", "instrumental", "sped up"
 
 class YouTubeError(LibraryError):
     pass
+
+
+def ffmpeg_path():
+    """ffmpeg for the MP3 conversion (v61): the one on PATH, else the copy bundled by imageio-ffmpeg."""
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return ""
+
+
+def page_meta(info):
+    """Tags yt-dlp read from the page (v61): YouTube Music uploads carry track, artist, album and year."""
+    info = info or {}
+    artists = info.get("artists") or [a.strip() for a in re.split(r",\s*", str(info.get("artist") or info.get("creator") or "")) if a.strip()]
+    year = str(info.get("release_year") or "") or str(info.get("release_date") or info.get("upload_date") or "")[:4]
+    genre = info.get("genre") or ((info.get("genres") or [""])[0])
+    return {"title": match.clean(info.get("track") or ""), "artists": [match.clean(a) for a in artists if match.clean(a)],
+            "album": match.clean(info.get("album") or ""), "year": year if year.isdigit() else "", "genre": str(genre or "")}
+
+
+def pick_thumbnail(info):
+    """The best cover candidate: the biggest square-ish thumbnail, else the biggest one."""
+    thumbs = [t for t in (info or {}).get("thumbnails") or [] if t.get("url")]
+    if not thumbs and (info or {}).get("thumbnail"):
+        return info["thumbnail"]
+    square = [t for t in thumbs if t.get("width") and t.get("height") and abs(t["width"] - t["height"]) <= t["width"] * 0.05]
+    pool = square or thumbs
+    pool.sort(key=lambda t: ((t.get("width") or 0) * (t.get("height") or 0), t.get("preference") or 0))
+    return pool[-1]["url"] if pool else ""
+
+
+def square_jpeg(data):
+    """Center-crop an image to a square JPEG (video thumbnails are 16:9 with the art in the middle)."""
+    try:
+        import cv2
+        import numpy as np
+        image = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            return data
+        h, w = image.shape[:2]
+        side = min(h, w)
+        top, left = (h - side) // 2, (w - side) // 2
+        ok, out = cv2.imencode(".jpg", image[top:top + side, left:left + side], [cv2.IMWRITE_JPEG_QUALITY, 92])
+        return out.tobytes() if ok else data
+    except Exception:
+        return data
 
 
 def _words(text):
@@ -92,15 +144,20 @@ class YtdlpWorker(FileWorker):
     # -- downloading (the worker) ------------------------------------------------------------
 
     def _yt_fetch(self, url, folder, hook):
-        """Download the best m4a audio into ``folder``; returns the file path."""
+        """Download the audio into ``folder`` as MP3 (v61, when ffmpeg is there; else the m4a as it is).
+        Returns (file path, page info) so the cover and tags can be read from the page."""
         import yt_dlp
         folder.mkdir(parents=True, exist_ok=True)
         opts = {"quiet": True, "no_warnings": True, "noplaylist": True, "socket_timeout": 20, "retries": 3,
                 "fragment_retries": 3, "format": self.formats, "outtmpl": str(folder / "audio.%(ext)s"),
                 "progress_hooks": [hook], "overwrites": True}
+        ffmpeg = ffmpeg_path()
+        if ffmpeg:
+            opts.update(format="bestaudio/best", ffmpeg_location=ffmpeg,
+                        postprocessors=[{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "0"}])
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.download([url])
+                info = ydl.extract_info(url, download=True) or {}
         except (StopRequested, JobCancelled):
             raise
         except Exception as error:
@@ -108,10 +165,27 @@ class YtdlpWorker(FileWorker):
             if isinstance(error, yt_dlp.utils.DownloadError) and error.exc_info and isinstance(error.exc_info[1], (StopRequested, JobCancelled)):
                 raise error.exc_info[1]
             raise JobFailed(f"YouTube download failed ({reason[:160]}). Updating yt-dlp often fixes this.") from None
-        files = sorted(p for p in folder.glob("audio.*") if p.suffix not in (".part", ".ytdl"))
+        files = sorted((p for p in folder.glob("audio.*") if p.suffix not in (".part", ".ytdl", ".webp", ".jpg", ".png")),
+                       key=lambda p: p.suffix != ".mp3")
         if not files:
             raise JobFailed("YouTube gave no audio file")
-        return files[0]
+        return files[0], info
+
+    @staticmethod
+    def _yt_cover(info):
+        """Square JPEG cover from the page's thumbnail, or None."""
+        url = pick_thumbnail(info)
+        if not url:
+            return None
+        try:
+            import requests
+            r = requests.get(url, timeout=20)
+            r.raise_for_status()
+            return square_jpeg(r.content) or None
+        except Exception:
+            return None
+
+    _cover = None
 
     def process(self, job):
         p, jid = job["payload"], job["id"]
@@ -129,7 +203,8 @@ class YtdlpWorker(FileWorker):
                 self._progress(jid, done, total)
 
         folder = self._part_path(jid).parent / f"yt-{jid}"
-        file = self._fetch_audio(p["url"], folder, hook)
+        got = self._fetch_audio(p["url"], folder, hook)
+        file, info = got if isinstance(got, tuple) else (got, {})
         try:
             part = self._part_path(jid)
             part.parent.mkdir(parents=True, exist_ok=True)
@@ -137,9 +212,9 @@ class YtdlpWorker(FileWorker):
             nbytes = part.stat().st_size
             fmt = self.check_audio(part)
             self._step(jid, 1, f"{nbytes / 1048576:.1f} MB · {fmt.upper()} from yt-dlp")
-            self.save(job, part, fmt, nbytes, title=job["title"], artists=p["artists"], album_artist=p["album_artist"],
-                      album=p["album"], track_no=p["track_no"], track_total=p["track_total"], year="", cover=None,
-                      extras=[self.lossy_note])
+            tags = self.tags_for(job, info)
+            cover = (self._cover or self._yt_cover)(info) if info else None
+            self.save(job, part, fmt, nbytes, cover=cover, extras=[self.lossy_note], **tags)
         finally:
             try:
                 for leftover in folder.glob("*"):
@@ -147,6 +222,22 @@ class YtdlpWorker(FileWorker):
                 folder.rmdir()
             except OSError:
                 pass
+
+
+    @staticmethod
+    def tags_for(job, info):
+        """The tags to write (v61): what was queued, with the page's own track, artist, year and genre filled
+        in. Rows marked ``page_meta`` (links, playlists, artist releases) take the page's title and artist."""
+        p, meta = job["payload"], page_meta(info)
+        from_page = bool(p.get("page_meta"))
+        title = meta["title"] if from_page and meta["title"] else job["title"]
+        artists = meta["artists"] if from_page and meta["artists"] else p["artists"]
+        album, album_artist = p["album"], p["album_artist"]
+        if from_page and p.get("single") and meta["album"]:
+            album = meta["album"]
+            album_artist = artists[0] if artists else album_artist
+        return {"title": title, "artists": artists, "album_artist": album_artist, "album": album,
+                "track_no": p["track_no"], "track_total": p["track_total"], "year": meta["year"], "genre": meta["genre"]}
 
 
 class YouTube(YtdlpWorker):
@@ -202,8 +293,11 @@ class YouTube(YtdlpWorker):
         except ImportError:
             raise YouTubeError("yt-dlp is not installed. Restart Tagcast so it installs it, or run: pip install yt-dlp") from None
         opts = {"quiet": True, "no_warnings": True, "extract_flat": True, "skip_download": True, "socket_timeout": 20}
-        url = (f"https://www.youtube.com/results?search_query={quote(query)}&sp=EgIQAw%3D%3D" if playlists
-               else f"ytsearch{SEARCH_RESULTS}:{query}")
+        if str(query).startswith("http"):
+            url = query  # a page (playlist, channel tab, YouTube Music search) listed as it is
+        else:
+            url = (f"https://www.youtube.com/results?search_query={quote(query)}&sp=EgIQAw%3D%3D" if playlists
+                   else f"ytsearch{SEARCH_RESULTS}:{query}")
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False) or {}
@@ -286,3 +380,103 @@ class YouTube(YtdlpWorker):
             except LibraryError as error:
                 out.append({"line": line, "ok": False, "note": str(error)})
         return {"results": out}
+
+    # -- an artist's albums and singles (v61) ----------------------------------------------------
+
+    def _music_releases(self, artist):
+        """YouTube Music's album results for this artist (singles and EPs are listed there too)."""
+        out = []
+        for e in self._search(f"https://music.youtube.com/search?q={quote(artist)}#albums"):
+            url = e.get("url") or e.get("webpage_url") or ""
+            title = match.clean(re.sub(r"(?i)^(album|single|ep)\s*[-·•]\s*", "", str(e.get("title") or "")))
+            who = " ".join(str(e.get(k) or "") for k in ("channel", "uploader", "artist", "description"))
+            if url and title and (not who.strip() or match.match_key(artist) in match.match_key(who)):
+                out.append({"title": title, "url": url})
+        return out
+
+    def _channel_releases(self, artist):
+        """Plain YouTube: the artist's channel (or "Artist - Topic"), then its Releases tab."""
+        key = match.match_key(artist)
+        channels = self._search(f"https://www.youtube.com/results?search_query={quote(artist)}&sp=EgIQAg%3D%3D")
+        best = None
+        for e in channels:
+            name = str(e.get("title") or e.get("channel") or e.get("uploader") or "")
+            topic = fold(name).endswith(" topic")
+            if match.match_key(re.sub(r"(?i)\s*-\s*topic$", "", name)) == key:
+                if topic or best is None:
+                    best = e
+                if topic:
+                    break
+        out = []
+        if best:
+            base = (best.get("url") or best.get("channel_url") or "").rstrip("/")
+            for e in self._search(base + "/releases") if base.startswith("http") else []:
+                url = e.get("url") or (f"https://www.youtube.com/playlist?list={e['id']}" if e.get("id") else "")
+                title = match.clean(re.sub(r"(?i)^(album|single|ep)\s*-\s*", "", str(e.get("title") or "")))
+                if url and title:
+                    out.append({"title": title, "url": url})
+        if not out:
+            for e in self._search(f"{artist} album", playlists=True)[:15]:
+                channel = str(e.get("channel") or e.get("uploader") or "")
+                url = e.get("url") or (f"https://www.youtube.com/playlist?list={e['id']}" if e.get("id") else "")
+                title = match.clean(re.sub(r"(?i)^album\s*-\s*", "", str(e.get("title") or "")))
+                if url and title and key in match.match_key(channel):
+                    out.append({"title": title, "url": url})
+        return out
+
+    def artist_releases(self, artist, where="music"):
+        """{albums, singles}: each release with its tracks; 1 to 3 tracks is a single. YouTube Music first
+        (where="music"), falling back to plain YouTube when it finds nothing."""
+        artist = match.clean(artist)
+        if not artist:
+            raise YouTubeError("Type an artist name.")
+        used, fell_back = ("youtube" if where == "youtube" else "music"), False
+        found = self._music_releases(artist) if used == "music" else self._channel_releases(artist)
+        if not found and used == "music":
+            used, fell_back, found = "youtube", True, self._channel_releases(artist)
+        seen, unique = set(), []
+        for r in found:
+            if r["url"] not in seen:
+                seen.add(r["url"])
+                unique.append(r)
+
+        def tracks(release):
+            try:
+                rows = [{"id": e["id"], "title": match.clean(e["title"]), "duration": e.get("duration") or 0}
+                        for e in self._search(release["url"]) if e.get("id") and e.get("title")]
+            except LibraryError:
+                rows = []
+            return {**release, "tracks": rows[:100]}
+
+        with ThreadPoolExecutor(6) as pool:
+            releases = [r for r in pool.map(tracks, unique[:40]) if r["tracks"]]
+        try:
+            checked = self.manager.check([{"kind": "album", "title": r["title"], "artist": artist, "tracks": len(r["tracks"])}
+                                          for r in releases])["results"] if releases else []
+        except LibraryError:
+            checked = [{"status": "new"}] * len(releases)
+        for r, c in zip(releases, checked):
+            r["status"] = c.get("status", "new")
+            r["kind"] = "single" if len(r["tracks"]) <= 3 else "album"
+        return {"artist": artist, "where": used, "fell_back": fell_back,
+                "albums": [r for r in releases if r["kind"] == "album"],
+                "singles": [r for r in releases if r["kind"] == "single"]}
+
+    def add_releases(self, artist, releases):
+        """Queue whole releases from artist_releases: album = release title, tracks in order."""
+        artist = match.clean(artist)
+        if not artist or not isinstance(releases, list) or not releases:
+            raise YouTubeError("Choose at least one album or single.")
+        items = []
+        for rel in releases[:60]:
+            title = match.clean((rel or {}).get("title"))
+            songs = [t for t in rel.get("tracks") or [] if re.fullmatch(r"[\w-]{6,20}", str(t.get("id") or "")) and t.get("title")]
+            if not title or not songs:
+                continue
+            for i, t in enumerate(songs):
+                item = self._item(artist, match.clean(t["title"]), title, t, number=i + 1, total=len(songs))
+                item["payload"]["page_meta"] = True
+                items.append(item)
+        if not items:
+            raise YouTubeError("Nothing to download in that choice.")
+        return self._submit(items[:1000])

@@ -455,6 +455,8 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/pagelist/get": lambda b: self.studio.pagelist.get(b.get("id"), b.get("ids")),
             "/api/youtube/settings": lambda b: self.studio.youtube.save_settings(b),
             "/api/youtube/add": lambda b: self.studio.youtube.add_lines(b.get("lines")),
+            "/api/youtube/artist": lambda b: self.studio.youtube.artist_releases(b.get("artist"), b.get("where")),
+            "/api/youtube/releases": lambda b: self.studio.youtube.add_releases(b.get("artist"), b.get("releases")),
             "/api/more/search": lambda b: self.studio.moresources.search(b.get("query")),
             "/api/more/add": lambda b: self.studio.moresources.add(b.get("rows")),
             "/api/more/links": lambda b: self.studio.moresources.add_links(b.get("lines")),

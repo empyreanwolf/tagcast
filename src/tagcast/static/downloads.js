@@ -107,7 +107,7 @@ function downloadsCollapsify(html, fallback) {
   let out = "", at = 0;
   const open = /<(table|ul)\b([^>]*)>/g;
   for (let m; (m = open.exec(html));) {
-    if (m[1] === "ul" && !/class="[^"]*\bdl-list\b/.test(m[2])) continue;
+    if (m[1] === "ul" && (!/class="[^"]*\bdl-list\b/.test(m[2]) || /\bdl-nofold\b/.test(m[2]))) continue;
     let depth = 1, i = open.lastIndex;
     const tag = new RegExp(`<(/?)${m[1]}\\b[^>]*>`, "g");
     tag.lastIndex = i;
