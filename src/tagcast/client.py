@@ -1018,18 +1018,18 @@ class Studio:
         finally:
             self.save_lock.release()
 
-    def save(self, changes):
+    def save(self, changes, split_merge=False):
         client = self._require_client()
         if not self.save_lock.acquire(blocking=False):
             raise ApiError("Another save is still running.")
         try:
-            return self._save(client, changes)
+            return self._save(client, changes, split_merge)
         finally:
             self.save_lock.release()
 
-    def _save(self, client, changes):
+    def _save(self, client, changes, split_merge=False):
         fresh, _ = self._current(client)
-        plan = plan_save(fresh, changes)  # raises ConflictError before anything is written
+        plan = plan_save(fresh, changes, split_merge)  # raises ConflictError before anything is written
         if not plan["items"]:
             return {"results": [], "albums": fresh.album_index(), "editor_names": fresh.editor_names(), "created_artists": [],
                     "error": "", "message": "iBroadcast already has these values."}

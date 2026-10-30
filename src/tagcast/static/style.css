@@ -1302,3 +1302,12 @@ th.sortable-th .sort-arrow{font-size:calc(10px*var(--ts));color:var(--accent,cur
 /* v58: foldable Downloads sections */
 .dl-fold>summary{cursor:pointer;font-weight:600;margin:6px 0;list-style:revert}
 .dl-fold>summary .muted{font-weight:400}
+
+/* Split albums (fork v62) */
+.split-albums{margin:0 0 18px}
+.split-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.split-row{display:grid;grid-template-columns:48px 1fr auto auto;gap:12px;align-items:center;padding:8px 10px;border:1px solid var(--line, #ddd);border-radius:10px}
+.split-row img,.split-noart{width:48px;height:48px;border-radius:6px;object-fit:cover;background:var(--panel, #eee)}
+.split-row details ul{margin:6px 0 0;padding-left:18px}
+.split-target select{max-width:220px}
+@media (max-width:640px){.split-row{grid-template-columns:40px 1fr}.split-row img,.split-noart{width:40px;height:40px}.split-target,.split-row>button{grid-column:2}}

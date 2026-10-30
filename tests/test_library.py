@@ -743,3 +743,14 @@ class AlbumIndexCacheTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SplitMergeTests(unittest.TestCase):
+    def test_album_artist_changes_may_span_artists_only_for_split_merge(self):
+        changes = [change("album", 10, artist_id=(4, 0)), change("album", 11, artist_id=(5, 0))]
+        with self.assertRaises(LibraryError):
+            plan_save(lib(), changes)
+        plan = plan_save(lib(), changes, split_merge=True)
+        self.assertEqual(len(plan["items"]), 2)
+        with self.assertRaises(LibraryError):
+            plan_save(lib(), [change("album", 10, name=("Original", "X")), change("album", 11, artist_id=(5, 0))], split_merge=True)

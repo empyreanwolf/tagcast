@@ -399,7 +399,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/auth/cancel": lambda b: (self.studio.cancel_device(), {"ok": True})[1],
             "/api/auth/browser": lambda b: {"url": self.studio.browser_url(self._redirect_uri())},
             "/api/auth/logout": lambda b: (self.studio.logout(), {"ok": True})[1],
-            "/api/save": lambda b: self.studio.save(b.get("changes")),
+            "/api/save": lambda b: self.studio.save(b.get("changes"), b.get("split_merge") is True),
             "/api/cleanup/preview": lambda b: self.studio.cleanup.prepare(
                 b.get("category"), b.get("label"), b.get("replacements"), b.get("remove", False)),
             "/api/cleanup/start": lambda b: self.studio.cleanup.start(b.get("id"), b.get("excluded")),

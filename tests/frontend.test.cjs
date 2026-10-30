@@ -10806,3 +10806,28 @@ test("the YouTube tab searches an artist's albums and singles, folds them and sh
   assert.match(html, /Paste links[\s\S]*YouTube, SoundCloud or Audiomack/);
   assert.doesNotMatch(p.run("downloadsCollapsify(youtubeArtistHtml(), 'x')"), /data-dl-fold=/);
 });
+
+test("split albums are found by title and merged into one album artist", async () => {
+  const p = page(); await settle();
+  p.run(`state.albums = [
+    ...["Words", "Problemz", "Common", "Kweli"].map((artist, i) => ({id: String(10 + i), name: i ? "Lyricist Lounge Vol 1" : "Lyricist Lounge Vol. 1", artist, artist_id: 20 + i, year: i < 2 ? 1998 : 0, disc: 1, track_count: 1, artwork: "art", upload_dates: ["2026-10-01"]})),
+    {id: "30", name: "Greatest Hits", artist: "A", artist_id: 1, year: 0, disc: 1, track_count: 12, artwork: "", upload_dates: []},
+    {id: "31", name: "Greatest Hits", artist: "B", artist_id: 2, year: 0, disc: 1, track_count: 1, artwork: "", upload_dates: []},
+    {id: "32", name: "Greatest Hits", artist: "C", artist_id: 3, year: 0, disc: 1, track_count: 1, artwork: "", upload_dates: []},
+    {id: "40", name: "Solo", artist: "Z", artist_id: 9, year: 0, disc: 1, track_count: 10, artwork: "", upload_dates: []}]`);
+  const groups = p.json("splitGroups().map(g => [g.name, g.parts.length, g.suggested, g.confident, g.year])");
+  assert.deepEqual(groups, [["Lyricist Lounge Vol. 1", 4, "Various Artists", true, 1998], ["Greatest Hits", 3, "A", false, 0]]);
+  assert.equal(p.run('FILTERS.split[1](state.albums[0])'), true);
+  assert.equal(p.run('FILTERS.split[1](state.albums[7])'), false);
+  p.run('$("#filter").value = "split"; state.artist = null; renderSplitAlbums()');
+  const html = p.run('$("#split-albums").innerHTML');
+  assert.match(html, /2 split albums/);
+  assert.match(html, /Merge all \(1\)/);
+  assert.match(html, /<option selected="">Various Artists<\/option>|<option selected>Various Artists<\/option>/);
+  p.run(`state.details = new Map(state.albums.slice(0, 4).map(a => [a.id, {...a, credits: a.id === "11" ? [{artist_id: 5, name: "X", type: "artist", phrase: null}] : []}]))`);
+  const changes = JSON.parse(await p.run('splitChanges(splitGroups()[0], "Various Artists").then(c => JSON.stringify(c))'));
+  assert.equal(changes.length, 4);
+  assert.deepEqual(changes[0].fields.artist_id, {before: 20, after: 0, before_name: "Words", after_name: "Various Artists"});
+  assert.deepEqual(changes[1].fields.credits.after, []);
+  assert.deepEqual(changes[2].fields.year, {before: 0, after: 1998});
+});

@@ -1084,8 +1084,14 @@ def _clean_value(key, value):
     return value
 
 
-def plan_save(library, changes):
+SPLIT_MERGE_FIELDS = {"artist", "artist_id", "credits", "year"}
+
+
+def plan_save(library, changes, split_merge=False):
     """Validate reviewed changes against a freshly downloaded library.
+
+    ``split_merge`` (fork v62, Split albums): album-only changes of album artist, album credits and
+    year may span many album artists, so the fragments of one album can be joined in one save.
 
     Each change is {"kind", "id", "albumId", "label", "fields": {key: {"before", "after"}}}
     as produced by the browser. Raises ConflictError when a "before" value no longer
@@ -1175,7 +1181,10 @@ def plan_save(library, changes):
                 item["track_ids"] = library.active_track_ids(item_id)
             items.append(item)
 
-    if not album_artists:
+    if split_merge:
+        if any(c.get("kind") != "album" or not set(c.get("fields") or {}) <= SPLIT_MERGE_FIELDS for c in changes):
+            raise LibraryError("Merging split albums only changes album artist, album credits and year.")
+    elif not album_artists:
         raise LibraryError("A save must stay within one album or one album artist.")
     if conflicts:
         shown = "; ".join(conflicts[:3]) + (" …" if len(conflicts) > 3 else "")

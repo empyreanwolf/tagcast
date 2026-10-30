@@ -284,6 +284,7 @@ const FILTERS = {
   incomplete: ["Possibly incomplete", a => a.track_gaps > 0],
   duplicates: ["Duplicate tracks", hasDuplicateTracks],
   edition: ["Named editions", a => EDITION.test(a.name)],
+  split: ["Split albums", a => typeof isSplitAlbum === "function" && isSplitAlbum(a)],  // fork v62, split-albums.js
 };
 function compareRating(a, b, descending = true) {
   return !a !== !b ? (a ? -1 : 1) : descending ? b - a : a - b;
@@ -593,6 +594,7 @@ function render() {
   syncBrowseChoices("albums", Object.entries(FILTERS).map(([value, [label, keep]]) => ({value, label, count: scope.filter(keep).length})), albumSortLabels, "artist");
   $("#cleanup-filter").hidden = !live() || $("#filter").value !== "combined";
   $("#duplicate-cleanup-open").hidden = !live() || $("#filter").value !== "duplicates";
+  if (typeof renderSplitAlbums === "function") renderSplitAlbums();
   $("#browse-artist-count").textContent = artistGroups().length.toLocaleString("en");
   $("#total-albums").textContent = $("#album-count").textContent = albumShelf().length.toLocaleString("en");
   const trackCount = state.albums.reduce((sum, a) => sum + a.track_count, 0);
@@ -603,7 +605,9 @@ function render() {
   $("#page-title").textContent = state.artist || "Your albums.";
   $("#page-eyebrow").textContent = state.artist ? "ALBUM ARTIST" : "A LITTLE ORDER. ONE ALBUM AT A TIME.";
   renderArtistPanel();
-  $("#page-subtitle").textContent = $("#filter").value === "duplicates"
+  $("#page-subtitle").textContent = $("#filter").value === "split"
+    ? "One album split into many because its tracks have different album artists. Merge gives every part one album artist; track artists stay."
+    : $("#filter").value === "duplicates"
     ? "Albums where the same title appears more than once. Track numbers alone do not count. Open an album to compare the copies."
     : state.artist ? "Open an album to listen, or select albums by this artist to edit, tag or move to the trash together." : live() ? "Browse your collection, play an album, or select albums to tag, merge or move to the trash together." : "Browse your collection, play an album, and edit its details when you choose.";
   $("#selection-help").textContent = state.artist ? "Selection is limited to this artist" : live() ? "Select albums to tag, merge or move to the trash together" : "Open an album to see its tracks and listen";
@@ -1637,7 +1641,7 @@ function revertLocally(changes) {
 async function runSave(draft) {
   let result;
   try {
-    result = await api("/api/save", {changes: draft.changes});
+    result = await api("/api/save", draft.splitMerge ? {changes: draft.changes, split_merge: true} : {changes: draft.changes});
   } catch (error) { saveFailed(draft, error); return; }
   const byId = new Map((result.results || []).map(r => [`${r.kind}:${r.id}`, r.status]));
   const statuses = [...byId.values()];
