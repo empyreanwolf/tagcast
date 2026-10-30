@@ -299,7 +299,7 @@ _handler = None
 
 
 def _module_category(name):
-    if name in ("galaxy", "bandcamp", "soulseek", "downloads", "source_worker", "discography", "wishlist",
+    if name in ("galaxy", "bandcamp", "soulseek", "youtube", "downloads", "source_worker", "discography", "wishlist",
                 "completion", "charts", "recommendations", "releases", "telegram"):
         return "downloads"
     if name in ("cleanup", "artist_cleanup", "duplicate_cleanup", "tagclean"):

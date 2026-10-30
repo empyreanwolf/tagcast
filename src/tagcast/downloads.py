@@ -39,7 +39,7 @@ log = logging.getLogger("tagcast")
 
 STATE_FILE = "downloads.json"
 KINDS = ("song", "album")
-SOURCES = ("galaxy", "telegram", "bandcamp", "soulseek", "manual")
+SOURCES = ("youtube", "galaxy", "telegram", "bandcamp", "soulseek", "manual")
 MAX_ITEMS = 500           # per check or submit
 MAX_IMPORT_BYTES = 50 * 1024 * 1024
 HISTORY_PAGE = 50

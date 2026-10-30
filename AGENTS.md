@@ -1186,6 +1186,8 @@ python3 tools/build_dark_css.py --check
   `docs/write-reliability.md`), edition-suffix album info. Not taken: year review, upload folder/day
   browsing, Mini Player. The fork's queued save (`saveDraft` in `app.js`) stays; the backend send-once
   policy applies underneath it.
+- Fork v59: `youtube.py` (`YouTube(FileWorker)`, source "youtube", yt-dlp as a library; `score_video/best_video` pick the audio,
+  `find_album` needs a matching "Artist - Topic" playlist); `Discography._youtube_song/_youtube_album` run before Galaxy; state in `youtube.json`.
 - Fork v58: `browseArtistRows/browseArtistCard` (genre detail grouped by album artist, `browseView.byArtist`); `downloadsCollapsify` wraps
   tables and `ul.dl-list` in `<details class="dl-fold">` (state in localStorage `tagcast-downloads-collapsed`, `dlDefaultClosed`);
   `rememberArtistNames` after saves; `releases.library_artists(..., genres)` with state `genres` (default hip-hop trio).

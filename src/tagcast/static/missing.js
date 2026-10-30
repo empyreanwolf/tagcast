@@ -62,7 +62,7 @@ function releasesHtml() {
         <label><input type="checkbox" data-releases-all ${r.results.every(x => missingView.picked.has(x.id)) ? "checked" : ""}> Select all (${r.results.length})</label>
         <button type="button" class="button primary" data-releases="get" ${picked ? "" : "disabled"}>⬇ Get the missing (${picked})</button>
         <button type="button" class="button" data-releases="dismiss" ${picked ? "" : "disabled"}>Hide selected</button>
-        <span class="muted">Order: Galaxy → Bandcamp → Soulseek.</span></div>
+        <span class="muted">Order: YouTube → Galaxy → Bandcamp → Soulseek.</span></div>
       <ul class="discography-list">${r.results.map(x => `<li>
         <input type="checkbox" data-releases-pick="${x.id}" aria-label="Select ${escapeHtml(x.title)}" ${missingView.picked.has(x.id) ? "checked" : ""}>
         ${bandcampThumb(x.cover, "galaxy-album-art")}
@@ -99,7 +99,7 @@ function completeHtml() {
     <div class="dl-actions"><div class="search"><span aria-hidden="true">⌕</span><input id="complete-search" maxlength="200" placeholder="Filter artists or albums" aria-label="Filter the report" value="${escapeHtml(missingView.completeQuery)}"></div>
       <label><input type="checkbox" data-complete-all ${rows.length && rows.every(a => missingView.picked.has(a.key)) ? "checked" : ""}> Select all (${rows.length})</label>
       <button type="button" class="button primary" data-complete="get" ${picked ? "" : "disabled"}>⬇ Get the missing (${picked})</button>
-      <span class="muted">Order: Galaxy → Bandcamp (whole albums from Soulseek would bring back what you have).</span></div>
+      <span class="muted">Order: YouTube → Galaxy → Bandcamp (whole albums from Soulseek would bring back what you have).</span></div>
     <ul class="discography-list">${rows.map(a => {
       const open = missingView.completeOpen.get(a.key);
       const holes = Object.entries(a.gaps || {}).map(([disc, n]) => `${Object.keys(a.gaps).length > 1 ? `disc ${disc}: ` : ""}#${n.join(", #")}`).join("; ");

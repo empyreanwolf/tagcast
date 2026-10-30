@@ -42,7 +42,7 @@ function discographyResultsHtml() {
     <div class="dl-actions"><button type="button" class="button primary" data-discography="get-albums" ${picked ? "" : "disabled"}>⬇ Get the missing (${picked} selected)</button>
       <button type="button" class="text-action" data-discography="pick-missing">Select missing &amp; partly</button>
       <button type="button" class="text-action" data-discography="pick-none">Select none</button>
-      <span class="muted">Order: Galaxy → Bandcamp → Soulseek.</span></div>
+      <span class="muted">Order: YouTube → Galaxy → Bandcamp → Soulseek.</span></div>
     <ul class="discography-list">${shown.map(r => `<li class="${r.status}">
       <input type="checkbox" data-discography-pick="${escapeHtml(r.title)}" aria-label="Select ${escapeHtml(r.title)}" ${view.picked.has(r.title) ? "checked" : ""}>
       ${bandcampThumb(r.cover, "galaxy-album-art")}

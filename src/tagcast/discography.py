@@ -344,7 +344,40 @@ class Discography:
         log.info("Bandcamp skipped %s - %s: %s", name, title, reason)
         return reason
 
+    def _youtube(self):
+        youtube = getattr(self.studio, "youtube", None)
+        return youtube if youtube is not None and youtube.enabled() else None
+
+    def _youtube_album(self, name, title):
+        youtube = self._youtube()
+        if youtube is None:
+            return None
+        try:
+            return "YouTube", self._summary(youtube.add_album(name, title)) + " (lossy, from YouTube)"
+        except LibraryError as error:
+            log.info("YouTube album skipped: %s", error)
+        except Exception as error:
+            log.info("YouTube album failed: %s", error)
+        return None
+
+    def _youtube_song(self, name, title, album=""):
+        youtube = self._youtube()
+        if youtube is None:
+            return None
+        try:
+            return "YouTube", self._summary(youtube.add_song(name, title, album)) + " (lossy, from YouTube)"
+        except LibraryError as error:
+            log.info("YouTube song skipped: %s", error)
+        except Exception as error:
+            log.info("YouTube song failed: %s", error)
+        return None
+
     def _album(self, name, title, status, deezer_id, ctx):
+        # 0. YouTube (v59) when it is switched on: an album playlist of this artist
+        self._step(ctx, f"{title}: searching YouTube…")
+        found = self._youtube_album(name, title)
+        if found:
+            return found
         # 1. Galaxy: every way (album, then the title as a song, then the artist's songs)
         self._step(ctx, f"{title}: searching Galaxy…")
         source, note = self._galaxy_album(name, title)
@@ -400,6 +433,9 @@ class Discography:
         return None, NOT_FOUND
 
     def _song(self, name, title, album, ctx):
+        found = self._youtube_song(name, title, album)
+        if found:
+            return found
         source, note = self._galaxy_song(name, title)
         if source:
             return source, note

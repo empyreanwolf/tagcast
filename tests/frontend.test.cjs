@@ -10766,3 +10766,14 @@ test("every Downloads table and list can be folded, and Finding sources starts c
   assert.doesNotMatch(html, /data-dl-fold="[^"]*" [^>]*><ul class="menu"/);
   assert.equal((html.match(/<details/g) || []).length, 2);
 });
+
+test("the YouTube tab lists songs per line and the settings can switch it off", async () => {
+  const p = page(); await settle();
+  p.run('youtubeView.status = {enabled: true, installed: false, version: ""}');
+  const html = p.run("youtubeHtml()");
+  assert.match(html, /Artist - Title/);
+  assert.match(html, /yt-dlp is not installed yet/);
+  assert.match(p.run("youtubeSettingsHtml()"), /checked> Try YouTube first/);
+  assert.equal(p.run('downloadsTabs[0][0]'), "youtube");
+  assert.equal(p.run('downloadsSourceLabels.youtube'), "YouTube");
+});

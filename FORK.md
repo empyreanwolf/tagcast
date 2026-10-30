@@ -64,6 +64,14 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v59** **YouTube source (yt-dlp), tried first.**
+  - New **YouTube** tab in Downloads (one `Artist - Title` per line) and a switch in Settings (on by default). Tagcast uses the open-source
+    yt-dlp library (installed automatically at the next start), picks the official audio (the "Artist - Topic" upload first; live, remix,
+    cover, instrumental and other versions are skipped unless you asked for them) and saves the AAC (m4a) stream without re-encoding.
+  - Order for every download is now **YouTube, Galaxy, Bandcamp, Soulseek**. Albums use YouTube's album playlist when it clearly matches.
+    Charts rows that already carry a NetEase track id still go straight to Galaxy.
+  - Files are lossy (about 128 kbps), have no cover, and say "from YouTube, lossy" on the item. They are tagged and tidied like other downloads.
+  - Not tested against live YouTube (the build sandbox has no internet). If YouTube changes, update yt-dlp: `pip install -U yt-dlp`.
 - **v58** **Notes built.**
   - Genre page lists each album artist once (artist picture, total albums and songs); a button switches back to every album.
   - Failed downloads have Copy artist / Copy album / Copy title buttons.

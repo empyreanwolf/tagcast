@@ -63,7 +63,8 @@ change list per version is in [FORK.md](FORK.md).
   Every table and list on the page folds away, and each remembers if it was open. Failed items have Copy artist / album / title.
 - **Check first:** songs and albums are compared with your iBroadcast library and your download history. Anything you
   may already have waits in **Needs your decision** and is never downloaded automatically. Imports the Galaxy and Telegram histories.
-- **Order for every download: Galaxy, then Bandcamp, then Soulseek.**
+- **Order for every download: YouTube, then Galaxy, then Bandcamp, then Soulseek.**
+- **YouTube** (yt-dlp): official audio found by `Artist - Title`, saved as AAC without re-encoding (lossy, about 128 kbps); can be switched off in Settings.
 - **Galaxy** (GD Studio): search by artist, album or track on netease, joox and bilibili, with covers. It tries every way
   (album, song title, artist, traditional and simplified Chinese, deep results), keeps short songs, and treats a 403
   firewall page as "blocked, retry later". Songs are tagged from MusicBrainz (year, genre, track numbers, IDs).
@@ -132,7 +133,7 @@ change list per version is in [FORK.md](FORK.md).
 - **Removed:** Ask Gemini (page and key settings), the separate Recommendations page (now the **Recommended for you** tab on Charts),
   the Gemini section of the Daily Digest, and the Shazam and Billboard Hot Rap charts.
 - **Changed:** the sidebar shortcut "Album artists" is now **Artist**; Track artists, Composers and Tags start hidden (turn them on in Settings → Sidebar).
-- **Changed:** the download order is Galaxy, then Bandcamp, then Soulseek (it was Bandcamp, Galaxy, Soulseek in v45 to v53).
+- **Changed:** the download order is YouTube, Galaxy, Bandcamp, then Soulseek (it was Bandcamp, Galaxy, Soulseek in v45 to v53).
 - **Changed:** the Duplicated tag no longer counts matching track numbers alone.
 
 Not tried in every real-world case: see the notes under each version in [FORK.md](FORK.md).
