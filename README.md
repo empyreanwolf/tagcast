@@ -51,6 +51,68 @@ together, shuffle an album and browse albums in a stable random order.
 - **Keep track:** read-back checks distinguish confirmed saves from uncertain
   results; Change history records metadata outcomes and available artwork Undo.
 
+## This fork (v58): everything it adds
+
+This is a personal fork of Tagcast 0.85.1 / 1.0 with extra features, run on Windows with
+`start-tagcast-fork.bat` (port 8913). The version shows in the UI as "fork vN". The full
+change list per version is in [FORK.md](FORK.md).
+
+### Downloads (sidebar → Downloads)
+- **Download manager at the top** of the page: Pause, Cancel current, Retry failed, Clear done / waiting / failed / skipped,
+  Activity log, API-limit line, overall progress and every item. The tab menu and a "songs need a genre" banner sit above it.
+  Every table and list on the page folds away, and each remembers if it was open. Failed items have Copy artist / album / title.
+- **Check first:** songs and albums are compared with your iBroadcast library and your download history. Anything you
+  may already have waits in **Needs your decision** and is never downloaded automatically. Imports the Galaxy and Telegram histories.
+- **Order for every download: Galaxy, then Bandcamp, then Soulseek.**
+- **Galaxy** (GD Studio): search by artist, album or track on netease, joox and bilibili, with covers. It tries every way
+  (album, song title, artist, traditional and simplified Chinese, deep results), keeps short songs, and treats a 403
+  firewall page as "blocked, retry later". Songs are tagged from MusicBrainz (year, genre, track numbers, IDs).
+- **Bandcamp:** paste an artist or album link; releases show Have / Partly / Downloaded before / Missing.
+- **Soulseek** (via Sockseek): "Artist - Album" or "Artist - Title" per line, live numbers, and automatic hand-over to the next source.
+- **Discography:** every album, EP, single and compilation of an artist plus top songs, each marked Have / Partly / Missing.
+- **Missing:** *New releases* for artists you follow (hip-hop genres by default, others selectable), *Complete my albums*,
+  and the **Wishlist** of things no source had yet, retried every few days.
+- **From a page:** paste a page or playlist and check every album on it.
+- **Clean up:** tags the way Mp3tag does (one artist field "A; B", album artist = first artist), genres placed into *your own*
+  list from MusicBrainz, Chinese-named artists default to Chinese Hip Hop, and anything unsure is asked about, with a count and banner.
+  *Recently uploaded* checks your uploads by day.
+- **Every download is tagged right after it is saved.**
+- **Which PC downloaded it:** each download records the PC name. With a shared folder (OneDrive / Dropbox) both PCs see each
+  other's downloads: "downloaded at Office, not uploaded yet".
+- Everything that waits runs in the background; the **Activity log** shows what worked and why something failed.
+
+### Discover
+- **Charts:** Chinese Rap (NetEase) and hip-hop charts, a Browse tab, and public Spotify playlists.
+- **Recommendations** (Deezer, no AI) and a **Daily Digest** pulling together new releases, wishlist finds, chart movement and
+  recommendations; its sections load one by one and warm up quietly after login.
+- **Artist pictures:** a one-time job that fills in missing artist images.
+- **Live synced lyrics** in the fullscreen Now playing view.
+- **Genre page** lists each album artist once (picture, total albums and songs); a button shows every album instead.
+
+### Library and metadata
+- **Artist cleanup:** merge duplicate artists, split combined names such as `Coldplay/BTS`, link `(feat. X)` guests.
+- **Merge albums** (reviewed), Quick merge of two albums, Select all on this page.
+- **Saves are never sent twice;** unconfirmed saves show "Not confirmed".
+- **Year:** changing an album's year sets every track's year (like genre).
+- **Duplicated tag** means the same title twice on one album, not just the same track number.
+- Artists created in a credit are offered in the artist lists right after saving.
+- **Sortable headers** on every table (A to Z, reverse, original order).
+
+### Listening
+- **One-click add:** ♫＋ on any track, album card or album page adds to your quick playlist; track rows show Queue, Next and Playlist buttons.
+- **Heart also adds** the song to a playlist you choose.
+- **Pre-loads the next 2 songs**, optional **crossfade**, **resume last queue** after a restart.
+- **Queue:** drag or Alt+arrow to reorder, Clear with Undo, smart shuffle that keeps the same artist apart.
+- **Play / Shuffle / Add results** for any search or filter, **add selected albums** to a playlist, duplicates skipped, recent playlists first.
+- **Smart playlists:** save a search + filter + sort under a name.
+
+### Comfort and speed
+- **Text size** A- / A+, clearer album / artist / track roles, better contrast.
+- **Faster loading:** compressed and cached scripts, library list built once.
+- **Phone access from anywhere** over Tailscale (see FORK.md).
+
+Not tried in every real-world case: see the notes under each version in [FORK.md](FORK.md).
+
 ## Install
 
 ### Desktop app — no Python required
