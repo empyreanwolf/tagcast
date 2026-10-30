@@ -72,6 +72,7 @@ A short alert sound plays when a run stops with an error or an action fails.
     Charts rows that already carry a NetEase track id still go straight to Galaxy.
   - Files are lossy (about 128 kbps), have no cover, and say "from YouTube, lossy" on the item. They are tagged and tidied like other downloads.
   - Not tested against live YouTube (the build sandbox has no internet). If YouTube changes, update yt-dlp: `pip install -U yt-dlp`.
+- **v60** **More sources tab + SoundCloud chart.** New Downloads tab "More sources": one search bar over SoundCloud (yt-dlp), one-click download, plus a box for SoundCloud/Audiomack links (song, album or set). SoundCloud "Top Hip-hop & Rap" added to the Charts page. Audiomack/mixtape search and charts are not built (no stable public API). Lossy files.
 - **v58** **Notes built.**
   - Genre page lists each album artist once (artist picture, total albums and songs); a button switches back to every album.
   - Failed downloads have Copy artist / Copy album / Copy title buttons.

@@ -88,11 +88,11 @@ def next_data_html(entries):
 
 
 class ChartsListViewTests(unittest.TestCase):
-    def test_list_has_all_five_charts_grouped(self):
+    def test_list_has_all_six_charts_grouped(self):
         studio = LocalStudio()
         charts = studio.charts.list()
         self.assertEqual(set(charts), {"netease_cn_rap", "hotnewhiphop_top100", "deezer_hiphop",
-                                        "apple_hiphop", "spotify_rapcaviar"})
+                                        "apple_hiphop", "spotify_rapcaviar", "soundcloud_hiphop"})
         self.assertEqual(charts["netease_cn_rap"]["group"], "chinese")
         self.assertEqual(charts["hotnewhiphop_top100"]["group"], "mainstream")
 

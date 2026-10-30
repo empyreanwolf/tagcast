@@ -1188,6 +1188,7 @@ python3 tools/build_dark_css.py --check
   policy applies underneath it.
 - Fork v59: `youtube.py` (`YouTube(FileWorker)`, source "youtube", yt-dlp as a library; `score_video/best_video` pick the audio,
   `find_album` needs a matching "Artist - Topic" playlist); `Discography._youtube_song/_youtube_album` run before Galaxy; state in `youtube.json`.
+- Fork v60: `moresources.py` (`MoreSources(YtdlpWorker)`, source "more"; `search` via yt-dlp `scsearch`, `add`, `add_links`, `soundcloud_rows` from the undocumented api-v2 charts endpoint with a client id read through yt-dlp). `charts.py` chart `soundcloud_hiphop` (rows with source "soundcloud" go straight to `moresources.add`). Routes `/api/more/{search,add,links}`. Frontend `moresources.js`. Not verified against live SoundCloud.
 - Fork v58: `browseArtistRows/browseArtistCard` (genre detail grouped by album artist, `browseView.byArtist`); `downloadsCollapsify` wraps
   tables and `ul.dl-list` in `<details class="dl-fold">` (state in localStorage `tagcast-downloads-collapsed`, `dlDefaultClosed`);
   `rememberArtistNames` after saves; `releases.library_artists(..., genres)` with state `genres` (default hip-hop trio).

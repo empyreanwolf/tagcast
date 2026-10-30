@@ -7,7 +7,7 @@
 // "underground hip-hop" tab: nothing online actually publishes that as a fetchable chart --
 // see the note on the page.
 const chartsTabs = [["netease_cn_rap", "Chinese Rap (NetEase)"], ["hotnewhiphop_top100", "HotNewHipHop Top 100"],
-  ["deezer_hiphop", "Deezer Hip-Hop"], ["apple_hiphop", "Apple Music"], ["spotify_rapcaviar", "Spotify RapCaviar"],
+  ["deezer_hiphop", "Deezer Hip-Hop"], ["apple_hiphop", "Apple Music"], ["spotify_rapcaviar", "Spotify RapCaviar"], ["soundcloud_hiphop", "SoundCloud Hip-hop"],
   ["recommended", "Recommended for you"], ["browse", "Browse"]];
 const chartsView = {tab: "netease_cn_rap", data: {}, picked: new Set(), jobs: null, timer: null, jobTimer: null, busy: false,
   browse: {source: "apple", country: "", genre: "", options: null, key: null}};

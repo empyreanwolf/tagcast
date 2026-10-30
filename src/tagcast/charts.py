@@ -68,6 +68,8 @@ CHARTS = {
                       "url": "https://music.apple.com/us/genre/hip-hop-rap/id18"},
     "spotify_rapcaviar": {"label": "Spotify · RapCaviar", "group": "mainstream",
                            "url": f"https://open.spotify.com/playlist/{SPOTIFY_RAPCAVIAR}"},
+    "soundcloud_hiphop": {"label": "SoundCloud · Top Hip-hop & Rap", "group": "mainstream",
+                           "url": "https://soundcloud.com/charts/top?genre=hiphoprap"},
 }
 
 # -- Browse (fork v22): any country, any genre -------------------------------------------
@@ -217,7 +219,8 @@ class Charts:
     def _load(self, chart_id):
         fetchers = {"netease_cn_rap": self._netease, "hotnewhiphop_top100": self._hotnewhiphop,
                     "deezer_hiphop": self._deezer, "apple_hiphop": self._apple,
-                    "spotify_rapcaviar": lambda: self._spotify(SPOTIFY_RAPCAVIAR)}
+                    "spotify_rapcaviar": lambda: self._spotify(SPOTIFY_RAPCAVIAR),
+                    "soundcloud_hiphop": lambda: self.studio.moresources.soundcloud_rows()}
         try:
             rows = fetchers[chart_id]()
             rows = self._with_status(rows)
@@ -449,8 +452,12 @@ class Charts:
         if not rows:
             raise LibraryError("Choose at least one song.")
         netease = [r for r in rows if r.get("source") == "netease"]
-        other = [r for r in rows if r.get("source") != "netease"]
+        soundcloud = [r for r in rows if r.get("source") == "soundcloud"]
+        other = [r for r in rows if r.get("source") not in ("netease", "soundcloud")]
         result = {"queued": 0, "jobs": 0}
+        if soundcloud:
+            sent = self.studio.moresources.add([{"url": r["source_id"], "title": r["title"], "artist": r["artist"]} for r in soundcloud])
+            result["queued"] += sent.get("queued", 0) + sent.get("held", 0)
         if netease:
             tracks = [{"id": r["source_id"], "title": r["title"], "source": "netease",
                       "artists": [a.strip() for a in r["artist"].split(";") if a.strip()],

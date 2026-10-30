@@ -62,6 +62,7 @@ from .releases import NewReleases
 from .service_status import ServiceStatus
 from .soulseek import Soulseek
 from .youtube import YouTube
+from .moresources import MoreSources
 from .sources import KEYS as SOURCE_KEYS
 from .sources import Lookup
 from .tagclean import TagClean
@@ -438,6 +439,7 @@ class Studio:
         self.bandcamp = Bandcamp(self)
         self.soulseek = Soulseek(self)
         self.youtube = YouTube(self)
+        self.moresources = MoreSources(self)
         self.discography = Discography(self)
         self.new_releases = NewReleases(self)
         self.wishlist = Wishlist(self)

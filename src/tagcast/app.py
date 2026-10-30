@@ -455,6 +455,9 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/pagelist/get": lambda b: self.studio.pagelist.get(b.get("id"), b.get("ids")),
             "/api/youtube/settings": lambda b: self.studio.youtube.save_settings(b),
             "/api/youtube/add": lambda b: self.studio.youtube.add_lines(b.get("lines")),
+            "/api/more/search": lambda b: self.studio.moresources.search(b.get("query")),
+            "/api/more/add": lambda b: self.studio.moresources.add(b.get("rows")),
+            "/api/more/links": lambda b: self.studio.moresources.add_links(b.get("lines")),
             "/api/soulseek/settings": lambda b: self.studio.soulseek.save_settings(b),
             "/api/soulseek/start": lambda b: self.studio.soulseek.start(),
             "/api/soulseek/stop": lambda b: self.studio.soulseek.stop(),
@@ -704,7 +707,7 @@ QUEUED_PATHS = {"/api/save", "/api/artwork", "/api/artwork/undo", "/api/trash", 
 QUIET_ROUTES = {"/api/queue-sync", "/api/galaxy/cards", "/api/galaxy/album-years", "/api/artist-biography",
                 "/api/album-information", "/api/playlist-import/view", "/api/lyrics/review"}
 _ROUTE_CATEGORIES = [
-    (("/api/galaxy", "/api/bandcamp", "/api/soulseek", "/api/youtube", "/api/downloads", "/api/discography", "/api/wishlist",
+    (("/api/galaxy", "/api/bandcamp", "/api/soulseek", "/api/youtube", "/api/more", "/api/downloads", "/api/discography", "/api/wishlist",
       "/api/complete", "/api/charts", "/api/recommendations", "/api/releases", "/api/digest"), "downloads"),
     (("/api/save", "/api/artwork", "/api/tags", "/api/lyrics", "/api/tagclean", "/api/trash", "/api/album-rating",
       "/api/artist-rating", "/api/favourite", "/api/album-favourite", "/api/artist-favourite", "/api/playlist",

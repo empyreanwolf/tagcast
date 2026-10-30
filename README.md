@@ -65,6 +65,7 @@ change list per version is in [FORK.md](FORK.md).
   may already have waits in **Needs your decision** and is never downloaded automatically. Imports the Galaxy and Telegram histories.
 - **Order for every download: YouTube, then Galaxy, then Bandcamp, then Soulseek.**
 - **YouTube** (yt-dlp): official audio found by `Artist - Title`, saved as AAC without re-encoding (lossy, about 128 kbps); can be switched off in Settings.
+- **More sources**: a Downloads tab with one SoundCloud search bar (one-click download) and a box for SoundCloud/Audiomack links; SoundCloud Top Hip-hop & Rap on the Charts page. Lossy files.
 - **Galaxy** (GD Studio): search by artist, album or track on netease, joox and bilibili, with covers. It tries every way
   (album, song title, artist, traditional and simplified Chinese, deep results), keeps short songs, and treats a 403
   firewall page as "blocked, retry later". Songs are tagged from MusicBrainz (year, genre, track numbers, IDs).

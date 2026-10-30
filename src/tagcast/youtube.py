@@ -81,7 +81,75 @@ def best_video(entries, artist, title, want_seconds=0):
     return best
 
 
-class YouTube(FileWorker):
+class YtdlpWorker(FileWorker):
+    """Downloads a page's best audio with yt-dlp and saves it like every other source (v59)."""
+
+    formats = "bestaudio[ext=m4a]/bestaudio"
+    lossy_note = "from YouTube, lossy"
+    wait_text = "Reading the YouTube video…"
+    _fetch_audio = None
+
+    # -- downloading (the worker) ------------------------------------------------------------
+
+    def _yt_fetch(self, url, folder, hook):
+        """Download the best m4a audio into ``folder``; returns the file path."""
+        import yt_dlp
+        folder.mkdir(parents=True, exist_ok=True)
+        opts = {"quiet": True, "no_warnings": True, "noplaylist": True, "socket_timeout": 20, "retries": 3,
+                "fragment_retries": 3, "format": self.formats, "outtmpl": str(folder / "audio.%(ext)s"),
+                "progress_hooks": [hook], "overwrites": True}
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([url])
+        except (StopRequested, JobCancelled):
+            raise
+        except Exception as error:
+            reason = str(error)
+            if isinstance(error, yt_dlp.utils.DownloadError) and error.exc_info and isinstance(error.exc_info[1], (StopRequested, JobCancelled)):
+                raise error.exc_info[1]
+            raise JobFailed(f"YouTube download failed ({reason[:160]}). Updating yt-dlp often fixes this.") from None
+        files = sorted(p for p in folder.glob("audio.*") if p.suffix not in (".part", ".ytdl"))
+        if not files:
+            raise JobFailed("YouTube gave no audio file")
+        return files[0]
+
+    def process(self, job):
+        p, jid = job["payload"], job["id"]
+        self.manager.update_item(jid, started=time.time(), speed=0, eta=0)
+        self._step(jid, 0, self.wait_text)
+        self._t0 = time.monotonic()
+
+        def hook(d):
+            if self.stopping:
+                raise StopRequested()
+            self._check_cancel()
+            if d.get("status") == "downloading":
+                done = d.get("downloaded_bytes") or 0
+                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                self._progress(jid, done, total)
+
+        folder = self._part_path(jid).parent / f"yt-{jid}"
+        file = self._fetch_audio(p["url"], folder, hook)
+        try:
+            part = self._part_path(jid)
+            part.parent.mkdir(parents=True, exist_ok=True)
+            Path(file).replace(part)
+            nbytes = part.stat().st_size
+            fmt = self.check_audio(part)
+            self._step(jid, 1, f"{nbytes / 1048576:.1f} MB · {fmt.upper()} from yt-dlp")
+            self.save(job, part, fmt, nbytes, title=job["title"], artists=p["artists"], album_artist=p["album_artist"],
+                      album=p["album"], track_no=p["track_no"], track_total=p["track_total"], year="", cover=None,
+                      extras=[self.lossy_note])
+        finally:
+            try:
+                for leftover in folder.glob("*"):
+                    leftover.unlink(missing_ok=True)
+                folder.rmdir()
+            except OSError:
+                pass
+
+
+class YouTube(YtdlpWorker):
     source = "youtube"
     track_delay = 2.0
 
@@ -218,62 +286,3 @@ class YouTube(FileWorker):
             except LibraryError as error:
                 out.append({"line": line, "ok": False, "note": str(error)})
         return {"results": out}
-
-    # -- downloading (the worker) ------------------------------------------------------------
-
-    def _yt_fetch(self, url, folder, hook):
-        """Download the best m4a audio into ``folder``; returns the file path."""
-        import yt_dlp
-        folder.mkdir(parents=True, exist_ok=True)
-        opts = {"quiet": True, "no_warnings": True, "noplaylist": True, "socket_timeout": 20, "retries": 3,
-                "fragment_retries": 3, "format": "bestaudio[ext=m4a]/bestaudio", "outtmpl": str(folder / "audio.%(ext)s"),
-                "progress_hooks": [hook], "overwrites": True}
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.download([url])
-        except (StopRequested, JobCancelled):
-            raise
-        except Exception as error:
-            reason = str(error)
-            if isinstance(error, yt_dlp.utils.DownloadError) and error.exc_info and isinstance(error.exc_info[1], (StopRequested, JobCancelled)):
-                raise error.exc_info[1]
-            raise JobFailed(f"YouTube download failed ({reason[:160]}). Updating yt-dlp often fixes this.") from None
-        files = sorted(p for p in folder.glob("audio.*") if p.suffix not in (".part", ".ytdl"))
-        if not files:
-            raise JobFailed("YouTube gave no audio file")
-        return files[0]
-
-    def process(self, job):
-        p, jid = job["payload"], job["id"]
-        self.manager.update_item(jid, started=time.time(), speed=0, eta=0)
-        self._step(jid, 0, "Reading the YouTube video…")
-        self._t0 = time.monotonic()
-
-        def hook(d):
-            if self.stopping:
-                raise StopRequested()
-            self._check_cancel()
-            if d.get("status") == "downloading":
-                done = d.get("downloaded_bytes") or 0
-                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-                self._progress(jid, done, total)
-
-        folder = self._part_path(jid).parent / f"yt-{jid}"
-        file = self._fetch_audio(p["url"], folder, hook)
-        try:
-            part = self._part_path(jid)
-            part.parent.mkdir(parents=True, exist_ok=True)
-            Path(file).replace(part)
-            nbytes = part.stat().st_size
-            fmt = self.check_audio(part)
-            self._step(jid, 1, f"{nbytes / 1048576:.1f} MB · {fmt.upper()} from YouTube")
-            self.save(job, part, fmt, nbytes, title=job["title"], artists=p["artists"], album_artist=p["album_artist"],
-                      album=p["album"], track_no=p["track_no"], track_total=p["track_total"], year="", cover=None,
-                      extras=["from YouTube, lossy"])
-        finally:
-            try:
-                for leftover in folder.glob("*"):
-                    leftover.unlink(missing_ok=True)
-                folder.rmdir()
-            except OSError:
-                pass

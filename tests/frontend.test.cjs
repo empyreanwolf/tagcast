@@ -10777,3 +10777,17 @@ test("the YouTube tab lists songs per line and the settings can switch it off", 
   assert.equal(p.run('downloadsTabs[0][0]'), "youtube");
   assert.equal(p.run('downloadsSourceLabels.youtube'), "YouTube");
 });
+
+test("the More sources tab searches, marks what you have and queues with one click", async () => {
+  const p = page(); await settle();
+  assert.ok(p.run('downloadsTabs.some(t => t[0] === "more")'));
+  assert.ok(p.run('chartsTabs.some(t => t[0] === "soundcloud_hiphop")'));
+  p.run(`moreView.results = [{title: "A", artist: "X", site: "SoundCloud", status: "new", url: "https://soundcloud.com/x/a"},
+    {title: "B", artist: "X", site: "SoundCloud", status: "have", url: "https://soundcloud.com/x/b"}]; moreView.queued = new Set([0])`);
+  const html = p.run("moreHtml()");
+  assert.match(html, /Search SoundCloud/);
+  assert.match(html, /Queued<\/span>[\s\S]*<b>A<\/b>/);
+  assert.match(html, /Have it<\/span>/);
+  assert.match(html, /Download all new \(0\)/);
+  assert.match(html, /Paste links/);
+});
