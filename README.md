@@ -80,6 +80,14 @@ change list per version is in [FORK.md](FORK.md).
 - **Which PC downloaded it:** each download records the PC name. With a shared folder (OneDrive / Dropbox) both PCs see each
   other's downloads: "downloaded at Office, not uploaded yet".
 - Everything that waits runs in the background; the **Activity log** shows what worked and why something failed.
+- **Activity log** (Overview, and a button in the queue): every queue step, save, background run and error, with why it failed;
+  filter by area, live refresh, and a downloadable log file to send when something breaks.
+- **Reliable queue:** a watchdog restarts a stopped source, a failed disk save cannot kill a worker, and a Restart button appears if needed.
+- **Short songs** (intros, skits) are kept when MusicBrainz agrees; a "Keep it" button covers unknown ones.
+- **Instrumental, karaoke and backing tracks** are left out of "download all" (still tickable by hand).
+- **Finding sources** card shows what Tagcast is searching right now for every album it is looking for.
+- **Complete my albums:** finds partly owned albums (gaps in track numbers, fewer songs than Deezer lists) and gets the rest.
+- **Soulseek safety:** SoulseekQt is refused in place of Sockseek; stalled jobs go yellow, then red, then hand over after 30 minutes.
 
 ### Discover
 - **Charts:** Chinese Rap (NetEase) and hip-hop charts, a Browse tab, and public Spotify playlists.
@@ -88,6 +96,8 @@ change list per version is in [FORK.md](FORK.md).
 - **Artist pictures:** a one-time job that fills in missing artist images.
 - **Live synced lyrics** in the fullscreen Now playing view.
 - **Genre page** lists each album artist once (picture, total albums and songs); a button shows every album instead.
+- **Charts → Browse** by country and genre where each source supports it, and any public Spotify playlist link.
+- **Shuffle** button on Genres, Tags, Track artists, Composers, Release year and Decades pages: one shuffled mix of everything shown.
 
 ### Library and metadata
 - **Artist cleanup:** merge duplicate artists, split combined names such as `Coldplay/BTS`, link `(feat. X)` guests.
@@ -97,6 +107,13 @@ change list per version is in [FORK.md](FORK.md).
 - **Duplicated tag** means the same title twice on one album, not just the same track number.
 - Artists created in a credit are offered in the artist lists right after saving.
 - **Sortable headers** on every table (A to Z, reverse, original order).
+- **Artist page** has Albums and Tracks tabs (Play all, Shuffle, search and sort); **Merge two albums** by dragging one onto another.
+- **Recently uploaded** (Downloads → Clean up): your uploads by day with a cover mosaic, problem flags (no genre, odd genre, missing
+  artist, album, year or cover), Edit album, and "I checked this day".
+- **Uploaded today** filter on the Albums page.
+- **Saves run in the background:** the dialog closes at once, values show immediately, a Tasks pill shows progress, and a refused save can be reviewed again.
+- **Artist pictures** (Overview): fills missing album-artist images from a face in their covers, TheAudioDB, or a song cover.
+- **200 per page** by default everywhere; Release year and Decades load faster; Sidebar entries can be shown or hidden in Settings.
 
 ### Listening
 - **One-click add:** ♫＋ on any track, album card or album page adds to your quick playlist; track rows show Queue, Next and Playlist buttons.
@@ -110,6 +127,13 @@ change list per version is in [FORK.md](FORK.md).
 - **Text size** A- / A+, clearer album / artist / track roles, better contrast.
 - **Faster loading:** compressed and cached scripts, library list built once.
 - **Phone access from anywhere** over Tailscale (see FORK.md).
+
+### Removed or changed from the original
+- **Removed:** Ask Gemini (page and key settings), the separate Recommendations page (now the **Recommended for you** tab on Charts),
+  the Gemini section of the Daily Digest, and the Shazam and Billboard Hot Rap charts.
+- **Changed:** the sidebar shortcut "Album artists" is now **Artist**; Track artists, Composers and Tags start hidden (turn them on in Settings → Sidebar).
+- **Changed:** the download order is Galaxy, then Bandcamp, then Soulseek (it was Bandcamp, Galaxy, Soulseek in v45 to v53).
+- **Changed:** the Duplicated tag no longer counts matching track numbers alone.
 
 Not tried in every real-world case: see the notes under each version in [FORK.md](FORK.md).
 
