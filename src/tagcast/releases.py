@@ -16,7 +16,7 @@ from collections import defaultdict
 
 from . import artist_match as match
 from .discography import release_key
-from .library import LibraryError, number
+from .library import LibraryError, number, stored_genres
 
 log = logging.getLogger("tagcast")
 STATE_FILE = "releases.json"
@@ -34,11 +34,22 @@ def date_ts(value):
     return 0.0
 
 
-def library_artists(library, minimum=3):
-    """Album artists with at least ``minimum`` different albums (discs of one set count once)."""
+DEFAULT_GENRES = ["Underground Hip Hop", "English Hip Hop", "Chinese Hip Hop"]
+
+
+def _in_genres(library, album_id, wanted):
+    return any(g.casefold() in wanted for t in library.active_track_ids(album_id) for g in stored_genres(library.tracks[t]))
+
+
+def library_artists(library, minimum=3, genres=None):
+    """Album artists with at least ``minimum`` different albums (discs of one set count once).
+    With ``genres`` (v58) only albums in one of those genres count."""
     albums = defaultdict(set)
     names = {}
+    wanted = {g.casefold() for g in genres or []}
     for album_id in library.album_ids():
+        if wanted and not _in_genres(library, album_id, wanted):
+            continue
         album = library.albums[album_id]
         name = library.artist_name(album.get("artist_id"))
         if number(album.get("artist_id")) == 0:
@@ -55,7 +66,7 @@ class NewReleases:
         data = studio._read(STATE_FILE)
         self.state = data if isinstance(data, dict) else {}
         for key, value in (("artists", []), ("auto", True), ("every_days", 7), ("last_check", 0), ("checked", {}),
-                           ("results", []), ("unseen", 0)):
+                           ("results", []), ("unseen", 0), ("genres", list(DEFAULT_GENRES))):
             self.state.setdefault(key, value)
         self.lock = threading.RLock()
         self.progress = None  # {"done", "total", "artist"} while a check runs
@@ -78,7 +89,7 @@ class NewReleases:
         except Exception:
             return picked
         seen = {match.match_key(a) for a in picked}
-        return picked + [a for a in library_artists(library) if match.match_key(a) not in seen]
+        return picked + [a for a in library_artists(library, genres=self.state["genres"]) if match.match_key(a) not in seen]
 
     def _refresh_statuses(self, results):
         """What you have changes after downloads: compare the listed releases again (no requests)."""
@@ -96,11 +107,20 @@ class NewReleases:
         with self.lock:
             self._refresh_statuses([r for r in self.state["results"] if not r.get("dismissed")])
             every = self.state["every_days"] * 86400
-            return {"artists": list(self.state["artists"]), "auto": self.state["auto"], "every_days": self.state["every_days"],
+            return {"artists": list(self.state["artists"]), "auto": self.state["auto"], "genres": list(self.state["genres"]),
+                    "available_genres": self._available_genres(), "every_days": self.state["every_days"],
                     "last_check": self.state["last_check"],
                     "next_check": (self.state["last_check"] + every) if self.state["last_check"] else 0,
                     "results": [r for r in self.state["results"] if not r.get("dismissed")],
                     "unseen": self.state["unseen"], "progress": self.progress}
+
+    def _available_genres(self):
+        try:
+            self.studio._require_client()
+            library, _ = self.studio._library()
+            return sorted((g["label"] for g in library.genre_labels() if ";" not in g["label"]), key=str.casefold)
+        except Exception:
+            return []
 
     def summary(self):
         return {"unseen": self.state["unseen"], "running": bool(self.progress)}
@@ -121,6 +141,11 @@ class NewReleases:
                 if not 1 <= days <= 30:
                     raise LibraryError("Check every 1 to 30 days.")
                 self.state["every_days"] = days
+            if "genres" in body:
+                values = body["genres"]
+                if not isinstance(values, list) or len(values) > 60 or not all(isinstance(v, str) for v in values):
+                    raise LibraryError("Choose the genres to follow.")
+                self.state["genres"] = list(dict.fromkeys(v.strip() for v in values if v.strip()))
             if "add" in body:
                 name = match.clean(body["add"])
                 if not name or len(name) > 200:

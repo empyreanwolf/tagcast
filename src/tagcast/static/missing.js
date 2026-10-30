@@ -49,8 +49,11 @@ function releasesHtml() {
       <button type="button" class="button primary" data-releases="check" ${p ? "disabled" : ""}>Check now</button>
       <span class="muted" role="status">${p ? `Checking ${p.done} of ${p.total}${p.artist ? `: ${escapeHtml(p.artist)}` : ""}…`
         : `Last check: ${missingDate(r.last_check)}${r.next_check ? ` · next: ${missingDate(r.next_check)} (while Tagcast is open)` : ""}`}</span></div>
-    <details class="dl-card releases-settings" ${missingView.settingsOpen ? "open" : ""}><summary>Which artists (${r.artists.length} picked${r.auto ? " + every artist with 3+ albums in your library" : ""}) · every ${r.every_days} days</summary>
-      <label class="checkline"><input type="checkbox" data-releases-auto ${r.auto ? "checked" : ""}> Also check every album artist with 3 or more albums in my library</label>
+    <details class="dl-card releases-settings" ${missingView.settingsOpen ? "open" : ""}><summary>Which artists (${r.artists.length} picked${r.auto ? ` + every artist with 3+ albums in ${(r.genres || []).length ? (r.genres || []).join(", ") : "your library"}` : ""}) · every ${r.every_days} days</summary>
+      <label class="checkline"><input type="checkbox" data-releases-auto ${r.auto ? "checked" : ""}> Also check every album artist with 3 or more albums in the genres below</label>
+      <fieldset class="releases-genres"><legend>Genres to check (hip-hop by default)</legend>
+        ${(r.available_genres || r.genres || []).map(g => `<label class="checkline"><input type="checkbox" data-releases-genre="${escapeHtml(g)}" ${(r.genres || []).includes(g) ? "checked" : ""}> ${escapeHtml(g)}</label>`).join("")}
+        ${(r.genres || []).length ? "" : '<p class="muted">No genre ticked: every genre counts.</p>'}</fieldset>
       <label>Check every <input id="releases-days" type="number" min="1" max="30" value="${r.every_days}" class="releases-days"> days</label>
       <div class="dl-actions"><input id="releases-add" class="dl-path" maxlength="200" placeholder="Add an artist to follow" aria-label="Artist to follow">
         <button type="button" class="button" data-releases="add">Follow</button></div>
@@ -258,6 +261,10 @@ document.addEventListener("change", event => {
   if (!target.closest?.("#downloads-page") || downloadsView.tab !== "missing") return;
   if (target.matches("[data-releases-pick]")) { view.picked[target.checked ? "add" : "delete"](target.dataset.releasesPick); missingRefresh(); }
   else if (target.matches("[data-releases-all]")) { view.picked = new Set(target.checked ? view.releases.results.map(x => x.id) : []); missingRefresh(); }
+  else if (target.matches("[data-releases-genre]")) {
+    const genres = [...document.querySelectorAll("[data-releases-genre]")].filter(box => box.checked).map(box => box.dataset.releasesGenre);
+    downloadsRun(async () => { view.releases = await api("/api/releases/settings", {genres}); missingRefresh(); });
+  }
   else if (target.matches("[data-releases-auto]")) downloadsRun(async () => { view.releases = await api("/api/releases/settings", {auto: target.checked}); missingRefresh(); });
   else if (target.matches("[data-complete-pick]")) { view.picked[target.checked ? "add" : "delete"](target.dataset.completePick); missingRefresh(); }
   else if (target.matches("[data-complete-all]")) { view.picked = new Set(target.checked ? completeRows().map(a => a.key) : []); missingRefresh(); }

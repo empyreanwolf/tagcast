@@ -1113,6 +1113,7 @@ function applyDraft() {
   }
   const next = thenNext();
   applyLocally(pending.changes);
+  rememberArtistNames(pending.changes);
   state.history.unshift({...structuredClone(pending), created: new Date().toISOString(), status: "preview_only", source: state.mode});
   pending = null; editing = null; state.selected.clear();
   if (next) setTimeout(() => openEditor(shelfIds(next)), 0);
@@ -1552,6 +1553,22 @@ async function connectAction(target) {
 
 // ---- saving -----------------------------------------------------------------
 
+// v58: an artist typed into a credit (or as a track/album artist) is offered in the artist lists right after saving,
+// without a library reload.
+function rememberArtistNames(changes) {
+  const known = new Set(state.artistNames.map(n => n.toLocaleLowerCase())), added = [];
+  const add = name => {
+    const clean = typeof name === "string" ? name.trim() : "";
+    if (clean && !known.has(clean.toLocaleLowerCase())) { known.add(clean.toLocaleLowerCase()); added.push(clean); }
+  };
+  for (const change of changes || []) {
+    const f = change.fields || {};
+    if (f.artist) add(f.artist.after);
+    if (Array.isArray(f.credits?.after)) for (const credit of f.credits.after) add(credit?.name);
+  }
+  if (added.length) state.artistNames = [...state.artistNames, ...added];   // a new array also refreshes the cached suggestions
+}
+
 function knownArtists() {
   const names = new Set(state.artistNames.map(n => n.toLocaleLowerCase()));
   for (const a of state.details.values()) { names.add(a.artist.toLocaleLowerCase()); for (const t of a.tracks) { names.add(t.artist.toLocaleLowerCase()); for (const c of t.composers || []) names.add(c.toLocaleLowerCase()); } }
@@ -1602,6 +1619,7 @@ function saveDraft() {
   const draft = pending, next = thenNext();
   const newArtist = draft.scope === "artist" ? draft.changes.find(c => c.kind === "album" && c.fields.artist)?.fields.artist.after : null;
   applyLocally(draft.changes);
+  rememberArtistNames(draft.changes);
   pending = null; editing = null; state.selected.clear();
   if (newArtist) state.artist = newArtist;
   if (state.artist && !state.albums.some(a => albumHasArtist(a, state.artist))) state.artist = null;

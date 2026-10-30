@@ -1186,6 +1186,9 @@ python3 tools/build_dark_css.py --check
   `docs/write-reliability.md`), edition-suffix album info. Not taken: year review, upload folder/day
   browsing, Mini Player. The fork's queued save (`saveDraft` in `app.js`) stays; the backend send-once
   policy applies underneath it.
+- Fork v58: `browseArtistRows/browseArtistCard` (genre detail grouped by album artist, `browseView.byArtist`); `downloadsCollapsify` wraps
+  tables and `ul.dl-list` in `<details class="dl-fold">` (state in localStorage `tagcast-downloads-collapsed`, `dlDefaultClosed`);
+  `rememberArtistNames` after saves; `releases.library_artists(..., genres)` with state `genres` (default hip-hop trio).
 - Fork v54: `table-sort.js` (IIFE, MutationObserver adds sort to any `<table>` with a thead; opt out with `data-no-sort`);
   Digest loads `/api/digest?part=...` one at a time (`digestLoad`, `digestPrefetch` from boot); `Downloads.record` stamps `pc`,
   optional `sync_folder` holds `tagcast-downloads-<pc>.json` per PC (`_sync_write`, `_other_rows`); `_galaxy_block` pauses Galaxy after a 403.

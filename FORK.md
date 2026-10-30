@@ -64,6 +64,12 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v58** **Notes built.**
+  - Genre page lists each album artist once (artist picture, total albums and songs); a button switches back to every album.
+  - Failed downloads have Copy artist / Copy album / Copy title buttons.
+  - An artist created in a credit is offered in the artist lists right after saving.
+  - Downloads: tab menu and the "needs a genre" banner sit above the download manager; every table and list folds (remembered per section); Finding sources starts folded.
+  - Missing and the Daily Digest only follow Underground, English and Chinese Hip Hop by default; tick other genres under Missing > Which artists.
 - **v57** **Chinese names default to Chinese Hip Hop.** An artist written in Chinese characters that MusicBrainz cannot place gets "Chinese Hip Hop" automatically (if you have that genre). A clear MusicBrainz answer (e.g. Mandopop) still wins.
 - **v56** **Genres Tagcast is unsure about are no longer silent.** Downloaded songs whose genre could not be placed show a count on the Clean up tab and a banner "N downloaded songs need a genre from you" with a Choose genres button.
 - **v55** **Fix: other artists' songs queued by mistake.** Singles by different artists that share one title and album name (e.g. "I Don't Care") were treated as one album, so asking for one queued them all. They are now split by artist.

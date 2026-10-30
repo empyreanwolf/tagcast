@@ -46,7 +46,7 @@ function decadeIntroduction(key) {
 }
 const browseView = {kind: "track-artists", key: null, label: "", rows: [], albumIds: new Set(), total: 0, page: 0,
   query: "", sort: "az", pageSize: storedPageSize("tagcast-browse-per-page") || DEFAULT_PAGE_SIZE,
-  request: 0, details: null, loaded: false, loading: false, error: "", randomIds: []};
+  request: 0, details: null, loaded: false, loading: false, error: "", randomIds: [], byArtist: true};
 let browseTimer;
 
 function resetBrowse() {
@@ -143,6 +143,27 @@ function browseCard(g) {
     <strong>${escapeHtml(g.label)}</strong>${g.archived ? '<small class="muted">Archived in iBroadcast</small>' : ""}<span class="artist-card-count">${albums || tracks}</span>${albums ? `<small class="artist-card-tracks">${tracks}</small>` : ""}</button>`;
 }
 
+// One entry per album artist among these albums: name, picture, number of albums and songs.
+function browseArtistRows(albums) {
+  const groups = new Map();
+  for (const a of albums) {
+    const entries = albumArtistEntries(a), name = a.artist || entries[0]?.name || "Unknown artist";
+    const image = (entries.find(e => e.name === name) || entries[0])?.image || "";
+    const g = groups.get(name);
+    if (g) { g.albums += 1; g.tracks += a.track_count || 0; g.image ||= image; }
+    else groups.set(name, {name, albums: 1, tracks: a.track_count || 0, image});
+  }
+  return [...groups.values()].sort((x, y) => x.name.localeCompare(y.name));
+}
+
+function browseArtistCard(g) {
+  const image = g.image ? `<img src="${escapeHtml(g.image.replace(/-150$/, "-300"))}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : "";
+  return `<button class="artist-card" data-browse-artist="${escapeHtml(g.name)}" aria-label="Open albums by ${escapeHtml(g.name)}">
+    <span class="artist-card-photo">${image}<span>${escapeHtml(initials(g.name))}</span></span>
+    <strong>${escapeHtml(g.name)}</strong><span class="artist-card-count">${g.albums.toLocaleString("en")} ${g.albums === 1 ? "album" : "albums"}</span>
+    <small class="artist-card-tracks">${g.tracks.toLocaleString("en")} ${g.tracks === 1 ? "song" : "songs"}</small></button>`;
+}
+
 function browseAlbumCard(a) {
   return `<article class="album-card"><button class="album-open" data-album="${escapeHtml(a.id)}" aria-label="Open ${escapeHtml(a.name)}">${cover(a)}<span class="album-name">${escapeHtml(a.name)}</span><span class="album-artist">${escapeHtml(a.artist)}</span></button>
     <div class="card-meta"><div class="album-card-meta-text"><span>${albumCardMetadata(a)}</span>${badge(a)}</div>${albumCardActions(a)}</div></article>`;
@@ -175,6 +196,12 @@ function renderBrowse() {
   $("#browse-tag-rename").hidden = !detail;
   $("#browse-tag-delete").hidden = !detail;
   const decades = browseView.kind === "decades", surprise = detail && decades;
+  const artistMode = detail && browseView.kind === "genres" && browseView.byArtist;
+  const groupButton = $("#browse-group");
+  if (groupButton) {
+    groupButton.hidden = !(detail && browseView.kind === "genres");
+    groupButton.textContent = browseView.byArtist ? "Show every album" : "Group by album artist";
+  }
   $("#browse-title").textContent = detail ? browseView.label || "Albums" : `${config.label}.`;
   $("#breadcrumb").innerHTML = detail ? `${escapeHtml(config.label)}<span class="slash" aria-hidden="true">/</span><span aria-current="page">${escapeHtml(browseView.label || "Albums")}</span>` : escapeHtml(config.label);
   $("#browse-eyebrow").textContent = detail ? config.label.toLocaleUpperCase() : "EXPLORE YOUR COLLECTION";
@@ -208,18 +235,21 @@ function renderBrowse() {
       albums.sort((a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity));
       browseView.page = 0;
     } else albums.sort(SORTS[browseView.sort] || SORTS.artist);
-    browseView.total = albums.length;
-    browseView.page = Math.min(browseView.page, Math.max(0, Math.ceil(albums.length / browseView.pageSize) - 1));
-    rows = albums.slice(browseView.page * browseView.pageSize, (browseView.page + 1) * browseView.pageSize);
+    // v58: a genre lists each album artist once (artist picture, total albums and songs); albums are one click away.
+    if (artistMode) { rows = browseArtistRows(albums); if (browseView.sort === "artist_za") rows.reverse(); }
+    else rows = albums;
+    browseView.total = rows.length;
+    browseView.page = Math.min(browseView.page, Math.max(0, Math.ceil(rows.length / browseView.pageSize) - 1));
+    rows = rows.slice(browseView.page * browseView.pageSize, (browseView.page + 1) * browseView.pageSize);
   }
   $("#browse-results").textContent = state.loading || browseView.loading ? "Loading…" : browseView.error ? ""
-    : surprise ? `Showing ${rows.length} random ${rows.length === 1 ? "album" : "albums"} of ${browseView.total.toLocaleString("en")}` : `${browseView.total.toLocaleString("en")} ${detail ? browseView.total === 1 ? "album" : "albums" : browseView.total === 1 ? config.singular : config.noun}`;
+    : surprise ? `Showing ${rows.length} random ${rows.length === 1 ? "album" : "albums"} of ${browseView.total.toLocaleString("en")}` : `${browseView.total.toLocaleString("en")} ${artistMode ? browseView.total === 1 ? "album artist" : "album artists" : detail ? browseView.total === 1 ? "album" : "albums" : browseView.total === 1 ? config.singular : config.noun}`;
   const list = $("#browse-list");
-  list.className = detail ? "album-grid" : "artists-grid";
+  list.className = detail && !artistMode ? "album-grid" : "artists-grid";
   list.innerHTML = state.loading || browseView.loading ? '<div class="empty" role="status"><span class="spinner"></span>Loading your collection…</div>'
     : browseView.error ? `<p class="error-box" role="alert">${escapeHtml(browseView.error)}</p>`
     : !rows.length ? '<div class="empty">No matches in this library.</div>'
-    : detail ? rows.map(browseAlbumCard).join("") : rows.map(browseCard).join("");
+    : artistMode ? rows.map(browseArtistCard).join("") : detail ? rows.map(browseAlbumCard).join("") : rows.map(browseCard).join("");
   const max = Math.max(0, Math.ceil(browseView.total / browseView.pageSize) - 1);
   $("#browse-pagination").innerHTML = !surprise && !state.loading && !browseView.loading && max > 0 ? `<button class="button small" data-browse-page="-1" ${browseView.page === 0 ? "disabled" : ""}>← Previous</button><span>Page ${browseView.page + 1} of ${(max + 1).toLocaleString("en")}</span><button class="button small" data-browse-page="1" ${browseView.page === max ? "disabled" : ""}>Next →</button>` : "";
   updateFavouriteControls();
@@ -266,6 +296,7 @@ $("#browse-search").addEventListener("input", () => {
   browseView.query = $("#browse-search").value.trim(); browseView.page = 0;
   syncHistory(); browseTimer = setTimeout(refreshBrowseList, 250);
 });
+$("#browse-group")?.addEventListener("click", () => { browseView.byArtist = !browseView.byArtist; browseView.page = 0; refreshBrowseList(); });
 $("#browse-sort").addEventListener("change", event => { browseView.sort = event.target.value; browseView.page = 0; refreshBrowseList(); });
 $("#browse-per-page").addEventListener("change", event => {
   const size = Number(event.target.value);

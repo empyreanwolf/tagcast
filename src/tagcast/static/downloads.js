@@ -72,7 +72,7 @@ function downloadsPoll() {
       downloadsView.queue = queue.queue; downloadsView.held = queue.held; downloadsView.galaxy = galaxy;
       downloadsView.persistError = queue.persist_error || ""; downloadsView.stalled = queue.stalled || [];
       if (queue.queue.filter(i => i.state === "failed").length > failed) artistCleanupAlarm();
-      if ($("#dl-queue-box")) $("#dl-queue-box").innerHTML = downloadsQueueBoxHtml();
+      downloadsManagerRender();
       if ($("#galaxy-status")) $("#galaxy-status").innerHTML = galaxyStatusHtml();
       if (before !== queue.held.length || waitingBefore !== (downloadsView.info?.genre_waiting || 0)) $("#downloads-tabs").innerHTML = downloadsTabsHtml();
     } catch { /* the next full load shows the error */ }
@@ -88,6 +88,49 @@ function downloadsTabsHtml() {
     aria-selected="${view.tab === key}" tabindex="${view.tab === key ? 0 : -1}">${label}${key === "tagclean" && view.info?.genre_waiting ? ` <b class="dl-count">${view.info.genre_waiting}</b>` : ""}${key === "decide" && held ? ` <b class="dl-count">${held}</b>` : ""}${key === "missing" && typeof missingView !== "undefined" && missingView.releases?.unseen ? ` <b class="dl-count">${missingView.releases.unseen}</b>` : ""}</button>`).join("");
 }
 
+
+// v58: every table and list on the Downloads page can be folded away. Each one sits under a heading line
+// (the heading before it, or the tab name); open or closed is remembered per section in this browser.
+const DL_COLLAPSE_KEY = "tagcast-downloads-collapsed", dlDefaultClosed = new Set(["Finding sources"]);
+
+function dlCollapsedState() {
+  try { return JSON.parse(localStorage.getItem(DL_COLLAPSE_KEY) || "{}") || {}; } catch { return {}; }
+}
+
+function dlSectionOpen(label) {
+  const saved = dlCollapsedState()[label];
+  return typeof saved === "boolean" ? saved : !dlDefaultClosed.has(label);
+}
+
+function downloadsCollapsify(html, fallback) {
+  const used = new Map();
+  let out = "", at = 0;
+  const open = /<(table|ul)\b([^>]*)>/g;
+  for (let m; (m = open.exec(html));) {
+    if (m[1] === "ul" && !/class="[^"]*\bdl-list\b/.test(m[2])) continue;
+    let depth = 1, i = open.lastIndex;
+    const tag = new RegExp(`<(/?)${m[1]}\\b[^>]*>`, "g");
+    tag.lastIndex = i;
+    for (let t; depth && (t = tag.exec(html));) { depth += t[1] ? -1 : 1; i = tag.lastIndex; }
+    if (depth) continue;
+    const block = html.slice(m.index, i);
+    const heads = [...html.slice(at, m.index).matchAll(/<h[23][^>]*>([\s\S]*?)<\/h[23]>/g)];
+    let label = (heads.length ? heads[heads.length - 1][1] : fallback).replace(/<span[\s\S]*?<\/span>/g, "").replace(/<[^>]*>/g, "").split(" · ")[0].trim() || fallback;
+    const n = (used.get(label) || 0) + 1; used.set(label, n);
+    if (n > 1) label += ` ${n}`;
+    const rows = (block.match(m[1] === "table" ? /<tr\b/g : /<li\b/g) || []).length - (m[1] === "table" ? 1 : 0);
+    out += html.slice(at, m.index) + `<details class="dl-fold" data-dl-fold="${escapeHtml(label)}" ${dlSectionOpen(label) ? "open" : ""}>
+      <summary data-dl-fold-toggle="${escapeHtml(label)}">${escapeHtml(label)} <span class="muted">${Math.max(0, rows)}</span></summary>${block}</details>`;
+    at = i; open.lastIndex = i;
+  }
+  return out + html.slice(at);
+}
+
+function downloadsManagerRender() {
+  const box = $("#dl-queue-box");
+  if (box) box.innerHTML = downloadsCollapsify(downloadsQueueBoxHtml(), "Queue");
+}
+
 async function loadDownloadsHistory() {
   const h = downloadsView.history;
   const params = new URLSearchParams({q: h.query, source: h.source, offset: String(h.offset)});
@@ -98,9 +141,9 @@ function renderDownloads() {
   const view = downloadsView;
   $("#downloads-tabs").innerHTML = downloadsTabsHtml();
   const body = {galaxy: galaxyHtml, bandcamp: bandcampHtml, soulseek: soulseekHtml, discography: discographyHtml, missing: missingHtml, tagclean: tagcleanHtml, check: downloadsCheckHtml, pagelist: pagelistHtml, decide: downloadsDecideHtml, queue: downloadsQueueHtml, settings: downloadsSettingsHtml}[view.tab]();
-  $("#downloads-content").innerHTML = body;
+  $("#downloads-content").innerHTML = downloadsCollapsify(body, downloadsTabs.find(([k]) => k === view.tab)?.[1] || "List");
   // The download manager always sits at the top of the page (v54), whichever tab is open.
-  if ($("#dl-queue-box")) $("#dl-queue-box").innerHTML = downloadsQueueBoxHtml();
+  downloadsManagerRender();
 }
 
 function downloadsYouHave(rows) {
@@ -198,6 +241,10 @@ function downloadsQueueBoxHtml() {
         <div class="muted">${escapeHtml(downloadsSourceLabels[i.source] || i.source)}${i.state === "done" ? ` · ${escapeHtml(i.path || "")}` : ""}${i.note && i.state !== "done" ? ` · ${escapeHtml(i.note)}` : i.state === "done" && i.note && i.note !== "Saved" ? ` · ${escapeHtml(i.note)}` : ""}</div></div>
       <div class="dl-row-actions">
         ${i.state === "failed" ? `<button type="button" class="button small" data-galaxy-control="retry" data-id="${escapeHtml(i.id)}">Retry</button>` : ""}
+        ${i.state === "failed" ? `<span class="dl-copy" role="group" aria-label="Copy for a manual search">
+          ${i.artist ? `<button type="button" class="button small" data-dl-copy="${escapeHtml(i.artist)}" title="Copy the artist name">Copy artist</button>` : ""}
+          ${i.album ? `<button type="button" class="button small" data-dl-copy="${escapeHtml(i.album)}" title="Copy the album name">Copy album</button>` : ""}
+          <button type="button" class="button small" data-dl-copy="${escapeHtml(i.title)}" title="Copy the song or album title">Copy title</button></span>` : ""}
         ${i.state === "failed" && i.short_seconds ? `<button type="button" class="button small" data-galaxy-control="allow_short" data-id="${escapeHtml(i.id)}" title="It is a real ${escapeHtml(String(i.short_seconds))}-second track (an intro or skit): download it again and keep it">Keep it (short track)</button>` : ""}
         ${i.state === "queued" && i.payload ? `<button type="button" class="button small" data-galaxy-control="top" data-id="${escapeHtml(i.id)}" title="Move to top">⤒</button>` : ""}
         <button type="button" class="button small" ${i.payload ? `data-galaxy-control="remove" data-id="${escapeHtml(i.id)}"` : `data-downloads-remove="${escapeHtml(i.id)}"`}
@@ -274,7 +321,7 @@ document.addEventListener("click", event => {
     return;
   }
   if (target.closest("[data-downloads-finding-dismiss]")) {
-    api("/api/discography/dismiss", {}).then(data => { downloadsView.finding = data.jobs; if ($("#dl-queue-box")) $("#dl-queue-box").innerHTML = downloadsQueueBoxHtml(); });
+    api("/api/discography/dismiss", {}).then(data => { downloadsView.finding = data.jobs; downloadsManagerRender(); });
     return;
   }
   if (target.closest("[data-downloads-check]")) {
@@ -307,6 +354,20 @@ document.addEventListener("click", event => {
       downloadsNote(`${data.decided} ${action === "skip" ? "skipped" : "added to the queue"}.`);
       await loadDownloads();
     });
+    return;
+  }
+  const fold = target.closest("[data-dl-fold-toggle]");
+  if (fold) {
+    event.preventDefault();
+    const label = fold.dataset.dlFoldToggle, details = fold.closest("details"), now = !details.open;
+    details.open = now;
+    try { localStorage.setItem(DL_COLLAPSE_KEY, JSON.stringify({...dlCollapsedState(), [label]: now})); } catch { /* private window */ }
+    return;
+  }
+  const copy = target.closest("[data-dl-copy]");
+  if (copy) {
+    const value = copy.dataset.dlCopy;
+    Promise.resolve(navigator.clipboard?.writeText?.(value)).then(() => toast(`Copied: ${value}`), () => toast("Could not copy. Select the text instead."));
     return;
   }
   const control = target.closest("[data-galaxy-control]");

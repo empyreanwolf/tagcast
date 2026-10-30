@@ -1296,3 +1296,7 @@ th.sortable-th:hover,th.sortable-th:focus-visible{text-decoration:underline}
 th.sortable-th .sort-arrow{font-size:calc(10px*var(--ts));color:var(--accent,currentColor)}
 
 .dl-genre-banner{flex-basis:100%;margin:0 0 8px;padding:8px 12px;border:1px solid var(--line,#8884);border-radius:8px}
+
+/* v58: foldable Downloads sections */
+.dl-fold>summary{cursor:pointer;font-weight:600;margin:6px 0;list-style:revert}
+.dl-fold>summary .muted{font-weight:400}

@@ -77,3 +77,20 @@ class ReleaseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GenreScopeTests(unittest.TestCase):
+    def test_only_the_chosen_genres_count_toward_the_three_albums(self):
+        from tagcast.releases import library_artists
+
+        class Lib:
+            albums = {i: {"artist_id": 1, "name": f"A{i}"} for i in range(1, 5)}
+            tracks = {i: {"genre": "Underground Hip Hop" if i < 4 else "Pop"} for i in range(1, 5)}
+
+            def album_ids(self): return list(self.albums)
+            def artist_name(self, _id): return "Rapper"
+            def active_track_ids(self, album_id): return [album_id]
+
+        self.assertEqual(library_artists(Lib(), genres=["Underground Hip Hop"]), ["Rapper"])
+        self.assertEqual(library_artists(Lib(), genres=["Pop"]), [])
+        self.assertEqual(library_artists(Lib()), ["Rapper"])

@@ -3411,7 +3411,7 @@ test("a connected library is searched by the server, and a found track plays its
 
 
 test("all four browse overviews open matching albums in preview without downloading tracks or writing", async () => {
-  const p = page(); await settle();
+  const p = page(); await settle(); p.run("browseView.byArtist = false");
   p.run('state.details.get("1").tracks[0].composers = ["Björk"]; state.details.get("1").tracks[0].composer_ids = [55]');
   for (const [kind, key, album] of [["track-artists", "name:Pink Floyd", "1"], ["composers", "55", "1"],
     ["genres", "progressive rock", "1"], ["years", "1982", "4"]]) {
@@ -3430,7 +3430,7 @@ test("all four browse overviews open matching albums in preview without download
 });
 
 test("genre links preserve combined labels and Back returns from albums to the genre selection", async () => {
-  const p = page(); await settle();
+  const p = page(); await settle(); p.run("browseView.byArtist = false");
   p.run('state.details.get("1").tracks[0].genres = ["Pop;Rock", "<Genre>"]; state.albums = [...state.details.values()].map(summarize)');
   await p.run('openAlbum("1")');
   const html = p.nodes.get("#album-page").innerHTML;
@@ -3445,7 +3445,7 @@ test("genre links preserve combined labels and Back returns from albums to the g
 });
 
 test("browse groups keep multi-disc sets together even when only one disc matches", async () => {
-  const p = page(); await settle();
+  const p = page(); await settle(); p.run("browseView.byArtist = false");
   p.run(`const set = [{id: "201", name: "Set", artist: "Duo", disc: 1, year: 2000, tracks: [{id: "2010", title: "One", artist: "Singer A", year: 2000, genre: "Rock", track: 1}]},
     {id: "202", name: "Set", artist: "Duo", disc: 2, year: 2000, tracks: [{id: "2020", title: "Two", artist: "Singer B", year: 2000, genre: "Jazz", track: 1}]}]; useLocal(set, "demo"); showBrowse("genres", "jazz")`);
   assert.equal(p.run("browseView.total"), 1);
@@ -3506,7 +3506,7 @@ test("browse overview server paging and accent search survive Back and stale res
 });
 
 test("browse deep links work in previews, escape group names and handle an older server", async () => {
-  const p = page({hash: "#/genres/progressive%20rock"}); await settle();
+  const p = page({hash: "#/genres/progressive%20rock"}); await settle(); p.run("browseView.byArtist = false; renderBrowse()");
   assert.equal(p.run("state.screen"), "browse"); assert.equal(p.run("browseView.total"), 2);
   const live = livePage(); await settle();
   live.setFetch(() => ({ok: true, json: async () => ({groups: [{key: "1", label: "<script>bad</script>", image: "", tracks: 1}], total: 1, offset: 0})}));
@@ -10734,4 +10734,35 @@ test("downloads that need a genre from you show a count and a banner", async () 
   const html = p.run("downloadsTabsHtml()");
   assert.match(html, /<b>3<\/b> downloaded songs need a genre/);
   assert.match(html, /Clean up <b class="dl-count">3<\/b>/);
+});
+
+test("a genre lists each album artist once with its albums and songs", async () => {
+  const p = page(); await settle();
+  const rows = p.json(`browseArtistRows([
+    {artist: "Afterjourney", track_count: 7, name: "A"}, {artist: "Afterjourney", track_count: 6, name: "B"}, {artist: "Other", track_count: 2, name: "C"}])`);
+  assert.deepEqual(rows.map(r => [r.name, r.albums, r.tracks]), [["Afterjourney", 2, 13], ["Other", 1, 2]]);
+  assert.match(p.run(`browseArtistCard({name: "Afterjourney", albums: 2, tracks: 13, image: ""})`), /2 albums[\s\S]*13 songs/);
+});
+
+test("a failed download offers one-click copy of artist, album and title", async () => {
+  const p = page(); await settle();
+  p.run('downloadsView.queue = [{id: "1", state: "failed", title: "暫時", artist: "MC仁", album: "自行判斷", kind: "song", source: "galaxy", payload: {}}]');
+  const html = p.run("downloadsQueueBoxHtml()");
+  for (const word of ["MC仁", "自行判斷", "暫時"]) assert.match(html, new RegExp(`data-dl-copy="${word}"`));
+});
+
+test("an artist created in a credit is offered in the artist list right after saving", async () => {
+  const p = page(); await settle();
+  p.run('state.artistNames = ["Edison Chen"]; rememberArtistNames([{fields: {credits: {after: [{name: "Mc仁", type: "artist"}, {name: "edison chen"}]}}}])');
+  assert.deepEqual(p.json("state.artistNames"), ["Edison Chen", "Mc仁"]);
+});
+
+test("every Downloads table and list can be folded, and Finding sources starts closed", async () => {
+  const p = page(); await settle();
+  const html = p.run(`downloadsCollapsify('<h3>History <span>9</span></h3><table class="dl-table"><thead><tr><th>A</th></tr></thead><tbody><tr><td>1</td></tr><tr><td>2</td></tr></tbody></table><div><h3>Finding sources · done</h3><ul class="dl-list"><li>x</li></ul></div><ul class="menu"><li>no</li></ul>', "Queue")`);
+  assert.match(html, /<details class="dl-fold" data-dl-fold="History" open>[\s\S]*<table[\s\S]*<\/table><\/details>/);
+  assert.match(html, /summary data-dl-fold-toggle="History">History <span class="muted">2<\/span>/);
+  assert.match(html, /data-dl-fold="Finding sources" >/);
+  assert.doesNotMatch(html, /data-dl-fold="[^"]*" [^>]*><ul class="menu"/);
+  assert.equal((html.match(/<details/g) || []).length, 2);
 });
