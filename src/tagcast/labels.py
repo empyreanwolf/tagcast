@@ -113,6 +113,7 @@ class Labels:
             checked = [{"status": "new"}] * len(rows)
         for r, c in zip(rows, checked):
             r["status"] = c.get("status", "new")
+            r["other_edition"] = bool(c.get("other_edition"))
         return rows
 
     def _bandcamp(self, link):

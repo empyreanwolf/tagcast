@@ -10,7 +10,7 @@ function labelsMissing(r) { return r.status !== "have" && !labelsView.got.has(r.
 function labelsHtml() {
   const v = labelsView, d = v.data;
   const rows = d?.rows || [], missing = rows.filter(labelsMissing);
-  const badge = r => labelsView.got.has(r.id) ? ["have", "Queued"] : r.status === "have" ? ["have", "Have it"]
+  const badge = r => labelsView.got.has(r.id) ? ["have", "Queued"] : r.status === "have" ? ["have", r.other_edition ? "Have it · other edition" : "Have it"]
     : r.status === "partly" ? ["partly", "Partly"] : r.status === "downloaded" ? ["downloaded", "Downloaded"] : ["new", "New"];
   return `<p class="muted">Type a label name (Rhymesayers, Stones Throw, Def Jux…) or paste a label's Bandcamp link. Tagcast lists its releases and marks what you are missing.</p>
     <form class="dl-actions" data-labels-form><input id="labels-query" type="search" class="dl-search" maxlength="300" value="${escapeHtml(v.query)}" placeholder="Label name or https://label.bandcamp.com" aria-label="Label">

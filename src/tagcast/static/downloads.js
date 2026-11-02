@@ -152,7 +152,7 @@ function renderDownloads() {
 
 function downloadsYouHave(rows) {
   return (rows || []).map(r => r.where === "folder" ? `<span>In your download folder: ${escapeHtml(r.path || r.title)}</span>` : r.where === "ibroadcast"
-    ? `<span>iBroadcast: ${escapeHtml(r.title)} · ${escapeHtml(r.artist)}${r.album ? ` · <i>${escapeHtml(r.album)}</i>` : ""}${r.tracks ? ` · ${r.tracks} ${r.tracks === 1 ? "track" : "tracks"}` : ""}</span>`
+    ? `<span>iBroadcast: ${escapeHtml(r.title)} · ${escapeHtml(r.artist)}${r.album ? ` · <i>${escapeHtml(r.album)}</i>` : ""}${r.tracks ? ` · ${r.tracks} ${r.tracks === 1 ? "track" : "tracks"}` : ""}${r.edition ? " · other edition" : ""}</span>`
     : `<span>Downloaded ${escapeHtml(downloadsDate(r.when) || "before")} via ${escapeHtml(downloadsSourceLabels[r.source] || r.source || "?")}${r.pc ? ` at <b>${escapeHtml(r.pc)}</b>` : ""}, not uploaded yet: ${escapeHtml(r.title)}${r.artist ? ` · ${escapeHtml(r.artist)}` : ""}${r.songs ? ` (${r.songs} songs)` : ""}</span>`).join("");
 }
 

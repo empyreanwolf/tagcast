@@ -61,7 +61,7 @@ function galaxyHtml() {
         `<option value="${s}" ${view.source === s ? "selected" : ""}>${s}${note ? ` (${note})` : ""}</option>`).join("")}</select>
       <button type="button" class="button primary" data-galaxy-search ${view.loading ? "disabled" : ""}>Search</button></div>
     <p id="galaxy-status" class="muted" role="status">${galaxyStatusHtml()}</p>
-    ${view.loading ? '<p class="muted">Searching GD Studio…</p>' : view.album ? galaxyAlbumHtml() : view.data ? galaxyResultsHtml() : galaxyIntroHtml()}
+    ${view.loading ? '<p class="muted">Searching GD Studio…</p>' : view.album ? galaxyAlbumHtml() : view.albumList ? galaxyAlbumListHtml() : view.data ? galaxyResultsHtml() : galaxyIntroHtml()}
     <p class="muted galaxy-credit">Music data: music.gdstudio.xyz, for personal use. Files go to ${escapeHtml(downloadsView.info?.folder || "your download folder")} as Album Artist\\Album\\## - Title.</p>`;
 }
 
@@ -149,9 +149,21 @@ function galaxyCardsHtml() {
 
 // -- album view ----------------------------------------------------------------------------
 
+// v66: Album search lists every match; other artists' albums with the same name are flagged.
+function galaxyAlbumListHtml() {
+  const list = galaxyView.albumList;
+  if (!list.albums.length) return `<p class="warn-box">No album found for “${escapeHtml(list.query)}” on ${escapeHtml(list.source)}. Try another source, or Track search with the artist name.</p>`;
+  return `<p class="muted">${list.albums.length} ${list.albums.length === 1 ? "album" : "albums"} for “${escapeHtml(list.query)}”. Tip: type <code>Album - Artist</code> to put that artist's album first.</p>
+    <ul class="dl-list dl-nofold galaxy-album-list">${list.albums.map((a, i) => `<li>${galaxyThumb(a.source, a.pic_id, 100)}
+      <div><b>${escapeHtml(a.name)}</b> <span class="muted">· ${escapeHtml(a.artist)} · ${a.tracks} ${a.tracks === 1 ? "track" : "tracks"} · ${escapeHtml(a.source)}</span>
+        ${a.different_artist ? ' <span class="pill missing">Different artist</span>' : ""}</div>
+      <span class="dl-row-actions"><button type="button" class="button small" data-galaxy-album="${escapeHtml(a.name)}" data-artist="${escapeHtml(a.artist)}">Open</button>
+      <button type="button" class="button small primary" data-galaxy-album-get="${i}">⬇ Download</button></span></li>`).join("")}</ul>`;
+}
+
 function galaxyAlbumHtml() {
   const view = galaxyView, a = view.album;
-  const back = view.data ? '<button type="button" class="button small" data-galaxy-back>← Back to results</button>' : "";
+  const back = view.data || view.albumList ? '<button type="button" class="button small" data-galaxy-back>← Back to results</button>' : "";
   if (!a.found) return `${back}<p class="warn-box">${escapeHtml(a.note)}</p>`;
   const have = a.tracks.filter(t => t.status !== "new" || t.on_disk).length;
   const picked = a.tracks.filter(t => view.selected.has(galaxyKey(t))).length;
@@ -183,7 +195,9 @@ async function galaxySearch() {
     const data = await api("/api/galaxy/search", {mode: view.mode, q: view.query, source: view.source});
     if (request !== view.request) return;
     downloadsView.galaxy = {paused: data.paused, api: data.api, active: data.active, next_in: data.next_in, running: data.running};
-    if (data.mode === "album") { view.album = data; view.data = null; } else view.data = data;
+    view.albumList = null;
+    if (data.mode === "album_list") { view.albumList = data; view.data = null; }
+    else if (data.mode === "album") { view.album = data; view.data = null; } else view.data = data;
     setActionStatus("#downloads-status", "");
     if (data.mode === "artist" && data.tracks.length) {
       galaxyLoadCards(data, request);
@@ -268,6 +282,12 @@ document.addEventListener("click", event => {
   if (artist) { Object.assign(view, {mode: "artist", query: artist.dataset.galaxyArtist}); galaxySearch(); return; }
   const album = target.closest("[data-galaxy-album]");
   if (album) { galaxyOpenAlbum(album.dataset.galaxyAlbum, album.dataset.artist); return; }
+  const albumGet = target.closest("[data-galaxy-album-get]");
+  if (albumGet) {
+    const a = view.albumList?.albums[Number(albumGet.dataset.galaxyAlbumGet)];
+    if (a) { albumGet.disabled = true; galaxyDownloadAlbum(a.name, a.artist).catch(downloadsError); }
+    return;
+  }
   if (target.closest("[data-galaxy-back]")) { view.album = null; view.selected.clear(); renderDownloads(); return; }
   const card = target.closest("[data-galaxy-card]");
   if (card) { view.cardFilter = view.cardFilter === card.dataset.galaxyCard ? "all" : card.dataset.galaxyCard; renderDownloads(); return; }

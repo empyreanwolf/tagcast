@@ -359,6 +359,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._run(lambda: self.studio.pagelist.view(query.get("id")))
         elif url.path == "/api/pagelist/get-status":
             self._run(lambda: self.studio.pagelist.get_status(str(query.get("ids") or "").split(",")))
+        elif url.path == "/api/spotify/status":
+            self._run(self.studio.spotify.status)
         elif url.path == "/api/youtube/status":
             self._run(self.studio.youtube.settings_view)
         elif url.path == "/api/soulseek/status":
@@ -464,6 +466,8 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/youtube/try": lambda b: self.studio.youtube.try_item(b.get("id")),
             "/api/more/search": lambda b: self.studio.moresources.search(b.get("query")),
             "/api/more/add": lambda b: self.studio.moresources.add(b.get("rows")),
+            "/api/spotify/install": lambda b: self.studio.spotify.install(),
+            "/api/spotify/settings": lambda b: self.studio.spotify.save_settings(b),
             "/api/more/links": lambda b: self.studio.moresources.add_links(b.get("lines"), b.get("mode") or ""),
             "/api/soulseek/settings": lambda b: self.studio.soulseek.save_settings(b),
             "/api/soulseek/start": lambda b: self.studio.soulseek.start(),
@@ -714,7 +718,7 @@ QUEUED_PATHS = {"/api/save", "/api/artwork", "/api/artwork/undo", "/api/trash", 
 QUIET_ROUTES = {"/api/queue-sync", "/api/galaxy/cards", "/api/galaxy/album-years", "/api/artist-biography",
                 "/api/album-information", "/api/playlist-import/view", "/api/lyrics/review"}
 _ROUTE_CATEGORIES = [
-    (("/api/galaxy", "/api/bandcamp", "/api/soulseek", "/api/youtube", "/api/more", "/api/labels", "/api/downloads", "/api/discography", "/api/wishlist",
+    (("/api/galaxy", "/api/bandcamp", "/api/soulseek", "/api/youtube", "/api/more", "/api/labels", "/api/spotify", "/api/downloads", "/api/discography", "/api/wishlist",
       "/api/complete", "/api/charts", "/api/recommendations", "/api/releases", "/api/digest"), "downloads"),
     (("/api/save", "/api/artwork", "/api/tags", "/api/lyrics", "/api/tagclean", "/api/trash", "/api/album-rating",
       "/api/artist-rating", "/api/favourite", "/api/album-favourite", "/api/artist-favourite", "/api/playlist",

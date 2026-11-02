@@ -427,6 +427,46 @@ def _split_same_named(items, artist_hint):
     return list(clusters.values())
 
 
+def album_candidates(api, source, query, limit=20):
+    """Every album the search finds for this query, one row each (fork v66), instead of opening the first
+    same-named album. "Title - Artist" (or "Title Artist") names the artist: other artists' albums are
+    flagged ``different_artist`` and listed after the matching ones."""
+    base = source.replace("_album", "")
+    title, _, artist_hint = query.partition(" - ")
+    title, artist_hint = title.strip(), artist_hint.strip()
+    results, seen = [], set()
+    for q in dict.fromkeys([query, title]):
+        for kind in (f"{base}_album", base):
+            for t in api.search(kind, q, ALBUM_COUNT, 1):
+                if (t["source"], t["id"]) not in seen and t.get("album"):
+                    seen.add((t["source"], t["id"]))
+                    results.append(t)
+    groups = {}
+    for t in results:
+        groups.setdefault(fold(t["album"]), []).append(t)
+    wanted, whole = fold(title), fold(query)
+    rows = []
+    for key, items in groups.items():
+        named = key == wanted or (key and key in whole) or (wanted and wanted in key)
+        if not named and sim(key, wanted) < 0.75:
+            continue
+        hint = artist_hint or (whole.replace(key, " ").strip() if key and key in whole else "")
+        clusters = {}
+        for t in items:  # one release shares one cover; without a cover, the first artist decides
+            clusters.setdefault(t.get("pic_id") or fold((t["artists"] or [""])[0]), []).append(t)
+        for part in clusters.values():
+            artists = {a for t in part for a in t["artists"]}
+            match_artist = bool(hint) and any(artist_matches(a, hint) or fold(hint) in fold(a) or fold(a) in fold(hint)
+                                              for a in artists if fold(a))
+            cover = next((t for t in part if t.get("pic_id")), part[0])
+            rows.append({"name": part[0]["album"], "artist": album_artist_for(part), "tracks": len(part),
+                         "source": cover["source"], "pic_id": cover.get("pic_id", ""),
+                         "exact": key == wanted or (bool(hint) and key in whole),
+                         "different_artist": bool(hint) and not match_artist})
+    rows.sort(key=lambda r: (r["different_artist"], not r["exact"], -r["tracks"]))
+    return rows[:limit]
+
+
 def fetch_album_exact(api, source, album, artist_hint=None):
     """(tracks, found_name) for an album with exactly this name, else ([], "").
     Another edition ("X Plus" for "X") or loose songs are never offered.
@@ -847,8 +887,9 @@ class Galaxy:
         if source != self.state["source"]:
             self.state["source"] = source
             self._persist()
-        if mode == "album":
-            return self.album(query, None, source)
+        if mode == "album":  # v66: list every match to pick from, flagging other artists' same-named albums
+            albums = album_candidates(self.api, source, query)
+            return {"mode": "album_list", "query": query, "source": source, "albums": albums, **self.status()}
         if mode == "artist":
             tracks = artist_tracks(self.api, source, query)
             albums = {}

@@ -67,6 +67,22 @@ def album_key(title):
     return match.simplified(title_key(match.clean(title)))
 
 
+# v65+: "(Bonus Edition)", "[Deluxe]", " - Remastered 2011" and the like name an edition of the same album.
+EDITION_WORDS = (r"(?:bonus|deluxe|expanded|remaster(?:ed)?|anniversary|special|limited|collector'?s?|super|"
+                 r"explicit|clean|edited|platinum|gold|tour|re-?issue|reissue|definitive|complete|extended|"
+                 r"edition|version|ver\.?)")
+EDITION_BRACKET = re.compile(r"\s*[(\[（【][^)\]）】]*\b" + EDITION_WORDS + r"\b[^)\]）】]*[)\]）】]", re.I)
+EDITION_TAIL = re.compile(r"\s+[-–—:]\s+[^-–—:]*\b" + EDITION_WORDS + r"\b[^-–—:]*$", re.I)
+
+
+def album_base_key(title):
+    """The album key without edition words: "None Shall Pass (Bonus Edition)" -> "none shall pass"."""
+    value = match.clean(title)
+    for _ in range(3):
+        value = EDITION_TAIL.sub("", EDITION_BRACKET.sub("", value)).strip()
+    return album_key(value) if value else album_key(title)
+
+
 def artist_keys(*names):
     """Every key a credited name can match on: the whole name, its parts ("A/B") and the
     Latin and Chinese halves of a bilingual name ("Faye Wong 王菲")."""
@@ -105,7 +121,7 @@ class LibraryIndex:
     """Songs and albums of one library copy, keyed for the duplicate check."""
 
     def __init__(self, library):
-        self.songs, self.albums = {}, {}
+        self.songs, self.albums, self.album_bases = {}, {}, {}
         sets = {}
         for album_id in library.album_ids():
             album = library.albums[album_id]
@@ -129,6 +145,7 @@ class LibraryIndex:
                     "artist": names[0], "album": album_name, "track_id": track_id, "album_id": album_id})
         for entry in sets.values():
             self.albums.setdefault(album_key(entry["title"]), []).append(entry)
+            self.album_bases.setdefault(album_base_key(entry["title"]), []).append(entry)
 
 
 class HistoryIndex:
@@ -178,6 +195,15 @@ def check_item(item, library_index, history_index):
         return {"status": "have", "you_have": found[:EXAMPLES]}
     if partly:
         return {"status": "partly", "you_have": partly[:EXAMPLES]}
+    # Another edition of the same album (fork v66): "None Shall Pass (Bonus Edition)" for "None Shall Pass".
+    exact = album_key(item["title"])
+    bases = getattr(library_index, "album_bases", {}) if library_index else {}
+    other = [{"where": "ibroadcast", "title": hit["title"], "artist": hit["artist"], "tracks": hit["tracks"],
+              "album_id": hit["album_id"], "edition": True}
+             for hit in bases.get(album_base_key(item["title"]), [])
+             if album_key(hit["title"]) != exact and _overlap(keys, named, hit["keys"], hit["named"])]
+    if other:
+        return {"status": "have", "you_have": other[:EXAMPLES], "other_edition": True}
     songs = [entry for other, other_named, entry in history_index.albums.get(album_key(item["title"]), [])
              if _overlap(keys, named, other, other_named)]
     if songs:

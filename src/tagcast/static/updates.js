@@ -3,10 +3,11 @@
 // Notifications only: installing and restarting remain the user's choice.
 const updateNotice = {data: null, automatic: true, busy: false, error: "", settingsRevision: 0};
 
+// v66: the fork checks its own GitHub (empyreanwolf/tagcast), never the original Tagcast's releases.
 function updateReleaseURL() {
   const data = updateNotice.data;
-  if (!data?.available || !/^\d+\.\d+\.\d+$/.test(data.latest || "")) return "";
-  return `https://github.com/cyberdeliaAI/tagcast/releases/tag/v${data.latest}`;
+  if (!data?.available || !data.fork || !/^fork v\d+$/.test(data.latest || "")) return "";
+  return "https://github.com/empyreanwolf/tagcast/archive/refs/heads/main.zip";
 }
 
 function updateStatusText() {
@@ -15,14 +16,14 @@ function updateStatusText() {
   const data = updateNotice.data;
   if (data?.error) return data.error;
   if (updateReleaseURL()) return `Tagcast ${data.latest} is available. You are running ${data.current}.`;
-  if (data?.state === "current") return `Tagcast ${data.current} is up to date with the latest stable release.`;
+  if (data?.state === "current") return `Tagcast ${data.current} is the latest build of your fork.`;
   return updateNotice.automatic ? "Updates are checked at startup, at most once a day." : "Automatic update checks are off. You can still check manually.";
 }
 
 function updateSettingsPanel() {
   return `<section class="updates-settings" data-settings-category="about"><h3>Tagcast updates</h3>
-    <label class="checkline"><input type="checkbox" name="auto_updates" ${updateNotice.automatic ? "checked" : ""}> Automatically check for new stable releases</label>
-    <p class="muted">Checks GitHub at startup, at most once a day. No account or library data is sent. Updating is manual.</p>
+    <label class="checkline"><input type="checkbox" name="auto_updates" ${updateNotice.automatic ? "checked" : ""}> Automatically check for new fork builds</label>
+    <p class="muted">Checks your fork on GitHub (empyreanwolf/tagcast) at startup, at most once a day. The original Tagcast's releases are not offered: installing one would replace this fork. No account or library data is sent.</p>
     <p id="updates-settings-status" class="muted" aria-live="polite">${escapeHtml(updateStatusText())}</p>
     <div class="update-actions"><button type="button" class="button small" id="check-updates" data-check-updates ${updateNotice.busy ? "disabled" : ""}>Check for updates</button>
     <button type="button" class="text-action" id="settings-update-details" data-update-details ${updateReleaseURL() ? "" : "hidden"}>View release &amp; downloads →</button></div></section>`;
@@ -38,6 +39,8 @@ function renderUpdateNotice() {
   const button = $("#update-button");
   button.hidden = !url;
   button.textContent = url ? `Update available · ${data.latest}` : "";
+  const version = $("#downloads-version");
+  if (version && data?.current) version.title = `Running ${data.current}`;
   const status = $("#updates-settings-status");
   if (status) status.textContent = updateStatusText();
   const check = $("#check-updates");
@@ -67,11 +70,9 @@ function openUpdateDetails() {
   if (!url) return;
   const data = updateNotice.data;
   $("#updates-content").innerHTML = `<p><strong>Tagcast ${escapeHtml(data.latest)} is available.</strong> You are running ${escapeHtml(data.current)}.</p>
-    ${data.name ? `<p class="muted">${escapeHtml(data.name)}</p>` : ""}
-    <p>Open the release page for the changes and standalone downloads for macOS, Windows and Linux, or the source archive.</p>
-    <p>Stop the running Tagcast before starting the new version. Account settings are stored separately from the app.</p>
+    <p>Download the zip, close Tagcast, extract it over your Tagcast folder (the files are inside <code>tagcast-main</code>), then start <code>start-tagcast-fork.bat</code> again. Your settings and sign-in are kept.</p>
     ${data.error || updateNotice.error ? `<p class="muted">${escapeHtml(data.error || updateNotice.error)} This notification uses the last successful check.</p>` : ""}
-    <div class="dialog-footer"><button class="button" data-close="updates">Later</button><a class="button primary" href="${url}" target="_blank" rel="noopener noreferrer">View release &amp; downloads ↗</a></div>`;
+    <div class="dialog-footer"><button class="button" data-close="updates">Later</button><a class="button" href="${escapeHtml(data.page || "")}" target="_blank" rel="noopener noreferrer">What changed ↗</a><a class="button primary" href="${url}" target="_blank" rel="noopener noreferrer">⬇ Download fork zip</a></div>`;
   $("#updates").showModal();
 }
 

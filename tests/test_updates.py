@@ -1,4 +1,5 @@
-"""Update checks use fake GitHub responses and never contact a real account or GitHub."""
+"""Update checks use fake GitHub responses and never contact a real account or GitHub.
+v66: the fork reads "fork vN" from its own repository's artist-cleanup.js instead of upstream releases."""
 
 import json
 import threading
@@ -17,6 +18,9 @@ class UpdateTests(unittest.TestCase):
         self.version = patch.object(updates, "__version__", "0.10.1")
         self.version.start()
         self.addCleanup(self.version.stop)
+        self.local = patch.object(updates, "local_fork", return_value=65)
+        self.local.start()
+        self.addCleanup(self.local.stop)
         self.clock = patch.object(updates.time, "time", return_value=100000)
         self.clock.start()
         self.addCleanup(self.clock.stop)
@@ -32,30 +36,28 @@ class UpdateTests(unittest.TestCase):
             self.store[name] = deepcopy(data)
         return updates.UpdateChecker(lambda name: deepcopy(self.store.get(name)), write or save)
 
-    def reply(self, version="0.11.0", **extra):
+    def reply(self, number=66, body=None):
         self.response.status_code = 200
-        self.response.iter_content.return_value = [json.dumps({"tag_name": f"v{version}", "name": "Tagcast release", **extra}).encode()]
+        text = body if body is not None else f'const artistCleanupVersion = "fork v{number}"; // secret token'
+        self.response.iter_content.return_value = [text.encode()]
 
-    def test_public_check_compares_versions_and_constructs_its_own_link(self):
-        self.reply(html_url="https://evil.example/", body="private data", token="secret")
+    def test_public_check_compares_fork_numbers_and_constructs_its_own_link(self):
         result = self.checker().check()
         self.assertTrue(result["available"])
-        self.assertEqual(result["url"], updates.RELEASE_PAGE + "0.11.0")
+        self.assertEqual((result["current"], result["latest"]), ("fork v65", "fork v66"))
+        self.assertEqual(result["url"], updates.FORK_ZIP)
         self.assertNotIn("secret", json.dumps(result))
-        self.assertNotIn("private data", json.dumps(result))
         self.assertFalse(self.session.trust_env)
         args, kwargs = self.session.get.call_args
-        self.assertEqual(args, (updates.RELEASE_API,))
-        self.assertEqual(kwargs["timeout"], (3.05, 7))
+        self.assertEqual(args, (updates.FORK_VERSION_URL,))
+        self.assertIn("empyreanwolf/tagcast", updates.FORK_VERSION_URL)
+        self.assertNotIn("cyberdeliaAI", updates.FORK_VERSION_URL)
         self.assertFalse(kwargs["allow_redirects"])
         self.assertTrue(kwargs["stream"])
-        self.assertEqual(set(kwargs["headers"]), {"Accept", "User-Agent"})
 
-    def test_numeric_comparison_and_beta_to_final_do_not_suggest_downgrades(self):
-        for current, latest, available in [("0.9.9", "0.10.0", True), ("0.11.0", "0.10.1", False),
-                                            ("0.10.1", "0.10.1", False), ("0.11.0b2", "0.11.0", True),
-                                            ("0.12.0b1", "0.11.0", False)]:
-            with self.subTest(current=current, latest=latest), patch.object(updates, "__version__", current):
+    def test_numeric_comparison_does_not_suggest_downgrades(self):
+        for current, latest, available in [(65, 66, True), (66, 65, False), (65, 65, False), (9, 10, True)]:
+            with self.subTest(current=current, latest=latest), patch.object(updates, "local_fork", return_value=current):
                 self.reply(latest)
                 self.assertEqual(self.checker().check(manual=True)["available"], available)
 
@@ -88,11 +90,10 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(self.session.get.call_count, 2, "Restarting after a failure does not keep retrying")
 
     def test_invalid_responses_never_claim_to_be_up_to_date_or_offer_untrusted_links(self):
-        for extra in [{"draft": True}, {"prerelease": True}, {"tag_name": "v0.11.0-beta.1"},
-                      {"tag_name": "0.11.0"}, {"tag_name": "v1.2.3/../../elsewhere"}]:
-            with self.subTest(extra=extra):
+        for body in ['const artistCleanupVersion = "v66";', "<html>not found</html>", 'artistCleanupVersion = "fork vX"']:
+            with self.subTest(body=body):
                 self.store.clear()
-                self.reply(**extra)
+                self.reply(body=body)
                 result = self.checker().check()
                 self.assertEqual(result["state"], "error")
                 self.assertFalse(result["available"])
@@ -109,10 +110,9 @@ class UpdateTests(unittest.TestCase):
                 self.assertEqual(self.checker().check(manual=True)["state"], "error")
 
     def test_invalid_or_future_cache_values_do_not_prevent_a_fresh_check(self):
-        self.store["updates.json"] = {"attempted_at": 999999, "checked_at": "bad",
-                                      "latest": {"version": "javascript:bad", "url": "https://evil.example/"}}
+        self.store["updates.json"] = {"attempted_at": 999999, "checked_at": "bad", "fork_latest": "javascript:bad"}
         result = self.checker().check()
-        self.assertEqual(result["latest"], "0.11.0")
+        self.assertEqual(result["latest"], "fork v66")
         self.session.get.assert_called_once()
 
     def test_a_readonly_settings_folder_does_not_break_the_check(self):

@@ -23,7 +23,8 @@ from .youtube import YtdlpWorker, plain_error
 
 log = logging.getLogger("tagcast")
 SEARCH_RESULTS = 20
-SITES = {"soundcloud.com": "SoundCloud", "audiomack.com": "Audiomack", "youtube.com": "YouTube", "youtu.be": "YouTube"}
+SITES = {"soundcloud.com": "SoundCloud", "audiomack.com": "Audiomack", "youtube.com": "YouTube", "youtu.be": "YouTube",
+         "spotify.com": "Spotify"}
 # Decorations in YouTube video titles that are not part of the song title (v61).
 DECOR = re.compile(r"(?i)\s*[\(\[]\s*(official\s*)?(music\s*video|video|audio|lyric\s*video|lyrics?|visuali[sz]er|hd|4k|mv|m/v)\s*[\)\]]")
 CHART_URL = "https://api-v2.soundcloud.com/charts"
@@ -168,15 +169,19 @@ class MoreSources(YtdlpWorker):
             site = site_of(url)
             title, artist = match.clean(r.get("title")), match.clean(r.get("artist"))
             if not site or not title:
-                raise MoreError("Only YouTube, SoundCloud and Audiomack links can be downloaded here.")
-            items.append({"kind": "song", "title": title, "artist": artist, "album": title,
-                          "link": str(r.get("link") or link), "query": str(r.get("query") or query),
-                          "payload": {"id": url, "source": "more", "site": site, "url": url, "artists": [artist or "Unknown Artist"],
-                                      "album_artist": match.clean(r.get("album_artist")) or artist or "Unknown Artist",
-                                      "album": match.clean(r.get("album")) or title, "page_meta": True,
-                                      "single": not match.clean(r.get("album")),
-                                      "track_no": int(r.get("track_no") or 1), "track_total": int(r.get("track_total") or 1),
-                                      "duration": r.get("duration") or 0}})
+                raise MoreError("Only YouTube, Spotify, SoundCloud and Audiomack links can be downloaded here.")
+            spotify = r.get("spotify") if isinstance(r.get("spotify"), dict) else None
+            payload = {"id": url, "source": "more", "site": "Spotify" if spotify else site, "url": url,
+                       "artists": (spotify or {}).get("artists") or [artist or "Unknown Artist"],
+                       "album_artist": match.clean(r.get("album_artist")) or artist or "Unknown Artist",
+                       "album": match.clean(r.get("album")) or title, "page_meta": not spotify,
+                       "single": not match.clean(r.get("album")),
+                       "track_no": int(r.get("track_no") or 1), "track_total": int(r.get("track_total") or 1),
+                       "duration": r.get("duration") or 0}
+            if spotify:  # v66: Spotify's own tags and cover, from spotDL
+                payload["spotify"] = {k: spotify.get(k, "") for k in ("year", "genre", "disc", "cover_url", "isrc", "spotify_url")}
+            items.append({"kind": "song", "title": title, "artist": artist, "album": match.clean(r.get("album")) or title,
+                          "link": str(r.get("link") or link), "query": str(r.get("query") or query), "payload": payload})
 
         def on_disk(item):
             from .galaxy import find_existing_by_title
@@ -200,15 +205,22 @@ class MoreSources(YtdlpWorker):
             site = site_of(url)
             try:
                 if not site:
-                    raise MoreError("Only youtube.com, youtu.be, soundcloud.com and audiomack.com links work here.")
+                    raise MoreError("Only youtube.com, youtu.be, open.spotify.com, soundcloud.com and audiomack.com links work here.")
                 out.append(self._add_link(url, site, mode))
             except LibraryError as error:
                 out.append({"line": url, "ok": False, "note": str(error)})
         if not out:
-            raise MoreError("Paste at least one YouTube, SoundCloud or Audiomack link.")
+            raise MoreError("Paste at least one YouTube, Spotify, SoundCloud or Audiomack link.")
         return {"results": out}
 
     def _add_link(self, url, site, mode):
+        if site == "Spotify":  # v66: spotDL reads Spotify's tags and finds each song on YouTube Music
+            rows = self.studio.spotify.songs(url)
+            album = rows[0]["album"] if len({r["album"] for r in rows}) == 1 else ""
+            result = self.add(rows, link=url)
+            return {"line": url, "ok": True, "note": f"{result.get('queued', 0)} queued with Spotify's tags"
+                    + (f" ({album})" if album and len(rows) > 1 else "")
+                    + (f", {result['held']} waiting in Needs your decision" if result.get("held") else "")}
         kind = ""
         read = url
         if site == "YouTube":

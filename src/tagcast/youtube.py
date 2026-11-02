@@ -221,7 +221,9 @@ class YtdlpWorker(FileWorker):
             fmt = self.check_audio(part)
             self._step(jid, 1, f"{nbytes / 1048576:.1f} MB · {fmt.upper()} from yt-dlp")
             tags = self.tags_for(job, info)
-            cover = (self._cover or self._yt_cover)(info) if info else None
+            cover_url = ((job["payload"].get("spotify") or {}).get("cover_url") or "")
+            cover = (self._cover or self._yt_cover)({"thumbnails": [{"url": cover_url, "width": 1, "height": 1}]} if cover_url else info) \
+                if (info or cover_url) else None
             self.save(job, part, fmt, nbytes, cover=cover, extras=[self.lossy_note], **tags)
         finally:
             try:
@@ -237,6 +239,11 @@ class YtdlpWorker(FileWorker):
         """The tags to write (v61): what was queued, with the page's own track, artist, year and genre filled
         in. Rows marked ``page_meta`` (links, playlists, artist releases) take the page's title and artist."""
         p, meta = job["payload"], page_meta(info)
+        spotify = p.get("spotify")
+        if isinstance(spotify, dict):  # v66: Spotify's own tags (spotDL), not the video page's
+            return {"title": job["title"], "artists": p["artists"], "album_artist": p["album_artist"], "album": p["album"],
+                    "track_no": p["track_no"], "track_total": p["track_total"],
+                    "year": spotify.get("year") or meta["year"], "genre": spotify.get("genre") or ""}
         from_page = bool(p.get("page_meta"))
         title = meta["title"] if from_page and meta["title"] else job["title"]
         artists = meta["artists"] if from_page and meta["artists"] else p["artists"]

@@ -3606,7 +3606,11 @@ test("update notifications use the running server's version, open only on reques
   p.setUpdateFetch(() => ({ok: true, json: async () => ({current: "0.10.2", latest: "0.11.0", available: true,
     state: "available", auto_updates: true, name: "<New release>", url: "javascript:bad"})}));
   await p.run("checkForUpdates(true)");
-  assert.equal(p.nodes.get("#update-button").textContent, "Update available · 0.11.0");
+  assert.equal(p.nodes.get("#update-button").hidden, true, "v66: the original Tagcast's releases are never offered");
+  p.setUpdateFetch(() => ({ok: true, json: async () => ({current: "fork v65", latest: "fork v66", available: true, fork: true,
+    state: "available", auto_updates: true, name: "<New release>", url: "javascript:bad", page: "https://github.com/empyreanwolf/tagcast/commits/main"})}));
+  await p.run("checkForUpdates(true)");
+  assert.equal(p.nodes.get("#update-button").textContent, "Update available · fork v66");
   assert.equal(p.nodes.get("#update-button").hidden, false);
   assert.notEqual(p.run('$("#updates").open'), true, "A background check never opens a dialog");
   assert.equal(p.requests.at(-1).url, "/api/updates/check");
@@ -3614,9 +3618,8 @@ test("update notifications use the running server's version, open only on reques
   assert.equal(p.requests.at(-1).options.body, "{}", "No account or library data in the manual request");
   await p.nodes.get("#update-button").emit("click");
   assert.equal(p.nodes.get("#updates").open, true);
-  assert.match(p.nodes.get("#updates-content").innerHTML, /running 0\.10\.2/);
-  assert.match(p.nodes.get("#updates-content").innerHTML, /&lt;New release&gt;/);
-  assert.match(p.nodes.get("#updates-content").innerHTML, /https:\/\/github.com\/cyberdeliaAI\/tagcast\/releases\/tag\/v0.11.0/);
+  assert.match(p.nodes.get("#updates-content").innerHTML, /running fork v65/);
+  assert.match(p.nodes.get("#updates-content").innerHTML, /https:\/\/github.com\/empyreanwolf\/tagcast\/archive\/refs\/heads\/main.zip/);
   assert.doesNotMatch(p.nodes.get("#updates-content").innerHTML, /javascript:/);
   assert.deepEqual(p.json("state.albums"), albums);
   assert.equal(p.history.length, before, "Update details are a dialog, not a page");
@@ -10803,7 +10806,7 @@ test("the YouTube tab searches an artist's albums and singles, folds them and sh
   assert.match(html, /Download all albums \(0 new\)/);
   assert.match(html, /Download all singles \(1 new\)/);
   assert.match(html, /Have it<\/span> <b>LP<\/b>/);
-  assert.match(html, /Paste links[\s\S]*YouTube, SoundCloud or Audiomack/);
+  assert.match(html, /Paste links[\s\S]*YouTube, Spotify, SoundCloud or Audiomack/);
   assert.doesNotMatch(p.run("downloadsCollapsify(youtubeArtistHtml(), 'x')"), /data-dl-fold=/);
 });
 
@@ -10894,4 +10897,18 @@ test("search tabs put the queue after the search, and failed songs offer Try You
   p.run('downloadsView.tab = "galaxy"; downloadsView.queue = [{id: "g1", state: "failed", kind: "song", source: "galaxy", title: "Afford the Best", artist: "Moka Only", payload: {source: "netease"}}]');
   assert.match(p.run("downloadsQueueBoxHtml()"), /data-dl-try-youtube="g1"/);
   assert.ok(p.run('DOWNLOADS_SEARCH_TABS.has("galaxy") && !DOWNLOADS_SEARCH_TABS.has("queue")'));
+});
+
+test("Galaxy album search lists matches and flags another artist; Spotify setup shows in More sources", async () => {
+  const p = page(); await settle();
+  p.run(`galaxyView.albumList = {query: "The Soulution Epidemic", source: "netease", albums: [
+    {name: "The Soulution", artist: "Epidemic", tracks: 6, source: "netease", pic_id: "", different_artist: false},
+    {name: "The Soulution", artist: "St Soul", tracks: 14, source: "netease", pic_id: "", different_artist: true}]}`);
+  const html = p.run("galaxyAlbumListHtml()");
+  assert.match(html, /<b>The Soulution<\/b> <span class="muted">· Epidemic · 6 tracks/);
+  assert.match(html, /St Soul · 14 tracks · netease<\/span>\s*<span class="pill missing">Different artist<\/span>/);
+  assert.match(html, /data-galaxy-album-get="0"/);
+  p.run('spotifyView.status = {installed: false, installing: false, error: "", own_key: false}');
+  assert.match(p.run("spotifyHtml()"), /Install spotDL \(one time\)/);
+  assert.match(p.run("moreLinksHtml()"), /YouTube, Spotify, SoundCloud or Audiomack/);
 });

@@ -20,15 +20,51 @@ function moreHtml() {
     ${v.error ? `<p class="dl-have">${escapeHtml(v.error)}</p>` : ""}
     ${v.results ? (v.results.length ? `<div class="dl-actions"><button type="button" class="button" data-more="get-all" ${v.busy ? "disabled" : ""}>⬇ Download all new (${v.results.filter((r, i) => r.status !== "have" && !v.queued.has(i)).length})</button></div><ul class="dl-list">${rows}</ul>` : `<p class="muted">Nothing found.</p>`) : ""}
     ${moreLinksHtml()}
+    ${spotifyHtml()}
     <p class="muted">Downloading copyrighted music can break the sites' terms and the law where you live.</p>`;
 }
+
+// v66: spotDL for Spotify links: its own small Python environment, installed once with one click.
+const spotifyView = {status: null, busy: false, timer: null};
+
+async function spotifyLoad() {
+  try { spotifyView.status = await api("/api/spotify/status"); } catch { spotifyView.status = {installed: false, installing: false, error: ""}; }
+  clearTimeout(spotifyView.timer);
+  if (spotifyView.status.installing) spotifyView.timer = setTimeout(spotifyLoad, 3000);
+  if (state.screen === "downloads" && ["more", "youtube"].includes(downloadsView.tab)) renderDownloads();
+}
+
+function spotifyHtml() {
+  const st = spotifyView.status;
+  if (!st) { spotifyLoad(); return ""; }
+  return `<details class="dl-fold" ${st.installed ? "" : "open"}><summary>Spotify (spotDL) <span class="muted">${st.installed ? "ready" : st.installing ? "installing…" : "not installed"}</span></summary>
+    <p class="muted">Paste a Spotify song, album, playlist or artist link in the box above. spotDL (github.com/spotDL/spotify-downloader, MIT) reads Spotify's tags and finds each song on YouTube Music; Tagcast downloads it as MP3 with Spotify's tags and cover. Lossy, like YouTube.</p>
+    ${st.installed ? "" : `<div class="dl-actions"><button type="button" class="button primary" data-spotify="install" ${st.installing ? "disabled" : ""}>${st.installing ? "Installing spotDL… (about a minute)" : "Install spotDL (one time)"}</button></div>`}
+    ${st.error ? `<p class="dl-have">${escapeHtml(st.error)}</p>` : ""}
+    <p class="muted">If Spotify limits spotDL's built-in key, add your own free app key from developer.spotify.com (Client ID and Secret).${st.own_key ? " Your own key is in use." : ""}</p>
+    <div class="dl-actions"><input id="spotify-id" type="text" maxlength="100" placeholder="Client ID" aria-label="Spotify client ID">
+      <input id="spotify-secret" type="password" maxlength="100" placeholder="Client secret" aria-label="Spotify client secret">
+      <button type="button" class="button" data-spotify="key">Save key</button>${st.own_key ? `<button type="button" class="text-action" data-spotify="clear">Use built-in key</button>` : ""}</div></details>`;
+}
+
+document.addEventListener("click", async event => {
+  const button = event.target.closest?.("[data-spotify]");
+  if (!button) return;
+  const action = button.dataset.spotify;
+  try {
+    if (action === "install") spotifyView.status = await api("/api/spotify/install", {});
+    else spotifyView.status = await api("/api/spotify/settings", action === "clear" ? {client_id: "", client_secret: ""}
+      : {client_id: $("#spotify-id")?.value || "", client_secret: $("#spotify-secret")?.value || ""});
+  } catch (error) { setActionStatus("#downloads-status", error.message || String(error)); }
+  if (spotifyView.status?.installing) spotifyLoad(); else renderDownloads();
+});
 
 // The shared link box (v61): YouTube, SoundCloud and Audiomack links and playlists. Shown on this tab and the YouTube tab.
 function moreLinksHtml() {
   const v = moreView;
   return `<h3>Paste links</h3>
-    <p class="muted">YouTube, SoundCloud or Audiomack links, one per line: a song, an album, a set or a playlist. A playlist downloads every song as one album (album = playlist name, tracks in order).</p>
-    <textarea id="more-lines" class="dl-lines" rows="4" maxlength="20000" aria-label="YouTube, SoundCloud or Audiomack links" placeholder="https://www.youtube.com/playlist?list=…">${escapeHtml(v.lines)}</textarea>
+    <p class="muted">YouTube, Spotify, SoundCloud or Audiomack links, one per line: a song, an album, a set or a playlist. A playlist downloads every song as one album (album = playlist name, tracks in order). Spotify links get Spotify's own tags and cover (through spotDL).</p>
+    <textarea id="more-lines" class="dl-lines" rows="4" maxlength="20000" aria-label="YouTube, Spotify, SoundCloud or Audiomack links" placeholder="https://www.youtube.com/playlist?list=…">${escapeHtml(v.lines)}</textarea>
     <div class="dl-actions"><button type="button" class="button primary" data-more="links" ${v.linkBusy ? "disabled" : ""}>${v.linkBusy ? "Reading…" : "⬇ Download links"}</button></div>
     ${v.linkResults ? `<ul class="dl-list dl-nofold">${v.linkResults.map((r, i) => r.choose ? `<li><span class="dl-badge partly">Choose</span>
       <div><b>${escapeHtml(r.title || r.line)}</b><div class="muted">${escapeHtml(r.line)}</div></div>

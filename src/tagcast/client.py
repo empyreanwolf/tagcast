@@ -34,6 +34,7 @@ from .artist_pictures import ArtistPictures
 from .bandcamp import Bandcamp
 from .charts import Charts
 from .labels import Labels
+from .spotify import SpotDL
 from .pagelist import PageList
 from .cleanup import Cleanup
 from .collections import Collections
@@ -449,6 +450,7 @@ class Studio:
         self.charts = Charts(self)
         self.pagelist = PageList(self)
         self.labels = Labels(self)
+        self.spotify = SpotDL(self)
         self.recommendations = Recommendations(self)
         self.digest = Digest(self)
         self.artist_cards = ArtistCards(self)
