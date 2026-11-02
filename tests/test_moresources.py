@@ -71,9 +71,71 @@ class YouTubeLinkTests(unittest.TestCase):
         studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None, extract=lambda url: flat)
         studio.moresources.ensure_worker = lambda: None
         out = studio.moresources.add_links("https://www.youtube.com/playlist?list=PL1")["results"]
+        self.assertTrue(out[0]["choose"])
+        self.assertEqual((out[0]["kind"], out[0]["count"], out[0]["has_song"]), ("playlist", 2, False))
+        self.assertEqual(studio.download_manager.state["queue"], [])
+        out = studio.moresources.add_links("https://www.youtube.com/playlist?list=PL1", "list")["results"]
         self.assertTrue(out[0]["ok"])
         q = [i["payload"] for i in studio.download_manager.state["queue"] if i.get("source") == "more"]
         self.assertEqual([(p["album"], p["album_artist"], p["track_no"], p["url"]) for p in q],
                          [("Mix", "Various Artists", 1, "https://www.youtube.com/watch?v=aaaaaaa1"),
                           ("Mix", "Various Artists", 2, "https://www.youtube.com/watch?v=aaaaaaa2")])
         self.assertEqual([i["title"] for i in studio.download_manager.state["queue"] if i.get("source") == "more"], ["One", "Two"])
+
+
+class V63LinkTests(unittest.TestCase):
+    def make(self, extract):
+        studio = LocalStudio()
+        studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None, extract=extract)
+        studio.moresources.ensure_worker = lambda: None
+        return studio
+
+    def queued(self, studio):
+        return [i for i in studio.download_manager.state["queue"] if i.get("source") == "more"]
+
+    def test_song_with_a_mix_asks_then_this_song_takes_only_the_video(self):
+        seen = []
+        mix = [{"id": f"v{i}xxxxxx", "title": f"Song {i}", "channel": f"Artist {i}"} for i in range(5)]
+
+        def extract(url):
+            seen.append(url)
+            return mix if "list=" in url else [{"id": "BXa5y6q8wHg", "title": "French 79 – Hometown", "channel": "French 79",
+                                                "webpage_url": "https://www.youtube.com/watch?v=BXa5y6q8wHg"}]
+        studio = self.make(extract)
+        link = "https://www.youtube.com/watch?v=BXa5y6q8wHg&list=RDBXa5y6q8wHg&start_radio=1"
+        ask = studio.moresources.add_links(link)["results"][0]
+        self.assertEqual((ask["choose"], ask["kind"], ask["count"], ask["has_song"]), (True, "mix", 5, True))
+        self.assertEqual(self.queued(studio), [])
+        done = studio.moresources.add_links(link, "song")["results"][0]
+        self.assertTrue(done["ok"])
+        self.assertEqual(seen[-1], "https://www.youtube.com/watch?v=BXa5y6q8wHg")
+        q = self.queued(studio)
+        self.assertEqual([(i["artist"], i["title"], i["link"]) for i in q], [("French 79", "Hometown", link)])
+        self.assertEqual(q[0]["payload"]["site"], "YouTube")
+
+    def test_a_whole_mix_is_singles_and_an_olak_album_is_one_album(self):
+        mix = [{"id": f"v{i}xxxxxx", "title": f"Song {i}", "channel": f"Artist {i}", "playlist_title": "Mix - X"} for i in range(3)]
+        studio = self.make(lambda url: mix)
+        studio.moresources.add_links("https://www.youtube.com/watch?v=abc&list=RDabc", "list")
+        self.assertEqual({i["payload"]["album"] for i in self.queued(studio)}, {"Song 0", "Song 1", "Song 2"})
+        album = [{"id": f"a{i}xxxxxx", "title": f"Track {i}", "playlist_title": "Album - Airport 2",
+                  "playlist_uploader": "Moka Only - Topic"} for i in range(3)]
+        studio = self.make(lambda url: album)
+        link = "https://www.youtube.com/watch?v=OiogCwVUekQ&list=OLAK5uy_kgt9MyqHFUu4D2x_CN3ciVxc_fga47Vyo"
+        ask = studio.moresources.add_links(link)["results"][0]
+        self.assertEqual((ask["kind"], ask["title"]), ("album", "Airport 2"))
+        studio.moresources.add_links(link, "list")
+        q = [i["payload"] for i in self.queued(studio)]
+        self.assertEqual([(p["album"], p["album_artist"], p["track_no"]) for p in q],
+                         [("Airport 2", "Moka Only", 1), ("Airport 2", "Moka Only", 2), ("Airport 2", "Moka Only", 3)])
+
+    def test_an_unread_redirect_is_reported_not_downloaded(self):
+        studio = self.make(lambda url: [{"_type": "url", "url": "https://www.youtube.com/playlist?list=OLAK5uy_x", "title": "Airport 2"}])
+        out = studio.moresources.add_links("https://www.youtube.com/watch?v=abc", "song")["results"][0]
+        self.assertFalse(out["ok"])
+        self.assertIn("Couldn't read", out["note"])
+        self.assertEqual(self.queued(studio), [])
+
+    def test_dashes_split(self):
+        self.assertEqual(split_title("Metronomy – The Bay (Official Video)", "x"), ("Metronomy", "The Bay"))
+        self.assertEqual(split_title("Poolside — Harvest Moon", "x"), ("Poolside", "Harvest Moon"))

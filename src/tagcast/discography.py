@@ -348,7 +348,7 @@ class Discography:
         youtube = getattr(self.studio, "youtube", None)
         return youtube if youtube is not None and youtube.enabled() else None
 
-    def _youtube_album(self, name, title):
+    def _youtube_album(self, name, title, why=None):
         youtube = self._youtube()
         if youtube is None:
             return None
@@ -356,11 +356,15 @@ class Discography:
             return "YouTube", self._summary(youtube.add_album(name, title)) + " (lossy, from YouTube)"
         except LibraryError as error:
             log.info("YouTube album skipped: %s", error)
+            reason = str(error)
         except Exception as error:
             log.info("YouTube album failed: %s", error)
+            reason = f"search failed ({str(error)[:120]})"
+        if why is not None:
+            why.append(f"YouTube · {reason}")
         return None
 
-    def _youtube_song(self, name, title, album=""):
+    def _youtube_song(self, name, title, album="", why=None):
         youtube = self._youtube()
         if youtube is None:
             return None
@@ -368,14 +372,26 @@ class Discography:
             return "YouTube", self._summary(youtube.add_song(name, title, album)) + " (lossy, from YouTube)"
         except LibraryError as error:
             log.info("YouTube song skipped: %s", error)
+            reason = str(error)
         except Exception as error:
             log.info("YouTube song failed: %s", error)
+            reason = f"search failed ({str(error)[:120]})"
+        if why is not None:
+            why.append(f"YouTube · {reason}")
         return None
+
+    @staticmethod
+    def _not_found(galaxy_note, why):
+        """v63: what every source searched and why it gave up."""
+        if "blocked" in str(galaxy_note):
+            return galaxy_note
+        return NOT_FOUND + (f" ({'; '.join(why)})" if why else "")
 
     def _album(self, name, title, status, deezer_id, ctx):
         # 0. YouTube (v59) when it is switched on: an album playlist of this artist
         self._step(ctx, f"{title}: searching YouTube…")
-        found = self._youtube_album(name, title)
+        tried = []
+        found = self._youtube_album(name, title, tried)
         if found:
             return found
         # 1. Galaxy: every way (album, then the title as a song, then the artist's songs)
@@ -389,13 +405,14 @@ class Discography:
         why = self._bandcamp_album(name, title, ctx)
         if isinstance(why, tuple):
             return why
+        tried += [f"Galaxy · query “{name} {title}”: not found", f"Bandcamp · {why}"]
         # 3. Soulseek (whole albums only; a partly owned album would be fetched again)
         soulseek = getattr(self.studio, "soulseek", None)
         if soulseek is not None and soulseek.configured() and status != "partly":
             self._step(ctx, f"{title}: asking Soulseek…")
             result = soulseek.add([{"kind": "album", "artist": name, "album": title, "fallback": True}])
             return "Soulseek", self._summary(result) + " (wishlist if Soulseek has nothing)"
-        return None, galaxy_note if "blocked" in str(galaxy_note) else NOT_FOUND
+        return None, self._not_found(galaxy_note, tried)
 
     def _galaxy_sources(self):
         """The chosen source first, then the other open ones (v32): one source missing a song
@@ -433,7 +450,8 @@ class Discography:
         return None, NOT_FOUND
 
     def _song(self, name, title, album, ctx):
-        found = self._youtube_song(name, title, album)
+        tried = []
+        found = self._youtube_song(name, title, album, tried)
         if found:
             return found
         source, note = self._galaxy_song(name, title)
@@ -453,7 +471,8 @@ class Discography:
         if soulseek is not None and soulseek.configured():
             result = soulseek.add([{"kind": "song", "artist": name, "title": title, "album": album, "fallback": True}])
             return "Soulseek", self._summary(result) + " (wishlist if Soulseek has nothing)"
-        return None, galaxy_note if "blocked" in str(galaxy_note) else NOT_FOUND
+        tried.append(f"Galaxy · query “{name} {title}”: not found")
+        return None, self._not_found(galaxy_note, tried)
 
     def _galaxy_song(self, name, title):
         if self._galaxy_paused():

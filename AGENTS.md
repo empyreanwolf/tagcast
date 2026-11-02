@@ -1191,6 +1191,7 @@ python3 tools/build_dark_css.py --check
 - Fork v60: `moresources.py` (`MoreSources(YtdlpWorker)`, source "more"; `search` via yt-dlp `scsearch`, `add`, `add_links`, `soundcloud_rows` from the undocumented api-v2 charts endpoint with a client id read through yt-dlp). `charts.py` chart `soundcloud_hiphop` (rows with source "soundcloud" go straight to `moresources.add`). Routes `/api/more/{search,add,links}`. Frontend `moresources.js`. Not verified against live SoundCloud.
 - v61: YouTube artist albums/singles search (YouTube Music + YouTube), YouTube links/playlists in the shared link box, MP3 with cover art and tags for yt-dlp downloads.
 - v62: Split albums finder and one-click merge (static/split-albums.js; plan_save split_merge).
+- v63: YouTube link song/list choice (moresources add_links mode), in_playlist extraction, query/link/site on queue items and history, YouTube Music album lookup, per-source not-found reasons.
 - Fork v58: `browseArtistRows/browseArtistCard` (genre detail grouped by album artist, `browseView.byArtist`); `downloadsCollapsify` wraps
   tables and `ul.dl-list` in `<details class="dl-fold">` (state in localStorage `tagcast-downloads-collapsed`, `dlDefaultClosed`);
   `rememberArtistNames` after saves; `releases.library_artists(..., genres)` with state `genres` (default hip-hop trio).

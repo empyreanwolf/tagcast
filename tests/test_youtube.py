@@ -141,3 +141,39 @@ class V61Tests(unittest.TestCase):
         self.assertTrue(all(p["page_meta"] for p in q))
         with self.assertRaises(YouTubeError):
             studio.youtube.artist_releases("  ")
+
+
+class V63AlbumTests(unittest.TestCase):
+    def test_album_search_uses_youtube_music_and_topic_tracks_and_reports_the_query(self):
+        songs = [{"id": f"t{i}xxxxxx", "title": f"Track {i}", "channel": "Moka Only - Topic"} for i in range(5)]
+
+        def search(query, playlists=False):
+            if "music.youtube.com/search" in query:
+                return [{"title": "Airport 6", "url": "https://music.youtube.com/browse/MPREb_6"},
+                        {"title": "Airport 2", "url": "https://music.youtube.com/browse/MPREb_2"}]
+            if query.endswith("MPREb_2"):
+                return songs
+            if query.endswith("MPREb_6"):
+                return [{"id": "zzzzzzzz", "title": "x", "channel": "Moka Only - Topic"}] * 5
+            return []
+
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=search, fetch_audio=lambda *a: None)
+        studio.youtube.ensure_worker = lambda: None
+        found = studio.youtube.find_album("Moka Only", "Airport 2")
+        self.assertEqual(len(found["tracks"]), 5)
+        studio.youtube.add_album("Moka Only", "Airport 2")
+        q = [i for i in studio.download_manager.state["queue"] if i.get("source") == "youtube"]
+        self.assertEqual(q[0]["query"], "Moka Only Airport 2")
+        with self.assertRaisesRegex(YouTubeError, "query “Moka Only Airport 9”"):
+            studio.youtube.add_album("Moka Only", "Airport 9")
+
+    def test_another_artists_album_with_the_same_name_is_refused(self):
+        other = [{"id": f"t{i}xxxxxx", "title": f"T{i}", "channel": "Someone Else - Topic"} for i in range(5)]
+        search = lambda q, playlists=False: [{"title": "Airport 2", "url": "u"}] if "music.youtube" in q else other if q == "u" else []
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=search, fetch_audio=lambda *a: None)
+        self.assertIsNone(studio.youtube.find_album("Moka Only", "Airport 2"))
+        why = []
+        studio.discography._youtube_album("Moka Only", "Airport 2", why)
+        self.assertIn("YouTube · query “Moka Only Airport 2”: no matching album", why)

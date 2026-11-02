@@ -10831,3 +10831,25 @@ test("split albums are found by title and merged into one album artist", async (
   assert.deepEqual(changes[1].fields.credits.after, []);
   assert.deepEqual(changes[2].fields.year, {before: 0, after: 1998});
 });
+
+test("queue rows show the real site, the query or link, and remove all from a link", async () => {
+  const p = page(); await settle();
+  p.run(`downloadsView.queue = [
+    {id: "a", state: "queued", source: "more", title: "Hometown", artist: "French 79", link: "https://www.youtube.com/watch?v=BXa5&list=RDBXa5", payload: {site: "YouTube", source: "more"}},
+    {id: "b", state: "queued", source: "more", title: "Juno Love", artist: "Nico", link: "https://www.youtube.com/watch?v=BXa5&list=RDBXa5", payload: {site: "YouTube", source: "more"}},
+    {id: "c", state: "queued", source: "youtube", title: "Yellow", artist: "Coldplay", query: "Coldplay Yellow", payload: {source: "youtube"}}]`);
+  const html = p.run("downloadsQueueBoxHtml()");
+  assert.match(html, /YouTube · <span title="https:\/\/www\.youtube\.com\/watch\?v=BXa5&amp;list=RDBXa5">from: youtube\.com\/watch/);
+  assert.match(html, /query: Coldplay Yellow/);
+  assert.match(html, /data-dl-cancel-link="[^"]+"[^>]*>✕ All from link \(2\)/);
+  assert.doesNotMatch(html, /SoundCloud\/Audiomack ·/);
+});
+
+test("a YouTube link with a list waits for This song or Whole album", async () => {
+  const p = page(); await settle();
+  p.run(`moreView.linkResults = [{line: "https://www.youtube.com/watch?v=x&list=OLAK5uy_1", choose: true, kind: "album", count: 12, has_song: true, title: "Airport 2"},
+    {line: "https://www.youtube.com/playlist?list=PL1", choose: true, kind: "playlist", count: 3, has_song: false, title: "Mine"}]`);
+  const html = p.run("moreLinksHtml()");
+  assert.match(html, /<b>Airport 2<\/b>[\s\S]*data-more-pick="song" data-index="0">⬇ This song[\s\S]*⬇ Whole album \(12 songs\)/);
+  assert.match(html, /<b>Mine<\/b><div class="muted">[^<]*<\/div><\/div>\s*<span class="dl-row-actions">\s*<button type="button" class="button primary" data-more-pick="list" data-index="1">⬇ Whole playlist \(3 songs\)/);
+});

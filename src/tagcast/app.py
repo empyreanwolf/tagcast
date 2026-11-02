@@ -459,7 +459,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/youtube/releases": lambda b: self.studio.youtube.add_releases(b.get("artist"), b.get("releases")),
             "/api/more/search": lambda b: self.studio.moresources.search(b.get("query")),
             "/api/more/add": lambda b: self.studio.moresources.add(b.get("rows")),
-            "/api/more/links": lambda b: self.studio.moresources.add_links(b.get("lines")),
+            "/api/more/links": lambda b: self.studio.moresources.add_links(b.get("lines"), b.get("mode") or ""),
             "/api/soulseek/settings": lambda b: self.studio.soulseek.save_settings(b),
             "/api/soulseek/start": lambda b: self.studio.soulseek.start(),
             "/api/soulseek/stop": lambda b: self.studio.soulseek.stop(),

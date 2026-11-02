@@ -292,7 +292,9 @@ class YouTube(YtdlpWorker):
             import yt_dlp
         except ImportError:
             raise YouTubeError("yt-dlp is not installed. Restart Tagcast so it installs it, or run: pip install yt-dlp") from None
-        opts = {"quiet": True, "no_warnings": True, "extract_flat": True, "skip_download": True, "socket_timeout": 20}
+        # "in_playlist" (v63): a link that redirects (an OLAK5uy_ album, a YouTube Music album page) is followed,
+        # while a playlist's songs stay a fast flat list.
+        opts = {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist", "skip_download": True, "socket_timeout": 20}
         if str(query).startswith("http"):
             url = query  # a page (playlist, channel tab, YouTube Music search) listed as it is
         else:
@@ -309,29 +311,54 @@ class YouTube(YtdlpWorker):
         entries = self._search(f"{artist} {title}")
         return best_video(entries, artist, title, seconds)
 
+    @staticmethod
+    def _who(entry):
+        return " ".join(str(x) for x in [entry.get("channel"), entry.get("uploader"), entry.get("artist"),
+                                          *(entry.get("artists") or [])] if x)
+
+    def _album_from(self, entry, artist, album, need_artist):
+        """The songs of one album result when its name and artist fit, else None."""
+        name = re.sub(r"(?i)^(album|ep|single)\s*[-·•]\s*", "", str(entry.get("title") or ""))
+        if sim(name, album) < 0.9:
+            return None
+        key = match.match_key(artist)
+        named = key and key in match.match_key(self._who(entry))
+        if need_artist and not named and self._who(entry).strip():
+            return None
+        songs = [e for e in self._search_playlist(entry) if e.get("id") and e.get("title")]
+        if not 2 <= len(songs) <= 60:
+            return None
+        if not named:  # no artist on the result: most songs must come from the artist (or "Artist - Topic")
+            by_artist = sum(1 for e in songs if key and key in match.match_key(self._who(e)))
+            if by_artist * 2 < len(songs):
+                return None
+        return songs
+
     def find_album(self, artist, album):
-        """An auto-generated "Album" playlist of this artist: title equals the album, uploader is the artist
-        (or "Artist - Topic"), 2 to 60 songs. Anything less sure is None so the next source is tried."""
+        """This artist's album: YouTube Music's album search first (v63, it lists "Artist - Topic" albums with
+        the artist), then plain YouTube's playlist search. Anything less sure is None so the next source is tried."""
+        try:
+            music = self._search(f"https://music.youtube.com/search?q={quote(f'{artist} {album}')}#albums")
+        except LibraryError:
+            music = []
+        for entry in music[:6]:
+            songs = self._album_from(entry, artist, album, need_artist=False)
+            if songs:
+                return {"title": album, "artist": artist, "tracks": songs}
         for entry in self._search(f"{artist} {album} album", playlists=True)[:6]:
-            channel = str(entry.get("channel") or entry.get("uploader") or "")
-            name = re.sub(r"(?i)^album\s*-\s*", "", str(entry.get("title") or ""))
-            if sim(name, album) < 0.9:
-                continue
-            if match.match_key(artist) not in match.match_key(channel):
-                continue
-            songs = [e for e in self._search_playlist(entry) if e.get("id") and e.get("title")]
-            if 2 <= len(songs) <= 60:
+            songs = self._album_from(entry, artist, album, need_artist=True)
+            if songs:
                 return {"title": album, "artist": artist, "tracks": songs}
         return None
 
     def _search_playlist(self, entry):
-        url = entry.get("url") or (f"https://www.youtube.com/playlist?list={entry['id']}" if entry.get("id") else "")
+        url = entry.get("url") or entry.get("webpage_url") or (f"https://www.youtube.com/playlist?list={entry['id']}" if entry.get("id") else "")
         return self._search(url) if url else []
 
     # -- queueing ---------------------------------------------------------------------------
 
-    def _item(self, artist, title, album, video, number=0, total=1, album_artist=None):
-        return {"kind": "song", "title": title, "artist": artist, "album": album or title,
+    def _item(self, artist, title, album, video, number=0, total=1, album_artist=None, query=""):
+        return {"kind": "song", "title": title, "artist": artist, "album": album or title, "query": query,
                 "payload": {"id": video["id"], "source": "youtube", "url": f"https://www.youtube.com/watch?v={video['id']}",
                             "artists": [artist], "album_artist": album_artist or artist, "album": album or title,
                             "track_no": number or 1, "track_total": total, "duration": video.get("duration") or 0,
@@ -354,15 +381,16 @@ class YouTube(YtdlpWorker):
             raise YouTubeError("Each song needs an artist and a title.")
         video = self.find_song(artist, title)
         if not video:
-            raise YouTubeError(f"No official audio found on YouTube for {artist} - {title}.")
-        return self._submit([self._item(artist, title, match.clean(album), video)])
+            raise YouTubeError(f"query “{artist} {title}”: no official audio")
+        return self._submit([self._item(artist, title, match.clean(album), video, query=f"{artist} {title}")])
 
     def add_album(self, artist, album):
         found = self.find_album(match.clean(artist), match.clean(album))
+        query = f"{match.clean(artist)} {match.clean(album)}"
         if not found:
-            raise YouTubeError(f"No album playlist found on YouTube for {artist} - {album}.")
+            raise YouTubeError(f"query “{query}”: no matching album")
         total = len(found["tracks"])
-        items = [self._item(artist, match.clean(t["title"]), album, t, number=i + 1, total=total)
+        items = [self._item(artist, match.clean(t["title"]), album, t, number=i + 1, total=total, query=query)
                  for i, t in enumerate(found["tracks"])]
         return self._submit(items)
 
@@ -474,7 +502,8 @@ class YouTube(YtdlpWorker):
             if not title or not songs:
                 continue
             for i, t in enumerate(songs):
-                item = self._item(artist, match.clean(t["title"]), title, t, number=i + 1, total=len(songs))
+                item = self._item(artist, match.clean(t["title"]), title, t, number=i + 1, total=len(songs),
+                                  query=f"artist search: {artist}")
                 item["payload"]["page_meta"] = True
                 items.append(item)
         if not items:

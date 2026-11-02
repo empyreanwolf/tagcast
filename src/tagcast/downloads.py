@@ -256,6 +256,9 @@ def clean_item(raw, source="manual"):
     link = text(raw.get("link")).strip()
     if link:
         item["link"] = link[:2000]
+    query = text(raw.get("query")).strip()  # v63: the search that found it, shown in the queue
+    if query:
+        item["query"] = query[:500]
     if isinstance(raw.get("payload"), dict) and len(json.dumps(raw["payload"])) < 20000:
         item["payload"] = raw["payload"]  # what the source needs to fetch it (e.g. a Galaxy song id)
     return item
@@ -838,6 +841,9 @@ class Downloads:
         row = {"title": match.clean(entry.get("title")), "artists": [match.clean(a) for a in entry.get("artists") or []],
                "album": match.clean(entry.get("album")), "source": entry.get("source", "manual"),
                "when": entry.get("when") or time.time(), "path": text(entry.get("path")), "pc": self.pc_name()}
+        for key in ("site", "query", "link"):  # v63: which site, and the search or link it came from
+            if text(entry.get(key)).strip():
+                row[key] = text(entry.get(key)).strip()[:2000]
         with self.lock:
             self.state["history"].append(row)
             self._history_index = None

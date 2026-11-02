@@ -11,7 +11,7 @@ const downloadsView = {
 };
 const downloadsTabs = [["youtube", "YouTube"], ["galaxy", "Galaxy"], ["bandcamp", "Bandcamp"], ["soulseek", "Soulseek"], ["more", "More sources"], ["discography", "Discography"], ["missing", "Missing"], ["tagclean", "Clean up"], ["check", "Check"], ["pagelist", "From a page"], ["decide", "Needs your decision"], ["queue", "Queue & history"], ["settings", "Settings"]];
 const downloadsStatusLabels = {have: "In iBroadcast", partly: "Partly (other edition)", downloaded: "Downloaded before", folder: "In your download folder", new: "New"};
-const downloadsSourceLabels = {youtube: "YouTube", galaxy: "Galaxy", telegram: "Telegram", bandcamp: "Bandcamp", soulseek: "Soulseek", more: "SoundCloud/Audiomack", manual: "Added here"};
+const downloadsSourceLabels = {youtube: "YouTube", galaxy: "Galaxy", telegram: "Telegram", bandcamp: "Bandcamp", soulseek: "Soulseek", more: "YouTube/SoundCloud/Audiomack", manual: "Added here"};
 
 function downloadsDate(seconds) {
   if (!seconds) return "";
@@ -210,6 +210,17 @@ function downloadsFindingHtml() {
     ${running ? "" : `<button type="button" class="button small" data-downloads-finding-dismiss>Clear</button>`}</div>`;
 }
 
+// v63: the real site (YouTube, SoundCloud, Audiomack) for "more" downloads, and the search or link each came from.
+function downloadsSourceName(i) {
+  return i.payload?.site || i.site || downloadsSourceLabels[i.source] || i.source || "";
+}
+
+function downloadsOriginHtml(i) {
+  const short = value => value.length > 60 ? `${value.slice(0, 57)}…` : value;
+  const one = (label, value) => ` · <span title="${escapeHtml(value)}">${label}: ${escapeHtml(short(value.replace(/^https?:\/\/(www\.)?/, "")))}</span> <button type="button" class="text-action" data-dl-copy="${escapeHtml(value)}" title="Copy">⧉</button>`;
+  return i.query ? one("query", i.query) : i.link ? one("from", i.link) : "";
+}
+
 function downloadsQueueBoxHtml() {
   const queue = downloadsView.queue || [], g = downloadsView.galaxy;
   const count = st => queue.filter(i => i.state === st).length;
@@ -238,7 +249,7 @@ function downloadsQueueBoxHtml() {
       <div>${downloadsItemLabel(i)}${i.album ? ` <span class="muted">· ${escapeHtml(i.album)}</span>` : ""}
         ${i.state === "active" ? `<div class="dl-progress"><progress max="100" value="${i.progress || 0}" aria-label="Download progress"></progress>
           <span class="${(i.idle || 0) >= 600 ? "error-text" : (i.idle || 0) >= 120 ? "dl-stuck" : "muted"}">${escapeHtml(i.step_detail || "")}${i.eta ? ` · ${downloadsSeconds(i.eta)} left` : ""}</span></div>` : ""}
-        <div class="muted">${escapeHtml(downloadsSourceLabels[i.source] || i.source)}${i.state === "done" ? ` · ${escapeHtml(i.path || "")}` : ""}${i.note && i.state !== "done" ? ` · ${escapeHtml(i.note)}` : i.state === "done" && i.note && i.note !== "Saved" ? ` · ${escapeHtml(i.note)}` : ""}</div></div>
+        <div class="muted">${escapeHtml(downloadsSourceName(i))}${downloadsOriginHtml(i)}${i.state === "done" ? ` · ${escapeHtml(i.path || "")}` : ""}${i.note && i.state !== "done" ? ` · ${escapeHtml(i.note)}` : i.state === "done" && i.note && i.note !== "Saved" ? ` · ${escapeHtml(i.note)}` : ""}</div></div>
       <div class="dl-row-actions">
         ${i.state === "failed" ? `<button type="button" class="button small" data-galaxy-control="retry" data-id="${escapeHtml(i.id)}">Retry</button>` : ""}
         ${i.state === "failed" ? `<span class="dl-copy" role="group" aria-label="Copy for a manual search">
@@ -246,6 +257,7 @@ function downloadsQueueBoxHtml() {
           ${i.album ? `<button type="button" class="button small" data-dl-copy="${escapeHtml(i.album)}" title="Copy the album name">Copy album</button>` : ""}
           <button type="button" class="button small" data-dl-copy="${escapeHtml(i.title)}" title="Copy the song or album title">Copy title</button></span>` : ""}
         ${i.state === "failed" && i.short_seconds ? `<button type="button" class="button small" data-galaxy-control="allow_short" data-id="${escapeHtml(i.id)}" title="It is a real ${escapeHtml(String(i.short_seconds))}-second track (an intro or skit): download it again and keep it">Keep it (short track)</button>` : ""}
+        ${i.state === "queued" && i.link && queue.filter(q => q.state === "queued" && q.link === i.link).length > 1 ? `<button type="button" class="button small" data-dl-cancel-link="${escapeHtml(i.link)}" title="Remove every waiting song from this link">✕ All from link (${queue.filter(q => q.state === "queued" && q.link === i.link).length})</button>` : ""}
         ${i.state === "queued" && i.payload ? `<button type="button" class="button small" data-galaxy-control="top" data-id="${escapeHtml(i.id)}" title="Move to top">⤒</button>` : ""}
         <button type="button" class="button small" ${i.payload ? `data-galaxy-control="remove" data-id="${escapeHtml(i.id)}"` : `data-downloads-remove="${escapeHtml(i.id)}"`}
           aria-label="${i.state === "active" ? "Cancel" : "Remove"} ${escapeHtml(i.title)}">${i.state === "active" ? "Cancel" : "✕"}</button></div></li>`).join("")}</ul>`
@@ -262,7 +274,7 @@ function downloadsQueueHtml() {
     ${!data ? '<p class="muted">Loading…</p>' : !data.total ? '<p class="muted">No songs yet. Downloads from Galaxy appear here; you can also import old histories under Settings.</p>'
       : `<table class="dl-table"><thead><tr><th>Song</th><th>Artist</th><th>Album</th><th>Source</th><th>PC</th><th>Date</th></tr></thead><tbody>${data.entries.map(e => `<tr>
         <td>${escapeHtml(e.title)}</td><td>${escapeHtml((e.artists || []).join(", ") || "—")}</td><td>${escapeHtml(e.album || "—")}</td>
-        <td>${escapeHtml(downloadsSourceLabels[e.source] || e.source || "")}</td><td>${escapeHtml(e.pc || "—")}</td><td>${escapeHtml(downloadsDate(e.when))}</td></tr>`).join("")}</tbody></table>
+        <td>${escapeHtml(downloadsSourceName(e))}${e.query || e.link ? `<div class="muted" title="${escapeHtml(e.query || e.link)}">${escapeHtml((e.query ? "query: " + e.query : "from: " + e.link).slice(0, 60))}</div>` : ""}</td><td>${escapeHtml(e.pc || "—")}</td><td>${escapeHtml(downloadsDate(e.when))}</td></tr>`).join("")}</tbody></table>
       <div class="pagination">${pages > 1 ? `<button type="button" class="button small" data-downloads-page="${page - 1}" ${page ? "" : "disabled"}>← Previous</button>
         <span>Page ${page + 1} of ${pages} · ${data.total.toLocaleString("en")} songs</span>
         <button type="button" class="button small" data-downloads-page="${page + 1}" ${page + 1 < pages ? "" : "disabled"}>Next →</button>` : ""}</div>`}`;
@@ -470,4 +482,20 @@ document.addEventListener("keydown", event => {
   const keys = downloadsTabs.map(([key]) => key), index = keys.indexOf(tab.dataset.downloadsTab);
   const next = event.key === "Home" ? 0 : event.key === "End" ? keys.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + keys.length) % keys.length;
   $(`[data-downloads-tab="${keys[next]}"]`).click();
+});
+
+// v63: "All from link" removes every waiting song that came from the same pasted link.
+document.addEventListener("click", async event => {
+  const button = event.target.closest?.("[data-dl-cancel-link]");
+  if (!button) return;
+  const link = button.dataset.dlCancelLink;
+  const ids = (downloadsView.queue || []).filter(q => q.state === "queued" && q.link === link).map(q => q.id);
+  if (!ids.length) return;
+  button.disabled = true;
+  try {
+    await api("/api/downloads/control", {action: "remove", ids});
+    downloadsView.queue = (await api("/api/downloads/queue")).queue;
+    toast(`Removed ${ids.length} waiting ${ids.length === 1 ? "song" : "songs"} from this link.`);
+  } catch (error) { toast(error.message || String(error)); }
+  renderDownloads();
 });

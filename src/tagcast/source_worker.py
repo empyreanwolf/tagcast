@@ -244,6 +244,7 @@ class FileWorker:
                                  progress=100, finished=time.time(), size_mb=round(nbytes / 1048576, 2),
                                  format=fmt, speed=0, eta=0, year=year, track_no=track_no)
         self.manager.record({"title": title, "artists": artists, "album": album, "source": self.source,
-                             "path": str(final)})
+                             "path": str(final), "site": (job.get("payload") or {}).get("site", ""),
+                             "query": job.get("query", ""), "link": job.get("link", "")})
         self._tidy([final])
         return final

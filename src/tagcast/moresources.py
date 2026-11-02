@@ -13,7 +13,7 @@
 
 import logging
 import re
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import requests
 
@@ -45,6 +45,7 @@ def split_title(title, uploader):
     """("Artist", "Title"): "Artist - Title" uploads are split, otherwise the uploader is the artist."""
     title = match.clean(DECOR.sub("", str(title or "")))
     uploader = re.sub(r"(?i)\s*-\s*topic$", "", str(uploader or ""))
+    title = re.sub(r"\s+[–—]\s+", " - ", title)  # v63: en and em dashes split like "-"
     if " - " in title:
         artist, _, song = title.partition(" - ")
         if artist.strip() and song.strip():
@@ -62,9 +63,24 @@ def _entry_url(entry, url, site):
     return own or url
 
 
+def youtube_parts(url):
+    """(video id, list id) of a YouTube link (v63)."""
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query)
+    video = (query.get("v") or [""])[0]
+    if (parsed.hostname or "").lower().endswith("youtu.be"):
+        video = parsed.path.strip("/").split("/")[0]
+    return video, (query.get("list") or [""])[0]
+
+
+def list_kind(list_id):
+    """"album" (YouTube Music's own album playlists), "mix" (the endless radio) or "playlist"."""
+    return "album" if list_id.startswith("OLAK5uy_") else "mix" if list_id.startswith("RD") else "playlist"
+
+
 def _entry_row(entry, site):
     url = entry.get("webpage_url") or entry.get("url") or ""
-    artist, title = split_title(entry.get("title"), entry.get("uploader") or entry.get("channel"))
+    artist, title = split_title(entry.get("title"), entry.get("uploader") or entry.get("channel") or entry.get("playlist_uploader"))
     if not url or not title:
         return None
     return {"url": url, "title": title, "artist": artist, "site": site, "duration": entry.get("duration") or 0}
@@ -88,7 +104,8 @@ class MoreSources(YtdlpWorker):
 
     @staticmethod
     def _opts():
-        return {"quiet": True, "no_warnings": True, "extract_flat": True, "skip_download": True, "socket_timeout": 20}
+        # "in_playlist" (v63): redirects (an OLAK5uy_ album link) are followed, a playlist's songs stay a flat list.
+        return {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist", "skip_download": True, "socket_timeout": 20}
 
     @staticmethod
     def _yt_search(query):
@@ -115,7 +132,12 @@ class MoreSources(YtdlpWorker):
                 info = ydl.extract_info(url, download=False) or {}
         except Exception as error:
             raise MoreError(f"Could not read {url} ({str(error)[:160]})") from None
-        return list(info.get("entries") or [info])
+        entries = info.get("entries")
+        if entries is None:
+            return [info]
+        owner = info.get("uploader") or info.get("channel") or ""
+        return [{**e, "playlist_title": e.get("playlist_title") or info.get("title") or "", "playlist_uploader": owner}
+                for e in entries if e]
 
     # -- searching ---------------------------------------------------------------------------
 
@@ -137,7 +159,7 @@ class MoreSources(YtdlpWorker):
 
     # -- queueing ---------------------------------------------------------------------------
 
-    def add(self, rows):
+    def add(self, rows, link="", query=""):
         if not isinstance(rows, list) or not rows or len(rows) > 200:
             raise MoreError("Choose between 1 and 200 songs.")
         items = []
@@ -148,6 +170,7 @@ class MoreSources(YtdlpWorker):
             if not site or not title:
                 raise MoreError("Only YouTube, SoundCloud and Audiomack links can be downloaded here.")
             items.append({"kind": "song", "title": title, "artist": artist, "album": title,
+                          "link": str(r.get("link") or link), "query": str(r.get("query") or query),
                           "payload": {"id": url, "source": "more", "site": site, "url": url, "artists": [artist or "Unknown Artist"],
                                       "album_artist": match.clean(r.get("album_artist")) or artist or "Unknown Artist",
                                       "album": match.clean(r.get("album")) or title, "page_meta": True,
@@ -165,40 +188,67 @@ class MoreSources(YtdlpWorker):
         self.ensure_worker()
         return result
 
-    def add_links(self, text):
+    def add_links(self, text, mode=""):
         """YouTube, SoundCloud and Audiomack links, one per line (a song, an album, a set or a playlist).
-        A playlist is tagged as one album: album = the playlist's name, tracks in playlist order (v61)."""
+
+        v63: a YouTube link with a list (``watch?v=…&list=…`` or ``playlist?list=…``) is not queued until
+        you choose: ``mode="song"`` takes only that video, ``mode="list"`` the whole list. An album
+        (``OLAK5uy_``) or playlist is tagged as one album (its name, tracks in order); a Mix (``RD…``,
+        YouTube's endless radio) as separate singles."""
         out = []
         for url in [u for u in re.findall(r"https?://\S+", str(text or ""))][:20]:
             site = site_of(url)
             try:
                 if not site:
                     raise MoreError("Only youtube.com, youtu.be, soundcloud.com and audiomack.com links work here.")
-                entries = [e for e in self._extract(url) if e]
-                rows = [r for r in (_entry_row({**e, "url": _entry_url(e, url, site)}, site) for e in entries) if r]
-                cut = len(rows) > 200
-                rows = rows[:200]
-                total = len(rows)
-                album = match.clean(entries[0].get("playlist_title") or entries[0].get("playlist") or "") if entries else ""
-                artists = {match.match_key(r["artist"]) for r in rows}
-                album_artist = rows[0]["artist"] if len(artists) == 1 and rows else "Various Artists"
-                for i, r in enumerate(rows):
-                    r.update(track_no=i + 1, track_total=total)
-                    if total > 1:
-                        r["album"] = album or ""
-                        r["album_artist"] = album_artist
-                if not rows:
-                    raise MoreError("No songs found at this link.")
-                result = self.add(rows)
-                out.append({"line": url, "ok": True, "note": f"{result.get('queued', 0)} queued"
-                            + (f" ({album})" if total > 1 and album else "")
-                            + (f", {result['held']} waiting in Needs your decision" if result.get("held") else "")
-                            + (" · only the first 200 songs" if cut else "")})
+                out.append(self._add_link(url, site, mode))
             except LibraryError as error:
                 out.append({"line": url, "ok": False, "note": str(error)})
         if not out:
             raise MoreError("Paste at least one YouTube, SoundCloud or Audiomack link.")
         return {"results": out}
+
+    def _add_link(self, url, site, mode):
+        kind = ""
+        read = url
+        if site == "YouTube":
+            video, list_id = youtube_parts(url)
+            if list_id and mode != "song":
+                kind = list_kind(list_id)
+                read = f"https://www.youtube.com/playlist?list={list_id}" if kind != "mix" or not video \
+                    else f"https://www.youtube.com/watch?v={video}&list={list_id}"
+            elif video:
+                read = f"https://www.youtube.com/watch?v={video}"
+            if list_id and not mode:  # ask first: this song, or the whole list?
+                entries = [e for e in self._extract(read) if e]
+                title = match.clean(entries[0].get("playlist_title") or "") if entries else ""
+                return {"line": url, "ok": False, "choose": True, "kind": kind, "has_song": bool(video),
+                        "count": len(entries), "title": re.sub(r"(?i)^album\s*-\s*", "", title),
+                        "note": f"{len(entries)} songs in this {kind}"}
+        entries = [e for e in self._extract(read) if e]
+        rows = [r for r in (_entry_row({**e, "url": _entry_url(e, read, site)}, site) for e in entries) if r]
+        if site == "YouTube" and len(rows) == 1 and (not rows[0]["artist"] or "list=" in rows[0]["url"]):
+            raise MoreError("Couldn't read this link (no song or artist found). Try the plain song or playlist link.")
+        cut = len(rows) > 200
+        rows = rows[:200]
+        total = len(rows)
+        album = re.sub(r"(?i)^album\s*-\s*", "", match.clean(entries[0].get("playlist_title") or entries[0].get("playlist") or "")) if entries else ""
+        artists = {match.match_key(r["artist"]) for r in rows}
+        album_artist = rows[0]["artist"] if len(artists) == 1 and rows else "Various Artists"
+        for i, r in enumerate(rows):
+            if kind == "mix":
+                continue  # a Mix is not an album: each song is its own single
+            r.update(track_no=i + 1, track_total=total)
+            if total > 1:
+                r["album"] = album or ""
+                r["album_artist"] = album_artist
+        if not rows:
+            raise MoreError("No songs found at this link.")
+        result = self.add(rows, link=url)
+        return {"line": url, "ok": True, "note": f"{result.get('queued', 0)} queued"
+                + (f" ({album})" if total > 1 and album and kind != "mix" else "")
+                + (f", {result['held']} waiting in Needs your decision" if result.get("held") else "")
+                + (" · only the first 200 songs" if cut else "")}
 
     # -- the SoundCloud chart ---------------------------------------------------------------
 
