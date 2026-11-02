@@ -19,7 +19,7 @@ import requests
 
 from . import artist_match as match
 from .library import LibraryError
-from .youtube import YtdlpWorker
+from .youtube import YtdlpWorker, plain_error
 
 log = logging.getLogger("tagcast")
 SEARCH_RESULTS = 20
@@ -105,7 +105,7 @@ class MoreSources(YtdlpWorker):
     @staticmethod
     def _opts():
         # "in_playlist" (v63): redirects (an OLAK5uy_ album link) are followed, a playlist's songs stay a flat list.
-        return {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist", "skip_download": True, "socket_timeout": 20}
+        return {"quiet": True, "no_warnings": True, "no_color": True, "extract_flat": "in_playlist", "skip_download": True, "socket_timeout": 20}
 
     @staticmethod
     def _yt_search(query):
@@ -117,7 +117,7 @@ class MoreSources(YtdlpWorker):
             with yt_dlp.YoutubeDL(MoreSources._opts()) as ydl:
                 info = ydl.extract_info(f"scsearch{SEARCH_RESULTS}:{query}", download=False) or {}
         except Exception as error:
-            raise MoreError(f"SoundCloud search failed ({str(error)[:160]})") from None
+            raise MoreError(f"SoundCloud search failed ({plain_error(error)[:160]})") from None
         return list(info.get("entries") or [])
 
     @staticmethod
@@ -131,7 +131,7 @@ class MoreSources(YtdlpWorker):
             with yt_dlp.YoutubeDL(MoreSources._opts()) as ydl:
                 info = ydl.extract_info(url, download=False) or {}
         except Exception as error:
-            raise MoreError(f"Could not read {url} ({str(error)[:160]})") from None
+            raise MoreError(f"Could not read {url} ({plain_error(error)[:160]})") from None
         entries = info.get("entries")
         if entries is None:
             return [info]

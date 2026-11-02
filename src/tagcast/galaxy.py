@@ -778,6 +778,7 @@ class Galaxy:
         self.state.setdefault("source", "netease")
         self.state.setdefault("picks", {})
         self.lock = threading.RLock()
+        self.on_failed = None  # v65: set by Discography: a song with no download link tries YouTube, Bandcamp, Soulseek
         self.wake = threading.Event()
         self.cancel_id = None
         self.thread = None
@@ -997,6 +998,9 @@ class Galaxy:
                     self.manager.remove([job["id"]])
                 except (JobFailed, GalaxyError) as e:
                     self.manager.update_item(job["id"], persist=True, state="failed", note=str(e), speed=0, eta=0)
+                    if "No download link" in str(e) and self.on_failed:  # v65: try the other sources
+                        failed = self.manager.item(job["id"])
+                        threading.Thread(target=self.on_failed, args=(failed,), daemon=True, name="galaxy-fallback").start()
                 except Exception as e:  # never let one song stop the queue
                     log.exception("Galaxy download failed")
                     self.manager.update_item(job["id"], persist=True, state="failed", note=f"{type(e).__name__}: {e}")

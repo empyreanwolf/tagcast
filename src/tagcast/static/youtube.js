@@ -98,6 +98,18 @@ document.addEventListener("submit", async event => {
   event.preventDefault();
   const v = youtubeView;
   v.artist = $("#youtube-artist")?.value || "";
+  // v65: "Artist - Title" here is a song, not an artist: look the song up instead.
+  if (/\s[-–—]\s/.test(v.artist.trim())) {
+    v.lines = v.artist.trim().replace(/\s[–—]\s/, " - ");
+    v.busy = true; renderDownloads();
+    try {
+      v.results = (await api("/api/youtube/add", {lines: v.lines})).results;
+      downloadsView.queue = (await api("/api/downloads/queue")).queue;
+      v.relError = `“${v.lines}” looks like a song, so it was searched as a song (see Songs by name below).`;
+    } catch (error) { v.relError = error.message || String(error); }
+    v.busy = false; renderDownloads();
+    return;
+  }
   v.relBusy = true; v.relError = ""; renderDownloads();
   try { v.releases = await api("/api/youtube/artist", {artist: v.artist, where: v.where}); v.queued = new Set(); }
   catch (error) { v.relError = error.message || String(error); v.releases = null; }

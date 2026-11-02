@@ -1193,6 +1193,7 @@ python3 tools/build_dark_css.py --check
 - v62: Split albums finder and one-click merge (static/split-albums.js; plan_save split_merge).
 - v63: YouTube link song/list choice (moresources add_links mode), in_playlist extraction, query/link/site on queue items and history, YouTube Music album lookup, per-source not-found reasons.
 - v64: labels.py + static/labels.js (Labels tab), charts bandcamp_hiphop, pagelist best-of presets, recommendations owned_albums + get-all, digest release downloads.
+- v65: youtube._try soft steps, plain_error, try_item; galaxy.on_failed -> discography.galaxy_fallback (_song skip_galaxy); downloads dl-queue-last layout.
 - Fork v58: `browseArtistRows/browseArtistCard` (genre detail grouped by album artist, `browseView.byArtist`); `downloadsCollapsify` wraps
   tables and `ul.dl-list` in `<details class="dl-fold">` (state in localStorage `tagcast-downloads-collapsed`, `dlDefaultClosed`);
   `rememberArtistNames` after saves; `releases.library_artists(..., genres)` with state `genres` (default hip-hop trio).

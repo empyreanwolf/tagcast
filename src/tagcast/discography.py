@@ -25,6 +25,7 @@ import threading
 import time
 from collections import Counter
 
+from . import activity
 from . import artist_match as match
 from .downloads import album_key
 from .galaxy import FALLBACK_SOURCES, GalaxyBlocked, find_song, sim
@@ -67,6 +68,9 @@ class Discography:
         soulseek = getattr(studio, "soulseek", None)
         if soulseek is not None:
             soulseek.on_failed = self.fallback
+        galaxy = getattr(studio, "galaxy", None)
+        if galaxy is not None:
+            galaxy.on_failed = self.galaxy_fallback
 
     @property
     def manager(self):
@@ -459,15 +463,18 @@ class Discography:
             return None, str(error)
         return None, NOT_FOUND
 
-    def _song(self, name, title, album, ctx):
+    def _song(self, name, title, album, ctx, skip_galaxy=False):
         tried = []
         found = self._youtube_song(name, title, album, tried)
         if found:
             return found
-        source, note = self._galaxy_song(name, title)
-        if source:
-            return source, note
-        galaxy_note = note
+        if skip_galaxy:
+            galaxy_note = "Galaxy had no download link"
+        else:
+            source, note = self._galaxy_song(name, title)
+            if source:
+                return source, note
+            galaxy_note = note
         base = self._bandcamp_base(name, ctx, [album] if album else [])
         if base and album:
             try:
@@ -481,7 +488,7 @@ class Discography:
         if soulseek is not None and soulseek.configured():
             result = soulseek.add([{"kind": "song", "artist": name, "title": title, "album": album, "fallback": True}])
             return "Soulseek", self._summary(result) + " (wishlist if Soulseek has nothing)"
-        tried.append(f"Galaxy · query “{name} {title}”: not found")
+        tried.append(f"Galaxy · query “{name} {title}”: " + ("no download link" if skip_galaxy else "not found"))
         return None, self._not_found(galaxy_note, tried)
 
     def _galaxy_song(self, name, title):
@@ -508,6 +515,27 @@ class Discography:
             return f"{note} · on your wishlist"
         except LibraryError:
             return note
+
+    def galaxy_fallback(self, item):
+        """v65: Galaxy found the song but had no download link: try YouTube, Bandcamp and Soulseek; the failed
+        row goes once another source has it, else the song goes on the wishlist."""
+        if not item or item.get("kind") != "song":
+            return
+        artist = re.split(r"\s*;\s*", item.get("artist") or "")[0].strip()
+        if not artist or not item.get("title"):
+            return
+        try:
+            source, note = self._song(artist, item["title"], item.get("album", ""), {"bandcamp": None, "bandcamp_checked": False},
+                                      skip_galaxy=True)
+        except Exception as error:
+            log.info("Fallback for %s failed: %s", item["title"], error)
+            source, note = None, str(error)
+        if source:
+            self.manager.remove([item["id"]])
+            activity.record("downloads", "info", f"Galaxy had no link for {item['title']}: trying {source} instead", source=source.casefold())
+            return
+        note = self._wish("song", artist, item["title"], item.get("album", ""), note=note)
+        self.manager.update_item(item["id"], persist=True, note=f"{item.get('note', '')} · {note}".strip(" ·"))
 
     def fallback(self, item):
         """A Soulseek job of "get the missing" failed. Galaxy was already tried before Soulseek

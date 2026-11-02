@@ -1311,3 +1311,7 @@ th.sortable-th .sort-arrow{font-size:calc(10px*var(--ts));color:var(--accent,cur
 .split-row details ul{margin:6px 0 0;padding-left:18px}
 .split-target select{max-width:220px}
 @media (max-width:640px){.split-row{grid-template-columns:40px 1fr}.split-row img,.split-noart{width:40px;height:40px}.split-target,.split-row>button{grid-column:2}}
+
+/* v65: search first, queue after, on the search tabs of Downloads */
+#downloads-page.dl-queue-last:not([hidden]){display:flex;flex-direction:column}
+#downloads-page.dl-queue-last #dl-queue-box{order:10;margin-top:24px}

@@ -461,6 +461,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/youtube/add": lambda b: self.studio.youtube.add_lines(b.get("lines")),
             "/api/youtube/artist": lambda b: self.studio.youtube.artist_releases(b.get("artist"), b.get("where")),
             "/api/youtube/releases": lambda b: self.studio.youtube.add_releases(b.get("artist"), b.get("releases")),
+            "/api/youtube/try": lambda b: self.studio.youtube.try_item(b.get("id")),
             "/api/more/search": lambda b: self.studio.moresources.search(b.get("query")),
             "/api/more/add": lambda b: self.studio.moresources.add(b.get("rows")),
             "/api/more/links": lambda b: self.studio.moresources.add_links(b.get("lines"), b.get("mode") or ""),

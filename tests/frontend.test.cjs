@@ -10888,3 +10888,10 @@ test("Bandcamp best-sellers is a chart tab and From a page has best-of lists", a
   assert.match(p.run('chartsRowHtml({rank: 1, title: "LP", artist: "A", album: "LP", kind: "album", status: "new"})'), /<span class="pill">Album<\/span> LP · A <\/div>|<span class="pill">Album<\/span> LP · A/);
   assert.match(p.run("pagelistPresetsHtml()"), /Rolling Stone · Best hip-hop albums 2025/);
 });
+
+test("search tabs put the queue after the search, and failed songs offer Try YouTube", async () => {
+  const p = page(); await settle();
+  p.run('downloadsView.tab = "galaxy"; downloadsView.queue = [{id: "g1", state: "failed", kind: "song", source: "galaxy", title: "Afford the Best", artist: "Moka Only", payload: {source: "netease"}}]');
+  assert.match(p.run("downloadsQueueBoxHtml()"), /data-dl-try-youtube="g1"/);
+  assert.ok(p.run('DOWNLOADS_SEARCH_TABS.has("galaxy") && !DOWNLOADS_SEARCH_TABS.has("queue")'));
+});

@@ -177,3 +177,55 @@ class V63AlbumTests(unittest.TestCase):
         why = []
         studio.discography._youtube_album("Moka Only", "Airport 2", why)
         self.assertIn("YouTube · query “Moka Only Airport 2”: no matching album", why)
+
+
+class V65Tests(unittest.TestCase):
+    def test_a_channel_without_a_releases_tab_falls_through_to_playlists(self):
+        from tagcast.youtube import plain_error
+        songs = [{"id": f"s{i}xxxxxx", "title": f"S{i}", "channel": "Moka Only - Topic"} for i in range(6)]
+
+        def search(query, playlists=False):
+            if "music.youtube.com" in query:
+                raise YouTubeError("music down")
+            if "sp=EgIQAg" in query:
+                return [{"title": "Moka Only", "url": "https://www.youtube.com/channel/UC1"}]
+            if query.endswith("/releases"):
+                raise YouTubeError("\x1b[0;31mERROR:\x1b[0m This channel does not have a releases tab")
+            if query.endswith("/playlists"):
+                return [{"title": "Bridges", "url": "https://www.youtube.com/playlist?list=PLb"},
+                        {"title": "Random faves", "url": "https://www.youtube.com/playlist?list=PLr"}]
+            if query.endswith("PLb"):
+                return songs
+            if query.endswith("PLr"):
+                return [{"id": f"r{i}xxxxxx", "title": "x", "channel": "Someone"} for i in range(5)]
+            return []
+
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=search, fetch_audio=lambda *a: None)
+        out = studio.youtube.artist_releases("Moka Only", "music")
+        self.assertTrue(out["fell_back"])
+        self.assertEqual([r["title"] for r in out["albums"]], ["Bridges"])
+        self.assertEqual(plain_error("\x1b[0;31mERROR:\x1b[0m [youtube:tab] x: no tab"), "[youtube:tab] x: no tab")
+
+    def test_galaxy_no_link_tries_youtube_and_removes_the_failed_row(self):
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=lambda q, playlists=False: [video("Afford the Best", "Moka Only - Topic", vid="v9")],
+                                 fetch_audio=lambda *a: None)
+        studio.youtube.ensure_worker = lambda: None
+        studio.download_manager.state["queue"].append({"id": "g1", "kind": "song", "title": "Afford the Best", "artist": "Moka Only",
+                                                       "album": "Bridges", "source": "galaxy", "state": "failed",
+                                                       "note": "No download link (tried 320 and 128 kbps and other sources)"})
+        studio.discography.galaxy_fallback(studio.download_manager.item("g1"))
+        queue = studio.download_manager.state["queue"]
+        self.assertIsNone(studio.download_manager.item("g1"))
+        self.assertEqual([(i["source"], i["payload"]["id"]) for i in queue], [("youtube", "v9")])
+
+    def test_try_youtube_on_a_failed_row(self):
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=lambda q, playlists=False: [video("Kareem Loves You", "Moka Only - Topic", vid="v8")],
+                                 fetch_audio=lambda *a: None)
+        studio.youtube.ensure_worker = lambda: None
+        studio.download_manager.state["queue"].append({"id": "g2", "kind": "song", "title": "Kareem Loves You (Explicit)", "artist": "Moka Only",
+                                                       "album": "São Paulo", "source": "galaxy", "state": "failed"})
+        studio.youtube.try_item("g2")
+        self.assertEqual([i["source"] for i in studio.download_manager.state["queue"]], ["youtube"])

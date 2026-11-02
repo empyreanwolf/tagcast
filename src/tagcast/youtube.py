@@ -37,6 +37,14 @@ class YouTubeError(LibraryError):
     pass
 
 
+ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def plain_error(error):
+    """yt-dlp's message without its terminal colour codes or the "ERROR:" prefix (v65)."""
+    return re.sub(r"^\s*ERROR:\s*", "", ANSI.sub("", str(error))).strip()
+
+
 def ffmpeg_path():
     """ffmpeg for the MP3 conversion (v61): the one on PATH, else the copy bundled by imageio-ffmpeg."""
     found = shutil.which("ffmpeg")
@@ -164,7 +172,7 @@ class YtdlpWorker(FileWorker):
             reason = str(error)
             if isinstance(error, yt_dlp.utils.DownloadError) and error.exc_info and isinstance(error.exc_info[1], (StopRequested, JobCancelled)):
                 raise error.exc_info[1]
-            raise JobFailed(f"YouTube download failed ({reason[:160]}). Updating yt-dlp often fixes this.") from None
+            raise JobFailed(f"YouTube download failed ({plain_error(reason)[:160]}). Updating yt-dlp often fixes this.") from None
         files = sorted((p for p in folder.glob("audio.*") if p.suffix not in (".part", ".ytdl", ".webp", ".jpg", ".png")),
                        key=lambda p: p.suffix != ".mp3")
         if not files:
@@ -294,7 +302,7 @@ class YouTube(YtdlpWorker):
             raise YouTubeError("yt-dlp is not installed. Restart Tagcast so it installs it, or run: pip install yt-dlp") from None
         # "in_playlist" (v63): a link that redirects (an OLAK5uy_ album, a YouTube Music album page) is followed,
         # while a playlist's songs stay a fast flat list.
-        opts = {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist", "skip_download": True, "socket_timeout": 20}
+        opts = {"quiet": True, "no_warnings": True, "no_color": True, "extract_flat": "in_playlist", "skip_download": True, "socket_timeout": 20}
         if str(query).startswith("http"):
             url = query  # a page (playlist, channel tab, YouTube Music search) listed as it is
         else:
@@ -304,7 +312,7 @@ class YouTube(YtdlpWorker):
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False) or {}
         except Exception as error:
-            raise YouTubeError(f"YouTube search failed ({str(error)[:160]})") from None
+            raise YouTubeError(f"YouTube search failed ({plain_error(error)[:160]})") from None
         return list(info.get("entries") or [])
 
     def find_song(self, artist, title, seconds=0):
@@ -345,7 +353,7 @@ class YouTube(YtdlpWorker):
             songs = self._album_from(entry, artist, album, need_artist=False)
             if songs:
                 return {"title": album, "artist": artist, "tracks": songs}
-        for entry in self._search(f"{artist} {album} album", playlists=True)[:6]:
+        for entry in self._try(f"{artist} {album} album", playlists=True)[:6]:
             songs = self._album_from(entry, artist, album, need_artist=True)
             if songs:
                 return {"title": album, "artist": artist, "tracks": songs}
@@ -353,7 +361,7 @@ class YouTube(YtdlpWorker):
 
     def _search_playlist(self, entry):
         url = entry.get("url") or entry.get("webpage_url") or (f"https://www.youtube.com/playlist?list={entry['id']}" if entry.get("id") else "")
-        return self._search(url) if url else []
+        return self._try(url) if url else []
 
     # -- queueing ---------------------------------------------------------------------------
 
@@ -394,6 +402,16 @@ class YouTube(YtdlpWorker):
                  for i, t in enumerate(found["tracks"])]
         return self._submit(items)
 
+    def try_item(self, item_id):
+        """v65: "⬇ Try YouTube" on a failed download: look the song up on YouTube; the failed row goes once queued."""
+        item = self.manager.item(str(item_id or ""))
+        if not item or item.get("kind") != "song":
+            raise YouTubeError("That download is no longer in the queue.")
+        artist = re.split(r"\s*;\s*", item.get("artist") or "")[0].strip()
+        result = self.add_song(artist, re.sub(r"(?i)\s*\((explicit|clean)\)", "", item["title"]), item.get("album", ""))
+        self.manager.remove([item["id"]])
+        return result
+
     def add_lines(self, lines):
         """Songs typed as "Artist - Title", one per line: each is looked up and queued or reported."""
         out = []
@@ -411,45 +429,58 @@ class YouTube(YtdlpWorker):
 
     # -- an artist's albums and singles (v61) ----------------------------------------------------
 
+    def _try(self, query, playlists=False):
+        """A search step that may fail without stopping the others (v65)."""
+        try:
+            return self._search(query, playlists) if playlists else self._search(query)
+        except LibraryError as error:
+            log.info("YouTube step skipped (%s): %s", query, error)
+            return []
+
     def _music_releases(self, artist):
-        """YouTube Music's album results for this artist (singles and EPs are listed there too)."""
+        """YouTube Music's album results for this artist (singles and EPs are listed there too). A result with
+        no artist name on it is kept here and checked on its tracks (see _tracks_by)."""
         out = []
-        for e in self._search(f"https://music.youtube.com/search?q={quote(artist)}#albums"):
+        for e in self._try(f"https://music.youtube.com/search?q={quote(artist)}#albums"):
             url = e.get("url") or e.get("webpage_url") or ""
             title = match.clean(re.sub(r"(?i)^(album|single|ep)\s*[-·•]\s*", "", str(e.get("title") or "")))
             who = " ".join(str(e.get(k) or "") for k in ("channel", "uploader", "artist", "description"))
             if url and title and (not who.strip() or match.match_key(artist) in match.match_key(who)):
-                out.append({"title": title, "url": url})
+                out.append({"title": title, "url": url, "check": not who.strip()})
         return out
 
     def _channel_releases(self, artist):
-        """Plain YouTube: the artist's channel (or "Artist - Topic"), then its Releases tab."""
+        """Plain YouTube: the artist's channel (or "Artist - Topic"), then its Releases tab, then its Playlists
+        tab, then a playlist search. Each step may fail on its own (a channel without a Releases tab)."""
         key = match.match_key(artist)
-        channels = self._search(f"https://www.youtube.com/results?search_query={quote(artist)}&sp=EgIQAg%3D%3D")
-        best = None
+        channels = self._try(f"https://www.youtube.com/results?search_query={quote(artist)}&sp=EgIQAg%3D%3D")
+        picked = []
         for e in channels:
             name = str(e.get("title") or e.get("channel") or e.get("uploader") or "")
-            topic = fold(name).endswith(" topic")
             if match.match_key(re.sub(r"(?i)\s*-\s*topic$", "", name)) == key:
-                if topic or best is None:
-                    best = e
-                if topic:
-                    break
+                picked.append((not fold(name).endswith(" topic"), e))
         out = []
-        if best:
+        for _, best in sorted(picked, key=lambda x: x[0])[:2]:
             base = (best.get("url") or best.get("channel_url") or "").rstrip("/")
-            for e in self._search(base + "/releases") if base.startswith("http") else []:
-                url = e.get("url") or (f"https://www.youtube.com/playlist?list={e['id']}" if e.get("id") else "")
-                title = match.clean(re.sub(r"(?i)^(album|single|ep)\s*-\s*", "", str(e.get("title") or "")))
-                if url and title:
-                    out.append({"title": title, "url": url})
+            if not base.startswith("http"):
+                continue
+            for tab in ("/releases", "/playlists"):
+                for e in self._try(base + tab):
+                    url = e.get("url") or (f"https://www.youtube.com/playlist?list={e['id']}" if e.get("id") else "")
+                    title = match.clean(re.sub(r"(?i)^(album|single|ep)\s*-\s*", "", str(e.get("title") or "")))
+                    if url and title:
+                        out.append({"title": title, "url": url, "check": tab == "/playlists"})
+                if out:
+                    break
+            if out:
+                break
         if not out:
-            for e in self._search(f"{artist} album", playlists=True)[:15]:
+            for e in self._try(f"{artist} album", playlists=True)[:15]:
                 channel = str(e.get("channel") or e.get("uploader") or "")
                 url = e.get("url") or (f"https://www.youtube.com/playlist?list={e['id']}" if e.get("id") else "")
                 title = match.clean(re.sub(r"(?i)^album\s*-\s*", "", str(e.get("title") or "")))
-                if url and title and key in match.match_key(channel):
-                    out.append({"title": title, "url": url})
+                if url and title and (key in match.match_key(channel) or not channel.strip()):
+                    out.append({"title": title, "url": url, "check": not channel.strip()})
         return out
 
     def artist_releases(self, artist, where="music"):
@@ -462,19 +493,23 @@ class YouTube(YtdlpWorker):
         found = self._music_releases(artist) if used == "music" else self._channel_releases(artist)
         if not found and used == "music":
             used, fell_back, found = "youtube", True, self._channel_releases(artist)
+        if not found:
+            raise YouTubeError(f"No albums or singles found on YouTube for {artist}.")
         seen, unique = set(), []
         for r in found:
             if r["url"] not in seen:
                 seen.add(r["url"])
                 unique.append(r)
 
+        key = match.match_key(artist)
+
         def tracks(release):
-            try:
-                rows = [{"id": e["id"], "title": match.clean(e["title"]), "duration": e.get("duration") or 0}
-                        for e in self._search(release["url"]) if e.get("id") and e.get("title")]
-            except LibraryError:
-                rows = []
-            return {**release, "tracks": rows[:100]}
+            entries = [e for e in self._try(release["url"]) if e.get("id") and e.get("title")]
+            if release.get("check") and entries:  # no artist on the result: most songs must be by the artist
+                if sum(1 for e in entries if key in match.match_key(self._who(e))) * 2 < len(entries):
+                    entries = []
+            rows = [{"id": e["id"], "title": match.clean(e["title"]), "duration": e.get("duration") or 0} for e in entries]
+            return {**{k: v for k, v in release.items() if k != "check"}, "tracks": rows[:100]}
 
         with ThreadPoolExecutor(6) as pool:
             releases = [r for r in pool.map(tracks, unique[:40]) if r["tracks"]]
