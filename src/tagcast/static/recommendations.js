@@ -5,7 +5,8 @@
 // history first; "Get it" queues it the same Galaxy -> Bandcamp -> Soulseek order as Charts,
 // one at a time, landing on the wishlist if nothing has it. It is the "Recommended for you"
 // tab of the Charts page: this file only builds that tab's content.
-const recommendationsView = {tab: "deezer", data: {}, picked: new Set(), jobs: null, timer: null, jobTimer: null, busy: false};
+const recommendationsView = {tab: "deezer", data: {}, picked: new Set(), jobs: null, timer: null, jobTimer: null, busy: false,
+  onlyNew: true, discography: new Map()};  // v64: hide artists you have albums of; ⬇ Discography per artist
 
 function recommendationsOnScreen() {
   return state.screen === "charts" && chartsView.tab === "recommended";
@@ -20,12 +21,14 @@ function recommendationsBodyHtml() {
   if (!d) { recommendationsLoad(); return `<p class="muted">Loading…</p>`; }
   if (d.error) return `<div class="dl-card"><p class="error-text">${escapeHtml(d.error)}</p>
       <div class="dl-actions"><button type="button" class="button" data-recommendations="refresh">Try again</button></div></div>`;
-  const rows = d.rows || [];
+  const all = d.rows || [], hidden = all.filter(r => r.owned_albums > 0).length;
+  const rows = recommendationsView.onlyNew ? all.filter(r => !(r.owned_albums > 0)) : all;
   const picked = rows.filter(r => recommendationsView.picked.has(r.rank)).length;
   const p = d.progress;
   return `<div class="dl-actions">
       <button type="button" class="button" data-recommendations="refresh" ${p ? "disabled" : ""}>Refresh</button>
-      <span class="muted">${d.when ? `Scanned ${missingDate(d.when)}` : ""}${d.seeds?.length ? ` · based on ${d.seeds.length} artist(s) from New releases` : ""}</span></div>
+      <span class="muted">${d.when ? `Scanned ${missingDate(d.when)}` : ""}${d.seeds?.length ? ` · based on ${d.seeds.length} artist(s) from New releases` : ""}</span>
+      <label class="checkline"><input type="checkbox" data-recommendations-only-new ${recommendationsView.onlyNew ? "checked" : ""}> Only artists I don't have${hidden ? ` (${hidden} hidden)` : ""}</label></div>
     ${p ? `<p class="muted" role="status">Getting songs: ${p.done} of ${p.total}${p.title ? ` — ${escapeHtml(p.title)}` : ""}…</p>` : ""}
     ${rows.length ? `<div class="dl-actions">
         <label><input type="checkbox" data-recommendations-all ${rows.every(r => recommendationsView.picked.has(r.rank)) ? "checked" : ""}> Select all (${rows.length})</label>
@@ -36,9 +39,12 @@ function recommendationsBodyHtml() {
 
 function recommendationsRowHtml(r) {
   const status = r.status && r.status !== "new" ? `<span class="pill ${r.status === "have" ? "" : "missing"}">${escapeHtml(downloadsStatusLabels[r.status] || r.status)}</span>` : "";
+  const disco = recommendationsView.discography.get(r.artist);
   return `<li><input type="checkbox" data-recommendations-pick="${r.rank}" aria-label="Select ${escapeHtml(r.title)}" ${recommendationsView.picked.has(r.rank) ? "checked" : ""}>
       <div>${escapeHtml(r.title)} · ${escapeHtml(r.artist)}${r.album ? ` · <i>${escapeHtml(r.album)}</i>` : ""} ${status}
-      ${r.why ? `<br><span class="muted">${escapeHtml(r.why)}</span>` : ""}</div></li>`;
+      ${r.owned_albums > 0 ? `<span class="pill">${r.owned_albums} ${r.owned_albums === 1 ? "album" : "albums"} in library</span>` : ""}
+      ${r.why ? `<br><span class="muted">${escapeHtml(r.why)}</span>` : ""}${disco && disco !== "busy" ? `<br><span class="muted">${escapeHtml(disco)}</span>` : ""}</div>
+      <button type="button" class="button small" data-recommendations-discography="${escapeHtml(r.artist)}" ${disco ? "disabled" : ""} title="Get every album and EP of ${escapeHtml(r.artist)} you don't have">${disco === "busy" ? "Finding…" : "⬇ Discography"}</button></li>`;
 }
 
 function recommendationsJobsHtml() {
@@ -112,5 +118,24 @@ document.addEventListener("change", event => {
   if (!pick) return;
   const rank = Number(pick.dataset.recommendationsPick);
   event.target.checked ? recommendationsView.picked.add(rank) : recommendationsView.picked.delete(rank);
+  renderRecommendations();
+});
+
+// v64: "Only artists I don't have" and one-click ⬇ Discography (every album/EP you don't have).
+document.addEventListener("change", event => {
+  if (!event.target.closest?.("[data-recommendations-only-new]")) return;
+  recommendationsView.onlyNew = event.target.checked;
+  renderRecommendations();
+});
+
+document.addEventListener("click", async event => {
+  const button = event.target.closest?.("[data-recommendations-discography]");
+  if (!button) return;
+  const name = button.dataset.recommendationsDiscography, map = recommendationsView.discography;
+  map.set(name, "busy"); renderRecommendations();
+  try {
+    const job = await api("/api/discography/get-all", {name});
+    map.set(name, `Getting ${job.total} ${job.total === 1 ? "album" : "albums"} — see Downloads › Queue`);
+  } catch (error) { map.set(name, error.message || String(error)); }
   renderRecommendations();
 });

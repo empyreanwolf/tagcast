@@ -8,7 +8,7 @@
 // see the note on the page.
 const chartsTabs = [["netease_cn_rap", "Chinese Rap (NetEase)"], ["hotnewhiphop_top100", "HotNewHipHop Top 100"],
   ["deezer_hiphop", "Deezer Hip-Hop"], ["apple_hiphop", "Apple Music"], ["spotify_rapcaviar", "Spotify RapCaviar"], ["soundcloud_hiphop", "SoundCloud Hip-hop"],
-  ["recommended", "Recommended for you"], ["browse", "Browse"]];
+  ["bandcamp_hiphop", "Bandcamp best-sellers"], ["recommended", "Recommended for you"], ["browse", "Browse"]];
 const chartsView = {tab: "netease_cn_rap", data: {}, picked: new Set(), jobs: null, timer: null, jobTimer: null, busy: false,
   browse: {source: "apple", country: "", genre: "", options: null, key: null}};
 
@@ -35,7 +35,7 @@ function chartsBodyHtml() {
   if (chartsView.tab === "browse") return browseBodyHtml();
   if (chartsView.tab === "recommended") return `<p class="muted">Artists related to the ones you follow on New releases, per Deezer. No AI.</p>${recommendationsBodyHtml()}`;
   const d = chartsView.data[chartsView.tab];
-  const note = `<p class="muted">There's no "underground hip-hop" tab here: no platform actually publishes one as a fetchable
+  const note = chartsView.tab === "bandcamp_hiphop" ? `<p class="muted">Bandcamp's best-selling hip-hop/rap releases. Get it queues the whole release from its Bandcamp page (often lossless). Audiomack has no chart Tagcast can read without an account key.</p>` : `<p class="muted">There's no "underground hip-hop" tab here: no platform actually publishes one as a fetchable
       chart -- everything calling itself that is either locked behind a login or just a blog post naming other platforms, with no
       song list to read. This page lists what genuinely exists. Browse can read any public Spotify playlist from its link.</p>`;
   if (!d) { chartsLoad(); return `${note}<p class="muted">Loading…</p>`; }
@@ -103,7 +103,7 @@ async function browseLoad(refresh) {
 function chartsRowHtml(r) {
   const status = r.status && r.status !== "new" ? `<span class="pill ${r.status === "have" ? "" : "missing"}">${escapeHtml(downloadsStatusLabels[r.status] || r.status)}${r.status === "downloaded" && r.pc ? ` at ${escapeHtml(r.pc)}, not uploaded yet` : ""}</span>` : "";
   return `<li><input type="checkbox" data-charts-pick="${r.rank}" aria-label="Select ${escapeHtml(r.title)}" ${chartsView.picked.has(r.rank) ? "checked" : ""}>
-      <div><b>#${r.rank}</b> ${escapeHtml(r.title)} · ${escapeHtml(r.artist)}${r.album ? ` · <i>${escapeHtml(r.album)}</i>` : ""} ${status}</div></li>`;
+      <div><b>#${r.rank}</b> ${r.kind === "album" ? '<span class="pill">Album</span> ' : ""}${escapeHtml(r.title)} · ${escapeHtml(r.artist)}${r.album && r.album !== r.title ? ` · <i>${escapeHtml(r.album)}</i>` : ""} ${status}</div></li>`;
 }
 
 function chartsJobsHtml() {

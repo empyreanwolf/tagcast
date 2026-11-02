@@ -33,6 +33,7 @@ from .artist_cleanup import ArtistCleanup
 from .artist_pictures import ArtistPictures
 from .bandcamp import Bandcamp
 from .charts import Charts
+from .labels import Labels
 from .pagelist import PageList
 from .cleanup import Cleanup
 from .collections import Collections
@@ -447,6 +448,7 @@ class Studio:
         self.tagclean = TagClean(self)
         self.charts = Charts(self)
         self.pagelist = PageList(self)
+        self.labels = Labels(self)
         self.recommendations = Recommendations(self)
         self.digest = Digest(self)
         self.artist_cards = ArtistCards(self)

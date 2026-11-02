@@ -70,7 +70,31 @@ CHARTS = {
                            "url": f"https://open.spotify.com/playlist/{SPOTIFY_RAPCAVIAR}"},
     "soundcloud_hiphop": {"label": "SoundCloud · Top Hip-hop & Rap", "group": "mainstream",
                            "url": "https://soundcloud.com/charts/top?genre=hiphoprap"},
+    # v64: albums, not songs. "Get it" queues each release straight from its Bandcamp page.
+    "bandcamp_hiphop": {"label": "Bandcamp · Hip-hop/rap best-sellers (albums)", "group": "underground",
+                         "url": "https://bandcamp.com/discover/hip-hop-rap?s=top"},
 }
+BANDCAMP_DISCOVER = "https://bandcamp.com/api/discover/1/discover_web"
+BANDCAMP_DISCOVER_OLD = "https://bandcamp.com/api/discover/3/get_web"
+
+
+def bandcamp_rows(results):
+    """Album rows from Bandcamp's discover answer (the current shape, or the older "items" one)."""
+    rows = []
+    for r in results or []:
+        if not isinstance(r, dict):
+            continue
+        hints = r.get("url_hints") or {}
+        title = text(r.get("title") or r.get("primary_text"))
+        artist = text(r.get("album_artist") or r.get("band_name") or r.get("secondary_text"))
+        url = text(r.get("item_url") or r.get("tralbum_url"))
+        if not url and hints.get("subdomain") and hints.get("slug"):
+            kind = "track" if hints.get("item_type") == "t" else "album"
+            url = f"https://{hints['subdomain']}.bandcamp.com/{kind}/{hints['slug']}"
+        if title and artist and url.startswith("http"):
+            rows.append({"rank": len(rows) + 1, "title": title, "artist": artist, "album": title, "kind": "album",
+                         "source": "bandcamp", "source_id": url, "pic_id": ""})
+    return rows[:MAX_ROWS]
 
 # -- Browse (fork v22): any country, any genre -------------------------------------------
 #
@@ -220,7 +244,8 @@ class Charts:
         fetchers = {"netease_cn_rap": self._netease, "hotnewhiphop_top100": self._hotnewhiphop,
                     "deezer_hiphop": self._deezer, "apple_hiphop": self._apple,
                     "spotify_rapcaviar": lambda: self._spotify(SPOTIFY_RAPCAVIAR),
-                    "soundcloud_hiphop": lambda: self.studio.moresources.soundcloud_rows()}
+                    "soundcloud_hiphop": lambda: self.studio.moresources.soundcloud_rows(),
+                    "bandcamp_hiphop": self._bandcamp}
         try:
             rows = fetchers[chart_id]()
             rows = self._with_status(rows)
@@ -288,7 +313,7 @@ class Charts:
         manager = self.studio.download_manager
         try:
             self.studio._require_client()
-            results = manager.check([{"kind": "song", "artist": r["artist"], "title": r["title"]} for r in rows])["results"]
+            results = manager.check([{"kind": r.get("kind") or "song", "artist": r["artist"], "title": r["title"]} for r in rows])["results"]
         except LibraryError:
             results = [{"status": "new"}] * len(rows)
         for row, result in zip(rows, results):
@@ -413,6 +438,30 @@ class Charts:
             raise ChartsError(f"Deezer's {text(genre.get('name'))} chart came back empty.")
         return rows
 
+    def _bandcamp(self):
+        """Bandcamp's own best-selling hip-hop/rap releases (its Discover page's data). Undocumented: if
+        Bandcamp reshapes it, this one chart says it couldn't be read and the others keep working."""
+        rows = []
+        try:
+            r = self.session.post(BANDCAMP_DISCOVER, timeout=20, json={
+                "category_id": 0, "tag_norm_names": ["hip-hop-rap"], "geoname_id": 0, "slice": "top",
+                "time_facet_id": None, "cursor": "*", "size": 60, "include_result_types": ["a"]})
+            if r.ok:
+                rows = bandcamp_rows(r.json().get("results"))
+        except (requests.RequestException, ValueError):
+            rows = []
+        if not rows:
+            try:
+                r = self.session.get(BANDCAMP_DISCOVER_OLD, timeout=20,
+                                     params={"g": "hip-hop-rap", "s": "top", "p": 0, "gn": 0, "f": "all", "w": 0})
+                r.raise_for_status()
+                rows = bandcamp_rows(r.json().get("items"))
+            except (requests.RequestException, ValueError) as error:
+                raise ChartsError(f"Couldn't read Bandcamp's best-sellers ({str(error)[:100]}).") from None
+        if not rows:
+            raise ChartsError("Bandcamp's best-sellers came back empty -- the page may have changed.")
+        return rows
+
     @staticmethod
     def _spotify_id(link):
         m = SPOTIFY_ID_RE.search(text(link).strip())
@@ -453,8 +502,16 @@ class Charts:
             raise LibraryError("Choose at least one song.")
         netease = [r for r in rows if r.get("source") == "netease"]
         soundcloud = [r for r in rows if r.get("source") == "soundcloud"]
-        other = [r for r in rows if r.get("source") not in ("netease", "soundcloud")]
+        bandcamp = [r for r in rows if r.get("source") == "bandcamp"]
+        other = [r for r in rows if r.get("source") not in ("netease", "soundcloud", "bandcamp")]
         result = {"queued": 0, "jobs": 0}
+        for r in bandcamp:  # v64: a whole release, straight from its Bandcamp page
+            try:
+                sent = self.studio.bandcamp.add(r["source_id"])
+                result["queued"] += sent.get("queued", 0) + sent.get("held", 0)
+            except LibraryError as error:
+                with self.lock:
+                    self.jobs.insert(0, {"title": r["title"], "artist": r["artist"], "source": "", "note": str(error)})
         if soundcloud:
             sent = self.studio.moresources.add([{"url": r["source_id"], "title": r["title"], "artist": r["artist"]} for r in soundcloud])
             result["queued"] += sent.get("queued", 0) + sent.get("held", 0)

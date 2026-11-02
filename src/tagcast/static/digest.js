@@ -79,11 +79,35 @@ function digestBodyHtml(d) {
     </div>`;
 }
 
+// v64: each new release downloads with one click; "Download all new" takes every one you don't have.
+const digestGot = new Set();
+const digestWanted = r => r.status !== "have" && !digestGot.has(r.id);
+
 function digestNewReleasesHtml(section) {
   if (!section.total) return `<p class="muted">No new releases waiting right now.</p>`;
-  return `<ul class="dl-list">${section.results.map(r =>
-      `<li><div>${escapeHtml(r.artist)} · <i>${escapeHtml(r.title)}</i>${digestPill(r)}</div></li>`).join("")}</ul>
+  const fresh = section.results.filter(digestWanted).length;
+  return `<div class="dl-actions"><button type="button" class="button primary" data-digest-get-all ${fresh ? "" : "disabled"}>⬇ Download all new (${fresh})</button></div>
+    <ul class="dl-list dl-nofold">${section.results.map(r =>
+      `<li><div>${escapeHtml(r.artist)} · <i>${escapeHtml(r.title)}</i>${digestPill(r)}</div>
+       ${r.status === "have" ? "" : `<button type="button" class="button small" data-digest-get="${escapeHtml(r.id)}" ${digestGot.has(r.id) ? "disabled" : ""}>${digestGot.has(r.id) ? "Queued" : "⬇ Download"}</button>`}</li>`).join("")}</ul>
     <button type="button" class="button" data-digest="see-missing">See all (${section.total}) in Downloads → Missing</button>`;
+}
+
+async function digestGetReleases(rows) {
+  const byArtist = new Map();
+  for (const r of rows) {
+    if (!byArtist.has(r.artist)) byArtist.set(r.artist, []);
+    byArtist.get(r.artist).push({title: r.title, status: r.status, deezer_id: r.deezer_id || null});
+  }
+  rows.forEach(r => digestGot.add(r.id)); renderDigest();
+  try {
+    for (const [name, albums] of byArtist) await api("/api/discography/get", {name, albums, songs: []});
+    toast(`Getting ${rows.length} ${rows.length === 1 ? "release" : "releases"} — see Downloads › Queue.`);
+  } catch (error) {
+    rows.forEach(r => digestGot.delete(r.id));
+    setActionStatus("#digest-status", error.message || String(error));
+  }
+  renderDigest();
 }
 
 function digestWishlistFoundHtml(section) {
@@ -144,6 +168,10 @@ document.addEventListener("click", event => {
     })();
     return;
   }
+  const one = target.closest("[data-digest-get]")?.dataset.digestGet;
+  const results = digestView.data?.new_releases?.results || [];
+  if (one) { const r = results.find(x => x.id === one); if (r) digestGetReleases([r]); return; }
+  if (target.closest("[data-digest-get-all]")) { const rows = results.filter(digestWanted); if (rows.length) digestGetReleases(rows); return; }
   const chart = target.closest("[data-digest-chart]")?.dataset.digestChart;
   if (chart) { showCharts(chart); return; }
   const recs = target.closest("[data-digest-recs]")?.dataset.digestRecs;

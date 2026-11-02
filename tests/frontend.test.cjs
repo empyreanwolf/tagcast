@@ -10853,3 +10853,38 @@ test("a YouTube link with a list waits for This song or Whole album", async () =
   assert.match(html, /<b>Airport 2<\/b>[\s\S]*data-more-pick="song" data-index="0">⬇ This song[\s\S]*⬇ Whole album \(12 songs\)/);
   assert.match(html, /<b>Mine<\/b><div class="muted">[^<]*<\/div><\/div>\s*<span class="dl-row-actions">\s*<button type="button" class="button primary" data-more-pick="list" data-index="1">⬇ Whole playlist \(3 songs\)/);
 });
+
+test("Labels tab lists a catalogue with one-click downloads", async () => {
+  const p = page(); await settle();
+  assert.ok(p.run('downloadsTabs.some(t => t[0] === "labels")'));
+  p.run(`labelsView.data = {label: "Epitaph", where: "MusicBrainz", url: "https://musicbrainz.org/label/L1", others: [{id: "L0", name: "Epitaph Europe", note: "DE"}],
+    rows: [{id: "g1", title: "The Mouse and the Mask", artist: "Danger Doom", year: "2005", type: "album", status: "new"},
+           {id: "g2", title: "Owned", artist: "X", year: "2001", type: "ep", status: "have"}]}`);
+  const html = p.run("labelsHtml()");
+  assert.match(html, /Download all missing \(1\)/);
+  assert.match(html, /data-labels-get="g1"/);
+  assert.doesNotMatch(html, /data-labels-get="g2"/);
+  assert.match(html, /Not this label\?[\s\S]*Epitaph Europe \(DE\)/);
+});
+
+test("Recommended hides artists you have and offers Discography; Digest releases download", async () => {
+  const p = page(); await settle();
+  p.run(`recommendationsView.data.deezer = {rows: [{rank: 1, artist: "New Guy", title: "Hit", status: "new", owned_albums: 0}, {rank: 2, artist: "Old Guy", title: "Song", status: "new", owned_albums: 3}]}`);
+  let html = p.run("recommendationsBodyHtml()");
+  assert.match(html, /Only artists I don't have \(1 hidden\)/);
+  assert.match(html, /data-recommendations-discography="New Guy"/);
+  assert.doesNotMatch(html, /Old Guy/);
+  p.run("recommendationsView.onlyNew = false");
+  assert.match(p.run("recommendationsBodyHtml()"), /3 albums in library/);
+  html = p.run(`digestNewReleasesHtml({total: 2, results: [{id: "a", artist: "X", title: "New LP", status: "missing"}, {id: "b", artist: "Y", title: "Got", status: "have"}]})`);
+  assert.match(html, /Download all new \(1\)/);
+  assert.match(html, /data-digest-get="a"/);
+  assert.doesNotMatch(html, /data-digest-get="b"/);
+});
+
+test("Bandcamp best-sellers is a chart tab and From a page has best-of lists", async () => {
+  const p = page(); await settle();
+  assert.ok(p.run('chartsTabs.some(t => t[0] === "bandcamp_hiphop")'));
+  assert.match(p.run('chartsRowHtml({rank: 1, title: "LP", artist: "A", album: "LP", kind: "album", status: "new"})'), /<span class="pill">Album<\/span> LP · A <\/div>|<span class="pill">Album<\/span> LP · A/);
+  assert.match(p.run("pagelistPresetsHtml()"), /Rolling Stone · Best hip-hop albums 2025/);
+});

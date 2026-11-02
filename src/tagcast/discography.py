@@ -259,6 +259,16 @@ class Discography:
         threading.Thread(target=self._run, args=(job, albums, songs), daemon=True, name="get-missing").start()
         return job
 
+    def get_all(self, name, singles=False):
+        """v64: one click from Recommended / Labels: every album and EP of this artist you don't fully have."""
+        data = self.view(name)
+        kinds = {"album", "ep"} | ({"single"} if singles else set())
+        albums = [{"title": r["title"], "status": r["status"], "deezer_id": r.get("deezer_id")}
+                  for r in data["releases"] if r["status"] != "have" and (r.get("type") or "album") in kinds]
+        if not albums:
+            raise DiscographyError(f"You already have every album of {data.get('name') or name}, or none were found.")
+        return self.get(data.get("name") or name, albums, [])
+
     def status(self, job_id):
         job = self.jobs.get(str(job_id))
         if not job:

@@ -81,12 +81,28 @@ class Recommendations:
                     "or turn on its library-based artists in Settings.")
             rows = self._deezer_related(seeds)
             rows = self._with_status(rows)
+            self._mark_owned(rows)
             error = ""
         except (LibraryError, SourceError, requests.RequestException, ValueError) as err:
             rows, error = [], str(err)
             log.info("Recommendations %s failed: %s", source, err)
         with self.lock:
             self.cache[source] = {"rows": rows, "when": time.time(), "error": error, "seeds": seeds}
+
+    def _mark_owned(self, rows):
+        """v64: how many albums of each suggested artist are already in your library (0 = new to you)."""
+        try:
+            self.studio._require_client()
+            library, _ = self.studio._library()
+            counts = {}
+            for album_id in library.album_ids():
+                for artist_id in library.album_artist_ids(library.albums[album_id]):
+                    key = match.match_key(library.artist_name(artist_id))
+                    counts[key] = counts.get(key, 0) + 1
+        except Exception:
+            counts = {}
+        for row in rows:
+            row["owned_albums"] = counts.get(match.match_key(row["artist"]), 0)
 
     def _with_status(self, rows):
         if not rows:

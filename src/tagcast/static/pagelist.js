@@ -5,6 +5,27 @@
 // ones through Galaxy → Bandcamp → Soulseek. Albums it isn't sure about can be edited and checked again.
 const pagelistView = {link: "", text: "", textOpen: false, job: null, picked: new Set(), editing: null, busy: false, timer: null, getJobs: [], getIds: [], getCount: 0, touched: new Set(), autoTicked: false, getTimer: null, error: ""};
 
+// v64: Best-of lists: saved links of year-end / best-albums articles, read with one click.
+const PAGELIST_PRESETS = [
+  ["Rolling Stone · Best hip-hop albums 2025", "https://www.rollingstone.com/music/music-lists/best-hip-hop-albums-of-2025-1235479623/"],
+  ["Complex · Best hip-hop albums 2025", "https://www.complex.com/music/a/dimassanfiorenzo/best-hip-hop-albums-of-2025"]];
+
+function pagelistSaved() {
+  try { const v = JSON.parse(localStorage.getItem("tagcast.bestOfLists") || "null"); if (Array.isArray(v)) return v; } catch { /* default list */ }
+  return PAGELIST_PRESETS;
+}
+
+function pagelistSave(list) {
+  try { localStorage.setItem("tagcast.bestOfLists", JSON.stringify(list.slice(0, 40))); } catch { /* not kept */ }
+}
+
+function pagelistPresetsHtml() {
+  const list = pagelistSaved(), link = pagelistView.link.trim();
+  return `<div class="dl-actions pagelist-presets"><span class="muted">Best-of lists:</span>
+    ${list.map(([name, url]) => `<span class="pagelist-preset"><button type="button" class="button small" data-pagelist-preset="${escapeHtml(url)}" title="${escapeHtml(url)}">${escapeHtml(name)}</button><button type="button" class="text-action" data-pagelist-preset-remove="${escapeHtml(url)}" aria-label="Remove ${escapeHtml(name)}">✕</button></span>`).join("")}
+    ${link && !list.some(([, url]) => url === link) ? `<button type="button" class="text-action" data-pagelist-preset-add>☆ Save this link</button>` : ""}</div>`;
+}
+
 function pagelistHtml() {
   const v = pagelistView, job = v.job;
   const items = job?.items || [];
@@ -16,6 +37,7 @@ function pagelistHtml() {
   return `<p class="muted">Paste the link of a page with a list of albums — a "best of 2024" article, a Reddit thread, a Wikipedia list, a public Spotify playlist. Tagcast finds every artist and album on it and tells you which ones you don't have.</p>
     <div class="dl-actions"><input id="pagelist-link" type="url" class="grow" maxlength="2000" placeholder="https://…" value="${escapeHtml(v.link)}" aria-label="Page link">
       <button type="button" class="button primary" data-pagelist-read ${v.busy ? "disabled" : ""}>Read the page</button></div>
+    ${pagelistPresetsHtml()}
     <details ${v.textOpen ? "open" : ""} data-pagelist-text-box><summary>Paste the text instead</summary>
       <p class="muted">For sites that block Tagcast: select the list on the page, copy it, and paste it here.</p>
       <textarea id="pagelist-text" class="dl-lines" rows="6" maxlength="200000" aria-label="Page text">${escapeHtml(v.text)}</textarea></details>
@@ -68,7 +90,18 @@ document.addEventListener("click", async event => {
   const target = event.target;
   if (!target.closest?.("#downloads-page") || downloadsView.tab !== "pagelist") return;
   const v = pagelistView;
-  if (target.closest("[data-pagelist-read]")) {
+  const preset = target.closest("[data-pagelist-preset]")?.dataset.pagelistPreset;
+  if (preset) { v.link = preset; v.text = ""; const box = $("#pagelist-link"), area = $("#pagelist-text"); if (box) box.value = preset; if (area) area.value = ""; }
+  const drop = target.closest("[data-pagelist-preset-remove]")?.dataset.pagelistPresetRemove;
+  if (drop) { pagelistSave(pagelistSaved().filter(([, url]) => url !== drop)); pagelistRender(); return; }
+  if (target.closest("[data-pagelist-preset-add]")) {
+    const url = ($("#pagelist-link")?.value || v.link).trim();
+    const tail = url.replace(/[?#].*$/, "").replace(/\/+$/, "").split("/").pop() || "";
+    const name = `${url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0]} · ${tail.replace(/-\d{6,}$/, "").replace(/[-_]+/g, " ")}`.slice(0, 60);
+    if (url && name) { pagelistSave([...pagelistSaved(), [name, url]]); v.link = url; }
+    pagelistRender(); return;
+  }
+  if (preset || target.closest("[data-pagelist-read]")) {
     v.link = $("#pagelist-link")?.value || v.link; v.text = $("#pagelist-text")?.value || v.text; v.error = "";
     if (!v.link.trim() && !v.text.trim()) { toast("Paste a page link, or the text of the page."); return; }
     v.busy = true; v.picked = new Set(); v.touched = new Set(); v.autoTicked = false; v.editing = null; v.getJobs = []; pagelistRender();
