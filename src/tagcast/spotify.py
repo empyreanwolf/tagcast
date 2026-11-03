@@ -67,6 +67,19 @@ def song_row(song):
                         "isrc": str(song.get("isrc") or ""), "spotify_url": str(song.get("url") or "")}}
 
 
+BOX_RE = re.compile(r"[\u2500-\u257f]")
+
+
+def clean_error(text):
+    """spotDL's error as one short line (v68): no colour codes, no box-drawing frame, the last 'Error:' line if any."""
+    text = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", str(text or ""))
+    lines = [" ".join(BOX_RE.sub(" ", line).split()) for line in text.splitlines()]
+    lines = [line for line in lines if line]
+    errors = [line for line in lines if re.search(r"\w(Error|Exception)\b:", line)]
+    line = errors[-1] if errors else " ".join(lines[-3:])
+    return line[-300:]
+
+
 class SpotDL:
     def __init__(self, studio, runner=None):
         self.studio = studio
@@ -150,10 +163,17 @@ class SpotDL:
             raise SpotifyError("spotDL found no songs it could match on YouTube Music for this link.")
         return rows
 
+    def _ffmpeg(self):
+        from .youtube import ffmpeg_path
+        return ffmpeg_path()
+
     def _save(self, link):
         with tempfile.TemporaryDirectory(prefix="tagcast-spotdl-") as folder:
             out = Path(folder) / "songs.spotdl"
             cmd = [str(self.python()), "-m", "spotdl", "save", link, "--save-file", str(out), "--preload", "--threads", "6"]
+            ffmpeg = self._ffmpeg()
+            if ffmpeg:
+                cmd += ["--ffmpeg", ffmpeg]  # v68: spotDL checks FFmpeg even for save; use Tagcast's own copy
             if self.state.get("client_id") and self.state.get("client_secret"):
                 cmd += ["--client-id", self.state["client_id"], "--client-secret", self.state["client_secret"]]
             try:
@@ -164,10 +184,12 @@ class SpotDL:
             except OSError as error:
                 raise SpotifyError(f"spotDL could not start ({error}).") from None
             if not out.exists():
-                tail = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", (result.stderr or result.stdout or "").strip())[-300:]
+                tail = clean_error(result.stderr or result.stdout or "")
                 if re.search(r"rate|429|too many", tail, re.I):
                     raise SpotifyError("Spotify is limiting spotDL's built-in key right now. Add your own free Spotify app key "
                                        "under More sources > Spotify, or try again later.")
+                if re.search(r"ffmpeg", tail, re.I):
+                    raise SpotifyError("spotDL could not find FFmpeg. Restart Tagcast so it can set up its own copy, then paste the link again.")
                 raise SpotifyError(f"spotDL could not read this link ({tail or 'no answer'}).")
             try:
                 data = json.loads(out.read_text(encoding="utf-8"))
