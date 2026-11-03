@@ -159,15 +159,17 @@ function renderVisualPlayer() {
     art.hidden = !artwork;
     if (artwork) art.src = largeArtworkUrl(artwork); else art.removeAttribute("src");
   }
-  if (typeof renderVisualPlayerLyrics === "function") renderVisualPlayerLyrics();
+  if (typeof renderPlaybackLyrics === "function") renderPlaybackLyrics();
 }
 
 function hideVisualPlayer() {
   if (typeof closeCoverLightbox === "function") closeCoverLightbox();
   if (!visualPlayer.open) return;
   visualPlayer.open = false; visualPlayer.native = false; visualPlayer.request += 1;
+  if (typeof suspendPlaybackLyrics === "function") suspendPlaybackLyrics();
   visualPlayer.artwork = null;
   $("#visual-player-art").removeAttribute("src");
+  if (typeof renderLyricsCoverBackground === "function") renderLyricsCoverBackground();
   $("#visual-player").hidden = true;
   document.body.classList.remove("visual-player-open");
   $("#player-stage").removeAttribute("role");
@@ -238,7 +240,7 @@ document.addEventListener("keydown", event => {
   if (event.defaultPrevented || !visualPlayer.open || document.querySelector("dialog[open]")) return;
   if (event.key === "Escape") { closeVisualPlayer(); return; }
   if (event.key !== "Tab") return;
-  const controls = [...$("#player-stage").querySelectorAll('button:not([disabled]), input:not([disabled]), audio')].filter(node => node.getClientRects().length);
+  const controls = [...$("#player-stage").querySelectorAll('button:not([disabled]), input:not([disabled]), audio, a[href], [tabindex="0"]')].filter(node => node.getClientRects().length);
   const first = controls[0], last = controls.at(-1);
   if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -440,6 +442,7 @@ function renderCurrentPlayerTrack() {
 }
 
 function markPlaying() {
+  if (typeof publishMiniPlayer === "function") publishMiniPlayer();
   if (typeof preloadSchedule === "function") preloadSchedule();
   if (typeof resumeSave === "function") resumeSave();
   if (typeof gaplessQueueChanged === "function") gaplessQueueChanged();

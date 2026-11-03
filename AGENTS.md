@@ -1195,6 +1195,7 @@ python3 tools/build_dark_css.py --check
 - v64: labels.py + static/labels.js (Labels tab), charts bandcamp_hiphop, pagelist best-of presets, recommendations owned_albums + get-all, digest release downloads.
 - v65: youtube._try soft steps, plain_error, try_item; galaxy.on_failed -> discography.galaxy_fallback (_song skip_galaxy); downloads dl-queue-last layout.
 - v66: galaxy.album_candidates (mode album_list), downloads.album_base_key/other_edition, updates.py fork check, spotify.py (SpotDL, private venv) + moresources Spotify site.
+- v69: upstream 1.3.0 playback_lyrics.py + lyrics.py (taken whole; fork v26 synced field dropped), /api/lyrics/display, static/playback-lyrics.{js,css} (fork: default native-first, open state in localStorage tagcast-now-playing-lyrics-open, click-to-seek), mini-player.js + mini-player/ from upstream with browser bridge static/mini-bridge.js (Document PiP or popup via opener.tagcastMiniBridge), #player-mini button. pyyaml optional at import.
 - v68: spotify._save adds --ffmpeg youtube.ffmpeg_path(); spotify.clean_error strips ANSI/box-drawing, keeps last *Error: line.
 - v67: discography._add_discogs (token from studio.source_keys), release_key strips feat, sidebar #brand-fork-version, part.parent.mkdir before writing.
 - Fork v58: `browseArtistRows/browseArtistCard` (genre detail grouped by album artist, `browseView.byArtist`); `downloadsCollapsify` wraps

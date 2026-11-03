@@ -40,12 +40,12 @@ goto :launch
 rem Upgrade dependencies in an existing source environment without clearing it, and
 rem repair it when Tagcast itself can no longer be imported (a moved folder or an
 rem interrupted update): first reinstall, then rebuild .venv once.
-".venv\Scripts\python.exe" -c "import tagcast, websocket, mutagen" >nul 2>nul
+".venv\Scripts\python.exe" -c "import tagcast, websocket, mutagen, yaml" >nul 2>nul
 if errorlevel 1 (
   echo Updating Tagcast in %CD%\.venv ...
   ".venv\Scripts\python.exe" -m pip install --quiet -e . || goto :failed
 )
-".venv\Scripts\python.exe" -c "import tagcast, websocket, mutagen" >nul 2>nul
+".venv\Scripts\python.exe" -c "import tagcast, websocket, mutagen, yaml" >nul 2>nul
 if errorlevel 1 (
   if defined TAGCAST_REBUILT goto :failed
   set "TAGCAST_REBUILT=1"

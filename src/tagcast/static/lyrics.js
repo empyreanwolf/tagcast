@@ -3,14 +3,13 @@
 // Native lyrics are lazy and account/session-bound. Public lookup is always explicit.
 const trackLyrics = {details: null, entries: new Map(), cacheRead: null, review: null, viewer: null, busy: false, revision: 0};
 let albumLyricsCheck = null;
-let visualLyricsSync = {key: null, index: -1};
 
 function resetTrackLyrics() {
   cancelAlbumLyricsCheck();
   if (typeof resetAlbumLyricsImport === "function") resetAlbumLyricsImport();
   trackLyrics.revision += 1; trackLyrics.entries.clear(); trackLyrics.review = null;
   trackLyrics.cacheRead = null;
-  visualLyricsSync = {key: null, index: -1};
+  if (typeof resetPlaybackLyrics === "function") resetPlaybackLyrics();
   $("#lyrics-review").close();
   closeLyricsViewer(false); refreshAlbumLyricsLabels();
 }
@@ -25,6 +24,9 @@ function invalidateLyricsSource() {
     entry.data = null; entry.loading = false; entry.pending = null; entry.error = "";
   }
   repaintLyrics();
+  if (typeof resetPlaybackLyrics === "function") {
+    resetPlaybackLyrics(); renderPlaybackLyrics();
+  }
 }
 
 // Badge/viewer reads must never create an entry or start a request.
@@ -211,9 +213,6 @@ function visibleLyricsSelection(context) {
     const id = $("#track-inline").dataset.track;
     return lyricsSelection(editing.originals.flatMap(a => a.tracks).find(t => String(t.id) === id));
   }
-  if (context === "visual") {
-    return visualPlayer.open ? lyricsSelection(player.queue[player.index]) : null;
-  }
   return $("#now-playing-panel").hidden ? null : lyricsSelection(player.queue[player.index]);
 }
 
@@ -233,7 +232,7 @@ function renderLyrics(context, selection = visibleLyricsSelection(context)) {
     : "iBroadcast";
   const note = data?.status === "instrumental" ? "LRCLIB marks this recording as instrumental."
     : data?.status === "missing" ? "No matching lyrics found."
-      : data?.status === "not_cached" ? "No lyrics stored in iBroadcast. Find lyrics sends this track’s title, artist and duration to LRCLIB." : "";
+      : data?.status === "not_cached" ? "No lyrics stored in iBroadcast. Find lyrics sends this track’s title, artist, album and known duration to LRCLIB." : "";
   const find = data?.can_lookup ? action("find", "Find lyrics on LRCLIB", entry.loading) : "";
   const refresh = data ? action("retry", "Check iBroadcast again", entry.loading) : "";
   const text = data?.text ? `<details data-lyrics-expanded="${context}" ${entry.open ? "open" : ""}><summary>${data.source === "lrclib" ? "LRCLIB" : "iBroadcast"}</summary><div class="lyrics-text">${escapeHtml(data.text)}</div>${data.source === "lrclib" ? `<p class="muted lyrics-source">${source}</p>` : ""}</details>` : "";
@@ -249,7 +248,6 @@ function renderLyrics(context, selection = visibleLyricsSelection(context)) {
 function repaintLyrics() {
   for (const context of ["track", "player"]) renderLyrics(context);
   refreshAlbumLyricsLabels();
-  if (typeof renderVisualPlayerLyrics === "function") renderVisualPlayerLyrics();
 }
 
 function loadTrackLyrics(selection, entry, lookup = false, refresh = false) {
@@ -381,59 +379,4 @@ $("#lyrics-review").addEventListener("close", () => {
     repaintLyrics();
     if (visibleLyricsSelection("track")) $("#track-lyrics-text")?.focus({preventScroll: true});
   }
-});
-
-// Fullscreen Now playing: an auto-scrolling, click-to-seek line list when LRCLIB has
-// timing for this track, otherwise the same plain scrollable text as everywhere else.
-// Timing is community-submitted and can be a little off from the actual recording.
-function renderVisualPlayerLyrics() {
-  const box = $("#visual-player-lyrics");
-  if (!box) return;
-  const selection = visibleLyricsSelection("visual");
-  box.hidden = !selection;
-  if (!selection) { box.innerHTML = ""; visualLyricsSync = {key: null, index: -1}; return; }
-  const entry = lyricsEntry(selection), data = entry.data;
-  if (!data && !entry.loading && !entry.error) loadTrackLyrics(selection, entry);
-  const key = lyricsKey(selection);
-  if (visualLyricsSync.key !== key) visualLyricsSync = {key, index: -1};
-  if (entry.error) { box.innerHTML = `<p role="status">${escapeHtml(entry.error)}</p>`; return; }
-  if (entry.loading && !data) { box.innerHTML = '<p role="status">Checking lyrics…</p>'; return; }
-  if (!data?.text?.trim()) { box.hidden = true; box.innerHTML = ""; return; }
-  if (Array.isArray(data.synced) && data.synced.length) {
-    box.innerHTML = `<ol>${data.synced.map((line, i) =>
-      `<li><button type="button" class="lyrics-line" data-lyrics-sync-line="${i}">${escapeHtml(line.text)}</button></li>`).join("")}</ol>`;
-    updateVisualPlayerLyricsPosition(true);
-  } else {
-    box.innerHTML = `<div class="lyrics-text">${escapeHtml(data.text)}</div>`;
-  }
-}
-
-function updateVisualPlayerLyricsPosition(force = false) {
-  if (!visualPlayer.open) return;
-  const box = $("#visual-player-lyrics");
-  if (!box || box.hidden) return;
-  const entry = trackLyrics.entries.get(visualLyricsSync.key);
-  const synced = entry?.data?.synced;
-  if (!Array.isArray(synced) || !synced.length) return;
-  const position = playerTrackPosition();
-  let index = -1;
-  for (let i = 0; i < synced.length; i++) { if (synced[i].time <= position) index = i; else break; }
-  if (!force && index === visualLyricsSync.index) return;
-  visualLyricsSync.index = index;
-  const buttons = box.querySelectorAll("[data-lyrics-sync-line]");
-  for (const button of buttons) {
-    if (Number(button.dataset.lyricsSyncLine) === index) button.setAttribute("aria-current", "true");
-    else button.removeAttribute("aria-current");
-  }
-  if (index >= 0 && buttons[index]) buttons[index].scrollIntoView({block: "center", behavior: force ? "auto" : "smooth"});
-}
-
-audio.addEventListener("timeupdate", () => updateVisualPlayerLyricsPosition());
-
-document.addEventListener("click", event => {
-  const button = event.target.closest("[data-lyrics-sync-line]");
-  if (!button || !visualPlayer.open) return;
-  const entry = trackLyrics.entries.get(visualLyricsSync.key);
-  const line = entry?.data?.synced?.[Number(button.dataset.lyricsSyncLine)];
-  if (line && typeof seekSystemPlayback === "function") seekSystemPlayback(line.time);
 });
