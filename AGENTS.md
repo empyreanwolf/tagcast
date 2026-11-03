@@ -1195,6 +1195,7 @@ python3 tools/build_dark_css.py --check
 - v64: labels.py + static/labels.js (Labels tab), charts bandcamp_hiphop, pagelist best-of presets, recommendations owned_albums + get-all, digest release downloads.
 - v65: youtube._try soft steps, plain_error, try_item; galaxy.on_failed -> discography.galaxy_fallback (_song skip_galaxy); downloads dl-queue-last layout.
 - v66: galaxy.album_candidates (mode album_list), downloads.album_base_key/other_edition, updates.py fork check, spotify.py (SpotDL, private venv) + moresources Spotify site.
+- v67: discography._add_discogs (token from studio.source_keys), release_key strips feat, sidebar #brand-fork-version, part.parent.mkdir before writing.
 - Fork v58: `browseArtistRows/browseArtistCard` (genre detail grouped by album artist, `browseView.byArtist`); `downloadsCollapsify` wraps
   tables and `ul.dl-list` in `<details class="dl-fold">` (state in localStorage `tagcast-downloads-collapsed`, `dlDefaultClosed`);
   `rememberArtistNames` after saves; `releases.library_artists(..., genres)` with state `genres` (default hip-hop trio).

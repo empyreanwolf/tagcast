@@ -1187,6 +1187,8 @@ class Galaxy:
                     total = to_int(r.headers.get("Content-Length"), 0)
                     done, last = 0, 0.0
                     self._t0 = time.monotonic()
+                    # v67: another source's clean-up may have removed the shared, empty _incomplete folder.
+                    Path(part).parent.mkdir(parents=True, exist_ok=True)
                     with open(part, "wb") as f:
                         for chunk in r.iter_content(64 * 1024):
                             if self.stopping:

@@ -27,7 +27,7 @@ from collections import Counter
 
 from . import activity
 from . import artist_match as match
-from .downloads import album_key
+from .downloads import FEAT_BRACKET, album_key
 from .galaxy import FALLBACK_SOURCES, GalaxyBlocked, find_song, sim
 from .library import LibraryError
 from .sources import PACING, Http, SourceError
@@ -55,7 +55,29 @@ def _year(value):
 
 
 def release_key(title):
-    return album_key(SUFFIX.sub("", match.clean(title)))
+    """v67: "(feat. X)" does not make another release ("The Rise in Fall (feat. Neroche)" = "The Rise in Fall")."""
+    return album_key(FEAT_BRACKET.sub("", SUFFIX.sub("", match.clean(title))))
+
+
+DISCOGS = "https://api.discogs.com"
+DISCOGS_NUMBER = re.compile(r"\s*\(\d+\)$")  # "Neroche (2)": Discogs' mark for a second artist of that name
+
+
+def discogs_name(value):
+    return DISCOGS_NUMBER.sub("", str(value or "").replace("*", "")).strip()
+
+
+def discogs_kind(row):
+    if row.get("role") and row["role"] != "Main":
+        return "compile"  # appearances and features: shown with Compilations, off by default
+    fmt = str(row.get("format") or "")
+    if re.search(r"\bComp\b|Compilation", fmt):
+        return "compile"
+    if re.search(r"\bEP\b", fmt) or re.search(r"\bE\.?P\.?$", str(row.get("title") or ""), re.I):
+        return "ep"
+    if re.search(r"\bSingle\b", fmt):
+        return "single"
+    return "album"
 
 
 class Discography:
@@ -189,12 +211,82 @@ class Discography:
             self.cache.pop(key, None)
         data = self._cached(key, lambda: self._collect(name, deezer_id))
         data = {**data, "releases": [dict(r) for r in data["releases"]], "notes": list(data.get("notes") or [])}
+        self._add_discogs(data, refresh)
         if musicbrainz:
             self._add_musicbrainz(data)
         self._statuses(data)
         data["releases"].sort(key=lambda r: (r.get("year") or "0000", r["title"]), reverse=True)
         data["counts"] = dict(Counter(r["status"] for r in data["releases"]))
         return data
+
+    def _discogs_token(self):
+        try:
+            return (self.studio.source_keys() or {}).get("discogs_token", "")
+        except Exception:
+            return ""
+
+    def _add_discogs(self, data, refresh=False):
+        """v67: Discogs, much fuller for underground artists, when a Discogs token is saved in Settings. One row per
+        release (Discogs' "master"), the artist's own releases; appearances are listed as Compilations."""
+        token = self._discogs_token()
+        if not token:
+            data["notes"].append("Tip: add a Discogs token in Settings › Sources for fuller discographies")
+            return
+        key = f"discogs|{match.match_key(data['name'])}"
+        if refresh:
+            self.cache.pop(key, None)
+        found = self._cached(key, lambda: self._discogs(data["name"], token, {release_key(r["title"]) for r in data["releases"]}))
+        if found.get("notes"):
+            data["notes"].extend(found["notes"])
+        releases = {release_key(r["title"]): r for r in data["releases"]}
+        for row in found.get("releases") or []:
+            k = release_key(row["title"])
+            if not k:
+                continue
+            entry = releases.get(k)
+            if entry is None:
+                entry = releases[k] = {**row, "sources": list(row["sources"])}
+                data["releases"].append(entry)
+            else:
+                entry["year"] = entry.get("year") or row["year"]
+                entry["cover"] = entry.get("cover") or row["cover"]
+                if row["sources"][0] not in entry["sources"]:
+                    entry["sources"].append(row["sources"][0])
+
+    def _discogs(self, name, token, known):
+        headers = {"Authorization": f"Discogs token={token}"}
+        try:
+            hits = (self.http.json(f"{DISCOGS}/database/search", {"q": name, "type": "artist", "per_page": 10}, headers=headers) or {}).get("results") or []
+            same = [h for h in hits if match.match_key(discogs_name(h.get("title"))) == match.match_key(name)][:2]
+            best, score = [], -1
+            for artist in same:
+                rows = []
+                for page in range(1, 4):
+                    data = self.http.json(f"{DISCOGS}/artists/{artist['id']}/releases",
+                                          {"sort": "year", "sort_order": "desc", "per_page": 100, "page": page}, headers=headers) or {}
+                    rows += data.get("releases") or []
+                    if page >= int((data.get("pagination") or {}).get("pages") or 1):
+                        break
+                overlap = len({release_key(r.get("title")) for r in rows} & known)
+                if (overlap, len(rows)) > (score, len(best)):
+                    best, score = rows, overlap
+        except SourceError as error:
+            return {"releases": [], "notes": [f"Discogs {error}"]}
+        out, seen = [], set()
+        for r in best:
+            if r.get("role") not in (None, "Main", "Appearance") or r.get("role") == "UnofficialRelease":
+                continue
+            title = match.clean(r.get("title"))
+            k = release_key(title)
+            if not title or not k or k in seen:
+                continue
+            seen.add(k)
+            alias = discogs_name(r.get("artist"))
+            label = "Discogs" + (f" (as {alias})" if alias and match.match_key(alias) != match.match_key(name) and r.get("role") == "Main" else "")
+            out.append({"title": title, "year": str(r.get("year") or "") if r.get("year") else "", "date": "",
+                        "type": discogs_kind(r), "tracks": None, "cover": r.get("thumb") or "", "deezer_id": None,
+                        "sources": [label]})
+        return {"releases": out, "notes": [] if same else ["Discogs has no artist with exactly this name"]}
 
     def _add_musicbrainz(self, data):
         try:
