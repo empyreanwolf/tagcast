@@ -298,12 +298,95 @@ class ChineseDefaultTests(unittest.TestCase):
         studio = LocalStudio()
         tc = studio.tagclean
         labels = ["Chinese Hip Hop", "Chinese Song", "English Song"]
-        tc._mb_info = lambda artist: {"found": False, "country": "", "area": "", "tags": []}
+        tc._source_info = lambda source, artist: {"found": False, "country": "", "area": "", "tags": []}
         self.assertEqual(tc._resolve_genre("鱼子酱大王", [], labels), ("Chinese Hip Hop", False))
         self.assertEqual(tc._resolve_genre("Mystery Artist", [], labels), (None, True))
         self.assertEqual(tc._resolve_genre("ヒカル", [], labels), (None, True))
-        tc._mb_info = lambda artist: {"found": True, "country": "CN", "area": "", "tags": ["mandopop"]}
+        tc._source_info = lambda source, artist: ({"found": True, "country": "CN", "area": "", "tags": ["mandopop"]}
+                                                  if source == "musicbrainz" else None)
         self.assertEqual(tc._resolve_genre("周杰伦", [], labels), ("Chinese Song", False))
+
+
+
+def discogs_search(params):
+    if params.get("artist") == "Neroche":
+        return {"results": [{"title": "Neroche - Blue Tomorrows", "genre": ["Hip Hop"], "style": ["Instrumental"], "country": "UK"},
+                            {"title": "Neroche (2) - Other", "genre": ["Rock"], "country": "US"}]}
+    return {"results": []}
+
+
+def qq_search(params):
+    if params.get("w") == "艾热":
+        return {"data": {"album": {"list": [{"albumMID": "m1", "singer_list": [{"name": "艾热"}]}]}}}
+    return {"data": {"album": {"list": []}}}
+
+
+class SourcesStudio(LocalStudio):
+    def __init__(self, token="t", answers=None):
+        super().__init__()
+        self.token = token
+        self.http = FakeHttp({"/ws/2/artist": mb_artist, "/database/search": discogs_search, **(answers or {})})
+        self.tagclean.http = self.http
+        self.tagclean.retry_pause = 0
+
+    def source_keys(self):
+        return {"discogs_token": self.token}
+
+
+class GenreSourcesTests(unittest.TestCase):
+    """v70: Discogs, then Apple, then QQ Music (Chinese names), then MusicBrainz."""
+
+    def test_discogs_decides_first_and_is_skipped_without_a_token(self):
+        studio = SourcesStudio()
+        labels = ["Underground Hip Hop", "Instrumental Hip Hop", "UK Rap", "English Song"]
+        self.assertEqual(studio.tagclean._resolve_genre("Neroche", [], labels), ("Instrumental Hip Hop", False))
+        self.assertEqual(studio.tagclean.evidence("Neroche")[0]["source"], "Discogs")
+        studio = SourcesStudio(token="")
+        studio.tagclean._resolve_genre("Neroche", [], labels)
+        self.assertFalse(any("discogs" in c for c in studio.http.calls))
+
+    def test_apple_genre_places_a_chinese_name(self):
+        studio = SourcesStudio(answers={"/search": {"results": [{"artistName": "王以太", "primaryGenreName": "Hip-Hop/Rap"},
+                                                               {"artistName": "Someone Else", "primaryGenreName": "Pop"}]}})
+        labels = ["Chinese Hip Hop", "Chinese Song", "Underground Hip Hop"]
+        self.assertEqual(studio.tagclean._resolve_genre("王以太", [], labels), ("Chinese Hip Hop", False))
+
+    def test_qq_music_genre_and_language(self):
+        studio = SourcesStudio(answers={"/client_search_cp": qq_search,
+                                        "/fcg_v8_album_info_cp.fcg": {"data": {"genre": "说唱", "lan": "国语"}}})
+        tc = studio.tagclean
+        info = tc._source_info("qq", "艾热")
+        self.assertEqual((info["found"], info["tags"][0]), (True, "hip hop"))
+        self.assertIsNone(tc._source_info("qq", "Billie Eilish"), "QQ is only asked about Chinese names")
+
+    def test_a_source_that_does_not_answer_is_retried_then_shown_as_failed_and_can_be_checked_again(self):
+        from tagcast.sources import SourceError
+        studio = SourcesStudio(token="")
+        tc = studio.tagclean
+        calls = []
+
+        def busy(url, params=None, **kw):
+            calls.append(url)
+            raise SourceError("is busy; try again in a minute")
+        studio.http.json = busy
+        self.assertIsNone(tc._source_info("musicbrainz", "Billie Eilish"))
+        self.assertEqual(len(calls), 3, "asked three times before giving up")
+        self.assertTrue([e for e in tc.evidence("Billie Eilish") if e["source"] == "MusicBrainz"][0]["failed"])
+        self.assertIsNone(tc._source_info("musicbrainz", "Billie Eilish"))
+        self.assertEqual(len(calls), 3, "not asked again straight away")
+        tc.forget_failures(["Billie Eilish"])
+        tc._source_info("musicbrainz", "Billie Eilish")
+        self.assertEqual(len(calls), 6, "↻ asks again")
+
+    def test_waiting_songs_are_grouped_by_album_too(self):
+        studio = SourcesStudio(token="")
+        tc = studio.tagclean
+        tc.state["rows"] = [{"id": f"r{i}", "scope": "folder", "ref": f"/x/{i}.mp3", "artist": a, "album": "Hits 2026",
+                             "needs_genre": True, "current_genre": ""} for i, a in enumerate(["CL", "Cylsound", "Dan Diamond"])]
+        view = tc.view()
+        self.assertEqual(len(view["needs_decision"]), 3)
+        self.assertEqual([(g["album"], g["count"], g["artists"]) for g in view["needs_album"]],
+                         [("Hits 2026", 3, ["CL", "Cylsound", "Dan Diamond"])])
 
 
 if __name__ == "__main__":

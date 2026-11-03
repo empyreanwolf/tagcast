@@ -8,7 +8,28 @@
 // confidence is grouped by artist, so you can pick a genre once and apply it to everything
 // by that artist, the same "select all, set genre" you'd do in Mp3tag.
 const tagcleanView = {data: null, scope: "folder", path: "", pickedArtists: new Set(), pickedGenre: new Set(),
-  genreChoice: {}, timer: null};
+  genreChoice: {}, timer: null, groupBy: tagcleanStoredGroup()};
+
+// v70: Needs your decision by album (default: a compilation is one row) or by artist.
+function tagcleanStoredGroup() {
+  try { return localStorage.getItem("tagcast-tagclean-group") === "artist" ? "artist" : "album"; } catch { return "album"; }
+}
+
+// v70: what each source said, e.g. "Discogs: hip hop, boom bap · Apple: hip-hop/rap · MusicBrainz didn't answer".
+function tagcleanEvidence(g) {
+  const parts = (g.evidence || []).map(e => e.failed ? `${escapeHtml(e.source)} didn't answer`
+    : e.found ? `${escapeHtml(e.source)}: ${e.tags.length ? e.tags.map(escapeHtml).join(", ") : "no genre"}` : `not on ${escapeHtml(e.source)}`);
+  if (!parts.length && g.current) parts.push(`now “${escapeHtml(g.current)}”`);
+  return parts.join(" · ");
+}
+
+function tagcleanDecisionRow(key, label, meta, ids, suggestions, recheck) {
+  const v = tagcleanView;
+  return `<li class="tagclean-artist"><div><b>${escapeHtml(label)}</b> <span class="muted">${meta}</span>${recheck ? ` <button type="button" class="text-action" data-tagclean-recheck="${escapeHtml(recheck)}" title="Ask the sources again">↻</button>` : ""}</div>
+          <div class="dl-actions">${(suggestions || []).map(l => `<button type="button" class="button small" data-tagclean-apply-decide="${escapeHtml(key)}" data-ids="${ids.join(",")}" data-genre="${escapeHtml(l)}">${escapeHtml(l)}</button>`).join("")}
+            <input class="dl-path" list="tagclean-genres" maxlength="100" data-tagclean-decide="${escapeHtml(key)}" value="${escapeHtml(v.genreChoice[key] || "")}" placeholder="Other genre…" aria-label="Genre for ${escapeHtml(label)}">
+            <button type="button" class="button" data-tagclean-apply-decide="${escapeHtml(key)}" data-ids="${ids.join(",")}">Apply</button></div></li>`;
+}
 
 function tagcleanHtml() {
   // Two tabs (fork v38): the scan-before-upload tool and Recently uploaded (uploads.js).
@@ -68,23 +89,32 @@ function tagcleanGenreHtml() {
 }
 
 function tagcleanDecisionHtml() {
-  const v = tagcleanView, groups = v.data.needs_decision || [];
+  const v = tagcleanView, groups = v.data.needs_decision || [], albums = v.data.needs_album || [];
   if (!groups.length) return "";
-  // One short line per artist (v46): the name, how many songs, MusicBrainz's genres and your genres that fit as buttons.
-  return `<section class="dl-card"><h3>Needs your decision (${groups.length} artist${groups.length === 1 ? "" : "s"})</h3>
-      <p class="muted">Tagcast couldn't place these artists with confidence. MusicBrainz's own genres are shown beside each name; click one of your genres, or type another, and it applies to every song by that artist.</p>
+  const byAlbum = v.groupBy === "album" && albums.length;
+  const songs = groups.reduce((n, g) => n + g.count, 0);
+  const sources = `${v.data.discogs ? "Discogs, " : ""}Apple, QQ Music (Chinese names) and MusicBrainz`;
+  const rows = byAlbum
+    ? albums.map(a => tagcleanDecisionRow(`album:${a.album}`, a.album || "(no album)",
+        `${a.count} song${a.count === 1 ? "" : "s"} · ${a.artists.slice(0, 4).map(escapeHtml).join(", ")}${a.artists.length > 4 ? ` +${a.artists.length - 4} more` : ""}`,
+        a.ids, a.suggestions, ""))
+    : groups.map(g => tagcleanDecisionRow(g.artist, g.artist, `${g.count} song${g.count === 1 ? "" : "s"}${tagcleanEvidence(g) ? ` · ${tagcleanEvidence(g)}` : ""}`,
+        g.ids, g.suggestions, g.artist));
+  return `<section class="dl-card"><h3>Needs your decision (${songs} song${songs === 1 ? "" : "s"})</h3>
+      <p class="muted">Tagcast asked ${sources} and none was sure. Click one of your genres, or type another, and it applies to every song in that row.${v.data.discogs ? "" : " Add a Discogs token in Settings › Sources to ask Discogs first."}</p>
+      <div class="dl-actions"><span class="muted">Group by</span>
+        <button type="button" class="button small" data-tagclean-group="album" aria-pressed="${byAlbum ? "true" : "false"}">Album (${albums.length})</button>
+        <button type="button" class="button small" data-tagclean-group="artist" aria-pressed="${byAlbum ? "false" : "true"}">Artist (${groups.length})</button>
+        <button type="button" class="button small" data-tagclean-recheck="" ${v.data.rechecking ? "disabled" : ""}>${v.data.rechecking ? "Checking again…" : "↻ Check all again"}</button></div>
       <datalist id="tagclean-genres">${v.data.genres.map(gn => `<option value="${escapeHtml(gn)}"></option>`).join("")}</datalist>
-      <ul class="dl-list tagclean-artists">${groups.map(g => `<li class="tagclean-artist"><div><b>${escapeHtml(g.artist)}</b> <span class="muted">${g.count} song${g.count === 1 ? "" : "s"}${g.tags?.length ? ` · MusicBrainz: ${g.tags.map(escapeHtml).join(", ")}` : g.current ? ` · now “${escapeHtml(g.current)}”` : " · not on MusicBrainz"}</span></div>
-          <div class="dl-actions">${(g.suggestions || []).map(l => `<button type="button" class="button small" data-tagclean-apply-decide="${escapeHtml(g.artist)}" data-ids="${g.ids.join(",")}" data-genre="${escapeHtml(l)}">${escapeHtml(l)}</button>`).join("")}
-            <input class="dl-path" list="tagclean-genres" maxlength="100" data-tagclean-decide="${escapeHtml(g.artist)}" value="${escapeHtml(v.genreChoice[g.artist] || "")}" placeholder="Other genre…" aria-label="Genre for ${escapeHtml(g.artist)}">
-            <button type="button" class="button" data-tagclean-apply-decide="${escapeHtml(g.artist)}" data-ids="${g.ids.join(",")}">Apply</button></div></li>`).join("")}</ul></section>`;
+      <ul class="dl-list tagclean-artists">${rows.join("")}</ul></section>`;
 }
 
 async function tagcleanLoad() {
   try { tagcleanView.data = await api("/api/tagclean"); } catch (error) { tagcleanView.data = {error: error.message, separators: [], genres: [], artist_ready: [], genre_ready: [], needs_decision: []}; }
   tagcleanRefresh();
   clearTimeout(tagcleanView.timer);
-  if (tagcleanView.data?.progress && state.screen === "downloads" && downloadsView.tab === "tagclean") tagcleanView.timer = setTimeout(tagcleanLoad, 1500);
+  if ((tagcleanView.data?.progress || tagcleanView.data?.rechecking) && state.screen === "downloads" && downloadsView.tab === "tagclean") tagcleanView.timer = setTimeout(tagcleanLoad, 1500);
 }
 
 function tagcleanRefresh() {
@@ -116,6 +146,19 @@ document.addEventListener("click", event => {
   const removeSep = target.closest("[data-tagclean-remove-sep]")?.dataset.tagcleanRemoveSep;
   if (removeSep !== undefined) {
     downloadsRun(async () => { v.data = await api("/api/tagclean/settings", {separators: v.data.separators.filter(s => s !== removeSep)}); tagcleanRefresh(); });
+    return;
+  }
+  const group = target.closest("[data-tagclean-group]")?.dataset.tagcleanGroup;
+  if (group) {
+    v.groupBy = group;
+    try { localStorage.setItem("tagcast-tagclean-group", group); } catch { /* private window */ }
+    tagcleanRefresh();
+    return;
+  }
+  const recheck = target.closest("[data-tagclean-recheck]");
+  if (recheck) {
+    const artist = recheck.dataset.tagcleanRecheck;
+    downloadsRun(async () => { v.data = await api("/api/tagclean/recheck", {artists: artist ? [artist] : []}); tagcleanRefresh(); tagcleanLoad(); });
     return;
   }
   const decideButton = target.closest("[data-tagclean-apply-decide]");

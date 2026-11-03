@@ -9992,7 +9992,8 @@ test("From a page: lists every album with its status, ticks only sure New ones, 
 test("v46: the genre decision page is one line per artist with MusicBrainz genres and your genres as buttons, never song lists", async () => {
   const p = page();
   p.run(`tagcleanView.data = {genres: ["Underground Hip Hop", "Electronica"], separators: [], artist_ready: [], genre_ready: [], scanned: 1,
-    needs_decision: [{artist: "Some <b>Guy", count: 300, ids: ["a", "b"], suggestions: ["Electronica", "Underground Hip Hop"], tags: ["techno", "house"], current: ""}]}`);
+    needs_decision: [{artist: "Some <b>Guy", count: 300, ids: ["a", "b"], suggestions: ["Electronica", "Underground Hip Hop"], tags: ["techno", "house"], current: "",
+      evidence: [{source: "MusicBrainz", found: true, tags: ["techno", "house"], failed: false}]}]}`);
   const html = p.run("tagcleanDecisionHtml()");
   assert.match(html, /Some &lt;b&gt;Guy/);
   assert.match(html, /300 songs/);
@@ -10000,6 +10001,23 @@ test("v46: the genre decision page is one line per artist with MusicBrainz genre
   assert.match(html, /data-genre="Electronica"/);
   assert.match(html, /data-ids="a,b"/);
   assert.doesNotMatch(html, /<ul class="dl-list"><li><div>/);
+});
+
+test("v70: Needs your decision groups by album by default, shows each source's answer and can switch to artists", async () => {
+  const p = page({storage: {}});
+  p.run(`tagcleanView.groupBy = "album"; tagcleanView.data = {genres: ["English Song"], separators: [], artist_ready: [], genre_ready: [], scanned: 1, discogs: false,
+    needs_decision: [{artist: "Billie Eilish", count: 1, ids: ["a"], suggestions: [], evidence: [{source: "Apple", found: true, tags: ["alternative"]}, {source: "MusicBrainz", found: false, tags: [], failed: true}]},
+                     {artist: "CL", count: 1, ids: ["b"], suggestions: ["English Song"], evidence: []}],
+    needs_album: [{album: "Hits 2026", count: 2, ids: ["a", "b"], artists: ["Billie Eilish", "CL"], suggestions: ["English Song"]}]}`);
+  let html = p.run("tagcleanDecisionHtml()");
+  assert.match(html, /Hits 2026/);
+  assert.match(html, /data-ids="a,b" data-genre="English Song"/);
+  assert.match(html, /Billie Eilish, CL/);
+  assert.match(html, /Add a Discogs token/);
+  p.run('tagcleanView.groupBy = "artist"');
+  html = p.run("tagcleanDecisionHtml()");
+  assert.match(html, /Apple: alternative · MusicBrainz didn't answer/);
+  assert.match(html, /data-tagclean-recheck="Billie Eilish"/);
 });
 
 test("v46: Soulseek items waiting in the queue never make the Galaxy line say its thread stopped; instrumental albums start unticked", async () => {
@@ -11187,4 +11205,29 @@ test('browser Mini Player bridge mirrors the playing track and controls the same
   p.run('miniResult=null;miniBridge.command({action:"pause",document:"old",entry:"x",segment:"y"}).then(ok=>{miniResult=ok;})');
   await settle();
   assert.equal(p.run('miniResult'), false, 'a command for an old track is refused');
+});
+
+test("v70: Queue & history has its own menu entry that opens that Downloads tab and can be hidden", async () => {
+  const p = page(); await settle();
+  assert.ok(p.run('SIDEBAR_ITEMS.some(([id]) => id === "show-dl-queue")'));
+  p.setFetch(() => ({ok: true, json: async () => ({queue: [{state: "queued"}, {state: "done"}], held: [], jobs: [], history: [], items: []})}));
+  await p.click({"#show-dl-queue": {id: "show-dl-queue"}}); await settle();
+  assert.equal(p.run("downloadsView.tab"), "queue");
+  p.run('downloadsView.queue = [{state: "queued"}, {state: "running"}, {state: "done"}]; syncDownloadsNav()');
+  assert.equal(p.nodes.get("#dl-queue-count").textContent, "2");
+  assert.equal(p.nodes.get("#show-dl-queue").classList.contains("active"), true);
+  assert.equal(p.nodes.get("#show-downloads").classList.contains("active"), false);
+});
+
+test("v70: Keep separate sends the unticked names against the ticked ones and the card leaves the list", async () => {
+  const p = page(); await settle();
+  p.run(`artistCleanupView.merge.groups = [{id: "g1", kind: "bilingual", target: {id: 1, name: "艾热 AIR"}, members: [
+      {id: 1, name: "艾热 AIR", tracks: 141, reason: "", ticked: true}, {id: 2, name: "Air", tracks: 1, reason: "", ticked: false}]}];
+    artistCleanupView.merge.choices = new Map([["g1", {include: false, ticked: new Set([1]), target: "", custom: ""}]]);
+    artistCleanupView.merge.separate = [];`);
+  assert.deepEqual(JSON.parse(p.run("JSON.stringify(separatePairs(artistCleanupView.merge.groups[0]))")), [["Air", "艾热 AIR"]]);
+  p.run('artistCleanupView.merge.separate = [["Air", "艾热 AIR"]]; applySeparate()');
+  assert.equal(p.run("artistCleanupView.merge.groups.length"), 0);
+  p.run('artistCleanupView.merge.filter = "ignored"');
+  assert.match(p.run("separateListHtml(false)"), /Air<\/span> ≠ <span class="ac-name">艾热 AIR/);
 });

@@ -38,6 +38,21 @@ from .sources import PACING, Http, SourceError
 log = logging.getLogger("tagcast")
 STATE_FILE = "tagclean.json"
 MB = "https://musicbrainz.org/ws/2"
+DISCOGS = "https://api.discogs.com"
+ITUNES = "https://itunes.apple.com"
+QQ = "https://c.y.qq.com"
+# v70: where a genre decision looks, in order; the first source that is sure decides (QQ only for Chinese names).
+GENRE_SOURCES = (("discogs", "Discogs"), ("apple", "Apple"), ("qq", "QQ Music"), ("musicbrainz", "MusicBrainz"))
+RETRY_AFTER = 10 * 60  # a source that didn't answer is asked again after this long
+DISCOGS_COUNTRIES = {"US": "US", "UK": "GB", "Canada": "CA", "Australia": "AU", "New Zealand": "NZ", "Ireland": "IE",
+                     "China": "CN", "Taiwan": "TW", "Hong Kong": "HK", "Macau": "MO", "Japan": "JP", "South Korea": "KR",
+                     "Korea": "KR", "Singapore": "SG", "Malaysia": "MY", "South Africa": "ZA", "Nigeria": "NG",
+                     "Ghana": "GH", "Kenya": "KE", "Germany": "DE", "France": "FR", "Netherlands": "NL", "Sweden": "SE"}
+# QQ Music's 流派 (genre) as words the rules below understand.
+QQ_GENRES = {"说唱": "hip hop", "嘻哈": "hip hop", "rap": "hip hop", "hip hop": "hip hop", "流行": "pop", "电子": "electronic",
+             "舞曲": "dance", "影视原声": "soundtrack", "原声": "soundtrack", "游戏": "video game", "儿童": "children",
+             "民谣": "folk", "摇滚": "rock", "r&b": "r&b", "节奏布鲁斯": "r&b", "爵士": "jazz", "古典": "classical",
+             "轻音乐": "ambient", "新世纪": "ambient", "国风": "chinese traditional", "中国风": "chinese traditional"}
 CACHE_DAYS = 30
 MAX_ROWS = 5000
 HIPHOP_WORDS = ("hip hop", "hip-hop", "rap", "trap", "grime")
@@ -218,6 +233,7 @@ class TagClean:
         self.lock = threading.RLock()
         self.progress = None
         self.tidy_queue, self.tidy_thread = [], None
+        self.failures, self.rechecking, self.retry_pause = {}, False, 3.0
 
     def _persist(self):
         with self.lock:
@@ -247,23 +263,39 @@ class TagClean:
     def view(self):
         with self.lock:
             rows = list(self.state["rows"])
-            grouped = {}
+            grouped, albums = {}, {}
             for r in rows:
                 if r.get("needs_genre"):
                     grouped.setdefault(r["artist"], []).append(r)
-        # One short line per artist (v46): the name, how many songs, MusicBrainz's genres. No song lists.
+                    albums.setdefault(text(r.get("album")).strip().casefold(), []).append(r)
+        # One short line per artist (v46): the name, how many songs, every source's genres (v70). No song lists.
         labels = self.genres()
         needs_decision = []
         for artist, rs in sorted(grouped.items(), key=lambda kv: match.match_key(kv[0])):
-            with self.lock:
-                info = (self.state["mb_cache"].get(match.match_key(artist)) or {}).get("info")
             current = [g for r in rs for g in [r.get("current_genre")] if g][:1]
+            picks, tags = self.suggestions(artist, current)
             needs_decision.append({"artist": artist, "count": len(rs), "ids": [r["id"] for r in rs],
-                                   "suggestions": candidate_labels(info, current, labels),
-                                   "tags": (info or {}).get("tags", [])[:4], "current": current[0] if current else ""})
+                                   "suggestions": picks, "tags": tags, "evidence": self.evidence(artist),
+                                   "current": current[0] if current else ""})
+        # v70: the same songs by album, so one click sets a whole album (a compilation is one row, not one per artist).
+        by_artist = {g["artist"]: g for g in needs_decision}
+        needs_album = []
+        for key, rs in sorted(albums.items(), key=lambda kv: kv[0]):
+            artists, picks = [], []
+            for r in rs:
+                if r["artist"] not in artists:
+                    artists.append(r["artist"])
+            votes = {}
+            for artist in artists:
+                for i, label in enumerate(by_artist.get(artist, {}).get("suggestions") or []):
+                    votes[label] = votes.get(label, 0) + (4 - i)
+            picks = [l for l, _ in sorted(votes.items(), key=lambda kv: -kv[1])][:4]
+            needs_album.append({"album": text(rs[0].get("album")).strip(), "count": len(rs), "ids": [r["id"] for r in rs],
+                                "artists": artists, "suggestions": picks})
         return {"artist_ready": [r for r in rows if r.get("new_artists")],
                 "genre_ready": [r for r in rows if r.get("new_genre")],
-                "needs_decision": needs_decision, "genres": labels,
+                "needs_decision": needs_decision, "needs_album": needs_album, "genres": labels,
+                "rechecking": self.rechecking, "discogs": bool(self._discogs_token()),
                 "separators": self.state["separators"], "scanned": self.state["scanned"], "progress": self.progress}
 
     # -- scanning ----------------------------------------------------------------------------
@@ -329,8 +361,10 @@ class TagClean:
             new_genre, needs_genre = self._resolve_genre(artist, [genre] if genre.strip() else [], labels)
             if not (new_genre or needs_genre):
                 continue
+            album_id = number(track.get("album_id"))
             rows.append({"id": secrets.token_hex(6), "scope": "library", "ref": str(track_id),
-                         "album_id": str(number(track.get("album_id"))), "title": text(track.get("title")),
+                         "album_id": str(album_id), "title": text(track.get("title")),
+                         "album": text((library.albums.get(album_id) or {}).get("name")),
                          "artist": artist, "current_artists": [], "current_album_artist": "",
                          "new_artists": None, "new_album_artist": None,
                          "current_genre": genre, "new_genre": new_genre, "needs_genre": needs_genre})
@@ -349,6 +383,7 @@ class TagClean:
         if not (changed or new_genre or needs_genre):
             return None
         return {"id": secrets.token_hex(6), "scope": "folder", "ref": path, "album_id": "", "title": tags["title"],
+                "album": text(tags.get("album")),
                 "artist": artist, "current_artists": current, "current_album_artist": tags["album_artist"],
                 "new_artists": new_artists if changed else None, "new_album_artist": new_artists[0] if changed else None,
                 "current_genre": " \\ ".join(genres) if len(genres) > 1 else tags["genre"],
@@ -359,42 +394,193 @@ class TagClean:
     def _resolve_genre(self, artist, genres, labels):
         """-> (one of YOUR genres to write, or None; needs a manual decision).
 
-        Anything that is not already exactly one of your genres is placed from MusicBrainz's
-        record of the artist (country and tags). When it can't be placed with confidence the
-        artist is asked about, with MusicBrainz's own genres beside the buttons."""
+        v70: asks Discogs (with a token), Apple, QQ Music (Chinese names) and then MusicBrainz, in that order;
+        the first one that knows the artist and points at exactly one of your genres decides. When none is sure
+        the artist is asked about, with every source's own genres beside the buttons."""
         if not artist or not labels:
             return None, bool(artist)
-        info = self._mb_info(artist)
-        label, confident = pick_label(info, genres, labels)
-        if label and confident:
-            return label, False
+        for source, _ in GENRE_SOURCES:
+            info = self._source_info(source, artist)
+            if not info or not info.get("found"):
+                continue
+            label, confident = pick_label(self._with_country_hint(info, artist), genres, labels)
+            if label and confident:
+                return label, False
         if _chinese_name(artist) and _have(labels, "Chinese Hip Hop"):
-            # Most of your Chinese downloads are Chinese hip-hop: the default unless MusicBrainz says otherwise (v57).
+            # Most of your Chinese downloads are Chinese hip-hop: the default unless a source says otherwise (v57).
             return _have(labels, "Chinese Hip Hop"), False
         return None, True
 
-    def suggestions(self, artist, genres=()):
-        """(labels worth offering, MusicBrainz's own genre names) for one artist; no network."""
-        key = match.match_key(artist)
-        with self.lock:
-            hit = (self.state["mb_cache"].get(key) or {}).get("info")
-        labels = self.genres()
-        picks = candidate_labels(hit, genres, labels)
-        return picks, [t for t in (hit or {}).get("tags", [])][:4]
+    @staticmethod
+    def _with_country_hint(info, artist):
+        """A source with no country (Apple, QQ) and a name written in Chinese: treat it as Chinese (v70)."""
+        if info.get("country") or not _chinese_name(artist):
+            return info
+        return {**info, "country": "CN"}
 
-    def _mb_info(self, artist):
-        """MusicBrainz's record of the artist: {"found", "country", "area", "tags"} (cached 30 days)."""
-        key = match.match_key(artist)
+    def _sources_for(self, artist):
+        return [(s, label) for s, label in GENRE_SOURCES if s != "qq" or _chinese_name(artist)]
+
+    def evidence(self, artist):
+        """What every source said about this artist, from the caches only (no network): for the decision page."""
+        out = []
+        for source, label in self._sources_for(artist):
+            cached = self._cached_info(source, artist)
+            failed = self._failed(source, artist)
+            if source == "discogs" and not self._discogs_token():
+                continue
+            if cached is None and not failed:
+                continue
+            out.append({"source": label, "found": bool(cached and cached.get("found")),
+                        "tags": (cached or {}).get("tags", [])[:4], "failed": bool(failed) and cached is None})
+        return out
+
+    def suggestions(self, artist, genres=()):
+        """(labels worth offering, every source's own genre names) for one artist; no network."""
+        labels, picks, tags = self.genres(), [], []
+        for source, _ in self._sources_for(artist):
+            hit = self._cached_info(source, artist)
+            if not hit:
+                continue
+            for label in candidate_labels(self._with_country_hint(hit, artist), genres, labels):
+                if label not in picks:
+                    picks.append(label)
+            tags += [t for t in hit.get("tags", []) if t not in tags]
+        if not picks:
+            picks = candidate_labels(None, genres, labels)
+        return picks[:4], tags[:6]
+
+    # -- the sources (v70) ---------------------------------------------------------------------
+
+    def _cache_key(self, source, artist):
+        return match.match_key(artist) if source == "musicbrainz" else f"{source}|{match.match_key(artist)}"
+
+    def _cache(self, source):
+        return self.state["mb_cache"] if source == "musicbrainz" else self.state.setdefault("genre_cache", {})
+
+    def _cached_info(self, source, artist):
         with self.lock:
-            hit = self.state["mb_cache"].get(key)
+            hit = self._cache(source).get(self._cache_key(source, artist))
         if hit and hit.get("when", 0) > time.time() - CACHE_DAYS * 86400 and isinstance(hit.get("info"), dict):
             return hit["info"]
-        info, rows = {"found": False, "country": "", "area": "", "tags": []}, []
+        return None
+
+    def _failed(self, source, artist):
+        with self.lock:
+            when = self.failures.get((source, self._cache_key(source, artist)))
+        return when and when > time.time() - RETRY_AFTER
+
+    def forget_failures(self, artists=None):
+        with self.lock:
+            if artists is None:
+                self.failures.clear()
+                return
+            keys = {match.match_key(a) for a in artists}
+            for key in [k for k in self.failures if k[1].split("|")[-1] in keys]:
+                self.failures.pop(key, None)
+
+    def _source_info(self, source, artist):
+        """One source's record of the artist (cached 30 days); None when it is skipped or didn't answer."""
+        if source == "qq" and not _chinese_name(artist):
+            return None
+        if source == "discogs" and not self._discogs_token():
+            return None
+        cached = self._cached_info(source, artist)
+        if cached is not None:
+            return cached
+        if self._failed(source, artist):
+            return None
+        fetch = {"discogs": self._discogs_info, "apple": self._apple_info, "qq": self._qq_info, "musicbrainz": self._mb_fetch}[source]
+        info = None
+        for attempt in range(3):  # v70: a busy or slow source is asked again, slowly, before giving up
+            try:
+                info = fetch(artist)
+                break
+            except SourceError as error:
+                log.info("%s genre lookup for %s failed (try %d): %s", source, artist, attempt + 1, error)
+                if attempt < 2:
+                    time.sleep(self.retry_pause * (attempt + 1))
+        if info is None:
+            with self.lock:
+                self.failures[(source, self._cache_key(source, artist))] = time.time()
+            return None
+        with self.lock:
+            self._cache(source)[self._cache_key(source, artist)] = {"info": info, "when": time.time()}
+            self.failures.pop((source, self._cache_key(source, artist)), None)
+        return info
+
+    def _discogs_token(self):
         try:
-            rows = (self.http.json(f"{MB}/artist", {"query": f'artist:"{artist}"', "fmt": "json", "limit": 5}) or {}).get("artists") or []
-        except SourceError as error:
-            log.info("MusicBrainz artist lookup for %s failed: %s", artist, error)
-            return info  # not cached: try again next time
+            return (self.studio.source_keys() or {}).get("discogs_token", "")
+        except Exception:
+            return ""
+
+    def _discogs_info(self, artist):
+        """Discogs: the genres and styles of the artist's releases, most common first, and their usual country."""
+        headers = {"Authorization": f"Discogs token={self._discogs_token()}"}
+        data = self.http.json(f"{DISCOGS}/database/search", {"artist": artist, "type": "release", "per_page": 50},
+                              headers=headers) or {}
+        key = match.match_key(artist)
+        rows = [r for r in data.get("results") or []
+                if key and match.match_key(re.sub(r"\s*\(\d+\)", "", str(r.get("title") or "").split(" - ")[0]).replace("*", "")) == key]
+        tags, countries = {}, {}
+        for r in rows:
+            for t in list(r.get("genre") or []) + list(r.get("style") or []):
+                tags[text(t).casefold()] = tags.get(text(t).casefold(), 0) + 1
+            code = DISCOGS_COUNTRIES.get(text(r.get("country")))
+            if code:
+                countries[code] = countries.get(code, 0) + 1
+        return {"found": bool(rows), "country": max(countries, key=countries.get) if countries else "", "area": "",
+                "tags": [t for t, _ in sorted(tags.items(), key=lambda kv: -kv[1]) if t][:8]}
+
+    def _apple_info(self, artist):
+        """Apple Music: the genre of the artist's albums (Mandopop, Hip-Hop/Rap, …)."""
+        data = self.http.json(f"{ITUNES}/search", {"term": artist, "entity": "album", "limit": 25, "country": "SG"}) or {}
+        key = match.match_key(artist)
+        rows = [r for r in data.get("results") or [] if key and match.match_key(r.get("artistName")) == key]
+        tags = {}
+        for r in rows:
+            genre = text(r.get("primaryGenreName")).casefold()
+            if genre and genre != "music":
+                tags[genre] = tags.get(genre, 0) + 1
+        return {"found": bool(rows), "country": "", "area": "",
+                "tags": [t for t, _ in sorted(tags.items(), key=lambda kv: -kv[1])][:6]}
+
+    def _qq_info(self, artist):
+        """QQ Music (unofficial): the 流派 and language of up to three of the artist's albums."""
+        headers = {"Referer": "https://y.qq.com/"}
+        data = self.http.json(f"{QQ}/soso/fcgi-bin/client_search_cp", {"w": artist, "format": "json", "t": 8, "n": 10},
+                              headers=headers) or {}
+        key = match.match_key(artist)
+        albums = [a for a in (((data.get("data") or {}).get("album") or {}).get("list") or [])
+                  if key and any(match.match_key(s.get("name")) == key for s in a.get("singer_list") or [{"name": a.get("singerName")}])]
+        tags, langs = {}, {}
+        for album in albums[:3]:
+            if not album.get("albumMID"):
+                continue
+            info = (self.http.json(f"{QQ}/v8/fcg-bin/fcg_v8_album_info_cp.fcg", {"albummid": album["albumMID"], "format": "json"},
+                                   headers=headers) or {}).get("data") or {}
+            genre = QQ_GENRES.get(text(info.get("genre")).strip().casefold(), "")
+            lang = text(info.get("lan")).strip()
+            if genre:
+                tags[genre] = tags.get(genre, 0) + 1
+            if lang:
+                langs[lang] = langs.get(lang, 0) + 1
+        lang = max(langs, key=langs.get) if langs else ""
+        if "pop" in tags:
+            tags["cantopop" if lang == "粤语" else "mandopop"] = tags["pop"]
+        return {"found": bool(albums), "country": "HK" if lang == "粤语" else "", "area": "",
+                "tags": [t for t, _ in sorted(tags.items(), key=lambda kv: -kv[1])][:6]}
+
+    def _mb_info(self, artist):
+        """MusicBrainz's record of the artist (kept for older callers): never None."""
+        return self._source_info("musicbrainz", artist) or {"found": False, "country": "", "area": "", "tags": []}
+
+    def _mb_fetch(self, artist):
+        """MusicBrainz's record of the artist: {"found", "country", "area", "tags"}."""
+        key = match.match_key(artist)
+        info = {"found": False, "country": "", "area": "", "tags": []}
+        rows = (self.http.json(f"{MB}/artist", {"query": f'artist:"{artist}"', "fmt": "json", "limit": 5}) or {}).get("artists") or []
         exact = [a for a in rows if match.match_key(a.get("name")) == key]
         candidates = exact if len(exact) == 1 else (rows if len(rows) == 1 else [])
         if candidates:
@@ -402,9 +588,40 @@ class TagClean:
             tags = sorted((a.get("tags") or []), key=lambda t: -int(t.get("count") or 0))
             info = {"found": True, "country": text(a.get("country")), "area": text((a.get("area") or {}).get("name")),
                     "tags": [text(t.get("name")).casefold() for t in tags if text(t.get("name"))][:8]}
-        with self.lock:
-            self.state["mb_cache"][key] = {"info": info, "when": time.time()}
         return info
+
+    # -- checking again (v70) -------------------------------------------------------------------
+
+    def recheck(self, artists=None):
+        """↻: forget which sources didn't answer and place the waiting songs again, in the background."""
+        names = [text(a) for a in (artists or []) if text(a)] or None
+        self.forget_failures(names)
+        with self.lock:
+            rows = [r for r in self.state["rows"] if r.get("needs_genre") and (names is None or r["artist"] in names)]
+            if self.rechecking:
+                return self.view()
+            self.rechecking = True
+        threading.Thread(target=self._recheck, args=(rows,), name="tagclean-recheck", daemon=True).start()
+        return self.view()
+
+    def _recheck(self, rows):
+        try:
+            labels = self.genres()
+            by_artist = {}
+            for r in rows:
+                by_artist.setdefault(r["artist"], []).append(r)
+            for artist, rs in by_artist.items():
+                current = [g for r in rs for g in [r.get("current_genre")] if g][:1]
+                label, needs = self._resolve_genre(artist, current, labels)
+                if label and not needs:
+                    try:
+                        self.assign_genre([r["id"] for r in rs], label)
+                    except LibraryError as error:
+                        log.info("Tag clean-up recheck could not save %s: %s", artist, error)
+        finally:
+            with self.lock:
+                self.rechecking = False
+            self._persist()
 
     # -- right after a download (v46) --------------------------------------------------------------
 

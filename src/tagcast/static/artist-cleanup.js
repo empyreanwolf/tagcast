@@ -5,7 +5,7 @@
 // Closing the dialog never stops a running job.
 const artistCleanupView = {
   tab: "merge", data: null, offset: 0, excluded: new Set(), busy: false, timer: null, request: 0, approved: "",
-  merge: {groups: null, page: 0, filter: "all", query: "", choices: new Map(), loading: false},
+  merge: {groups: null, page: 0, filter: "all", query: "", choices: new Map(), loading: false, separate: []},
   split: {items: null, page: 0, filter: "ticked", query: "", chosen: new Set(), loading: false},
   feat: {data: null, loading: false},
   search: {query: "", results: [], picked: new Map(), keep: "", custom: "", loading: false},
@@ -15,7 +15,7 @@ const artistCleanupTabs = [["merge", "Duplicates"], ["split", "Combined names"],
 const artistCleanupModes = {merge: "Merge duplicates", split: "Split combined names", feat: "Link featured artists"};
 const artistCleanupPage = 25;
 // Shown beside the dialog title; raise it with every update of this fork.
-const artistCleanupVersion = "fork v69";
+const artistCleanupVersion = "fork v70";
 // v67: the sidebar shows the fork version on every page (the original Tagcast number is in its tooltip).
 document.addEventListener("DOMContentLoaded", () => { const pill = document.getElementById("brand-fork-version"); if (pill) pill.textContent = artistCleanupVersion; });
 { const pill = typeof document !== "undefined" && document.getElementById?.("brand-fork-version"); if (pill) pill.textContent = artistCleanupVersion; }
@@ -93,7 +93,7 @@ async function fetchArtistSuggestions(kind) {
     const data = await api(`/api/artist-cleanup/suggestions?kind=${kind}`);
     if (details !== state.details || !live()) return;
     if (kind === "merge") {
-      part.groups = data.groups; part.choices.clear();
+      part.groups = data.groups; part.choices.clear(); part.separate = data.separate || [];
       for (const group of data.groups) part.choices.set(group.id, {
         include: group.members.filter(m => m.ticked).length > 1,
         ticked: new Set(group.members.filter(m => m.ticked).map(m => m.id)), target: "", custom: ""});
@@ -139,6 +139,7 @@ function mergeGroupPayload(group, choice) {
 function visibleMergeGroups() {
   const {groups, filter, query} = artistCleanupView.merge;
   const q = query.trim().toLocaleLowerCase();
+  if (filter === "ignored") return [];
   return (groups || []).filter(g => (filter === "all" || (filter === "check" ? g.members.some(m => !m.ticked) : g.kind === filter))
     && (!q || g.members.some(m => m.name.toLocaleLowerCase().includes(q))));
 }
@@ -149,12 +150,12 @@ function renderMergeTab(disabled) {
   if (!part.groups) return "";
   const shown = visibleMergeGroups(), page = shown.slice(part.page * artistCleanupPage, (part.page + 1) * artistCleanupPage);
   const included = part.groups.filter(g => part.choices.get(g.id)?.include);
-  const kinds = [["all", "All"], ["same", "Case or spaces"], ["script", "Simplified / traditional"], ["bilingual", "English + Chinese"], ["check", "Needs a look"]];
+  const kinds = [["all", "All"], ["same", "Case or spaces"], ["script", "Simplified / traditional"], ["bilingual", "English + Chinese"], ["check", "Needs a look"], ["ignored", `Ignored (${part.separate.length})`]];
   return `<p class="muted">Each card is one artist that appears as several entries. Ticked entries are merged into the name chosen on the right. Unticked entries stay separate; they are usually matches in a different genre or very short names.</p>
     <div class="cleanup-controls"><div class="field clearable-field"><label for="ac-merge-search">Filter by name</label>${clearableSearchInput("ac-merge-search", "", part.query, disabled)}</div>
     <label class="field">Show<select id="ac-merge-filter" ${disabled ? "disabled" : ""}>${kinds.map(([k, l]) => `<option value="${k}" ${k === part.filter ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
-    <div class="cleanup-controls"><button class="text-action" data-ac-merge-all="1">Include all shown</button><button class="text-action" data-ac-merge-all="0">Exclude all shown</button><span role="status">${included.length.toLocaleString("en")} of ${part.groups.length.toLocaleString("en")} artists included · ${shown.length.toLocaleString("en")} shown</span></div>
-    <div class="ac-cards">${page.map(group => mergeCard(group, disabled)).join("") || '<p class="muted">No duplicates found.</p>'}</div>
+    ${part.filter === "ignored" ? separateListHtml(disabled) : `<div class="cleanup-controls"><button class="text-action" data-ac-merge-all="1">Include all shown</button><button class="text-action" data-ac-merge-all="0">Exclude all shown</button><button class="text-action" data-ac-separate-all ${disabled || !shown.length ? "disabled" : ""} title="Keep the unticked names on every shown card apart, and stop suggesting them">Ignore all shown</button><span role="status">${included.length.toLocaleString("en")} of ${part.groups.length.toLocaleString("en")} artists included · ${shown.length.toLocaleString("en")} shown</span></div>
+    <div class="ac-cards">${page.map(group => mergeCard(group, disabled)).join("") || '<p class="muted">No duplicates found.</p>'}</div>`}
     ${artistCleanupPager("merge", shown.length)}
     <div class="dialog-footer"><span class="muted">Preparing a preview writes nothing.</span><button class="button primary" id="ac-merge-preview" ${disabled || !included.length ? "disabled" : ""}>Preview ${included.length.toLocaleString("en")} merges</button></div>`;
 }
@@ -167,7 +168,48 @@ function mergeCard(group, disabled) {
     <ul class="ac-members">${group.members.map(m => `<li><label class="checkline"><input type="checkbox" data-ac-member="${m.id}" ${choice.ticked.has(m.id) ? "checked" : ""} ${disabled ? "disabled" : ""}> <span><span class="ac-name">${escapeHtml(m.name)}</span><span class="ac-meta">${m.tracks.toLocaleString("en")} ${m.tracks === 1 ? "track" : "tracks"} · ${escapeHtml(m.reason)}</span></span></label></li>`).join("")}</ul>
     <label class="field">Keep as<select data-ac-target ${disabled ? "disabled" : ""}>${mergeTargetOptions(group, choice).map(o => `<option value="${escapeHtml(o.value)}" ${o.value === target ? "selected" : ""}>${escapeHtml(o.label)}</option>`).join("")}</select></label>
     ${target === "custom" ? `<label class="field">New name<input data-ac-custom maxlength="1000" value="${escapeHtml(choice.custom)}" ${disabled ? "disabled" : ""}></label>` : ""}
+    <button type="button" class="text-action ac-separate" data-ac-separate ${disabled ? "disabled" : ""} title="${group.members.some(m => !choice.ticked.has(m.id)) ? "The unticked names are different artists" : "These names are different artists"}">Keep separate · don't suggest again</button>
   </section>`;
+}
+
+// -- names you keep separate (v70) ---------------------------------------------
+
+// The pairs one card adds: each unticked name against every ticked one (or every pair when all are ticked).
+function separatePairs(group) {
+  const choice = artistCleanupView.merge.choices.get(group.id);
+  const off = group.members.filter(m => !choice.ticked.has(m.id)), on = group.members.filter(m => choice.ticked.has(m.id));
+  if (off.length) return off.flatMap(a => on.map(b => [a.name, b.name])).concat(off.flatMap((a, i) => off.slice(i + 1).map(b => [a.name, b.name])));
+  return group.members.flatMap((a, i) => group.members.slice(i + 1).map(b => [a.name, b.name]));
+}
+
+// The same rule as the server: a name leaves its card when every other name on it is kept apart from it.
+function applySeparate() {
+  const part = artistCleanupView.merge, key = (a, b) => [a.trim(), b.trim()].sort().join("\u0000");
+  const ignored = new Set(part.separate.map(([a, b]) => key(a, b)));
+  part.groups = (part.groups || []).flatMap(g => {
+    const keep = g.members.filter(m => !g.members.every(o => o === m || ignored.has(key(m.name, o.name))));
+    if (keep.length < 2) { part.choices.delete(g.id); return []; }
+    const choice = part.choices.get(g.id);
+    for (const id of [...choice.ticked]) if (!keep.some(m => m.id === id)) choice.ticked.delete(id);
+    if (!mergeReady({...g, members: keep}, choice)) choice.include = false;
+    return [{...g, members: keep}];
+  });
+}
+
+async function keepSeparate(body) {
+  try {
+    const data = await api("/api/artist-cleanup/separate", body);
+    artistCleanupView.merge.separate = data.separate || [];
+    applySeparate();
+  } catch (error) { setActionStatus("#artist-cleanup-status", error.message); }
+  renderArtistCleanup();
+}
+
+function separateListHtml(disabled) {
+  const pairs = artistCleanupView.merge.separate;
+  if (!pairs.length) return '<p class="muted">No names kept separate yet. Use “Keep separate” on a card.</p>';
+  return `<p class="muted">These names are kept apart and are no longer suggested together. Undo brings a pair back the next time Duplicates is checked.</p>
+    <ul class="ac-list">${pairs.map(([a, b], i) => `<li class="ac-row"><span><span class="ac-name">${escapeHtml(a)}</span> ≠ <span class="ac-name">${escapeHtml(b)}</span></span><button type="button" class="button small" data-ac-unseparate="${i}" ${disabled ? "disabled" : ""}>Undo</button></li>`).join("")}</ul>`;
 }
 
 function mergeTargetLabel(group, choice, target) {
@@ -340,6 +382,19 @@ $("#artist-cleanup").addEventListener("click", async event => {
     view[pager.dataset.acPage].page = Math.max(0, view[pager.dataset.acPage].page + step);
     renderArtistCleanup(); $("#artist-cleanup").scrollTop = 0; return;
   }
+  const separate = target.closest("[data-ac-separate]");
+  if (separate) {
+    const group = view.merge.groups.find(g => g.id === separate.closest("[data-ac-group]")?.dataset.acGroup);
+    if (group) return keepSeparate({add: separatePairs(group)});
+    return;
+  }
+  if (target.closest("[data-ac-separate-all]")) {
+    const shown = visibleMergeGroups();
+    if (shown.length && confirm(`Keep the unticked names on ${shown.length} card${shown.length === 1 ? "" : "s"} separate and stop suggesting them?`)) return keepSeparate({add: shown.flatMap(separatePairs)});
+    return;
+  }
+  const unseparate = target.closest("[data-ac-unseparate]");
+  if (unseparate) { const pair = view.merge.separate[Number(unseparate.dataset.acUnseparate)]; if (pair) return keepSeparate({remove: [pair]}); return; }
   const mergeAll = target.closest("[data-ac-merge-all]");
   if (mergeAll) { for (const g of visibleMergeGroups()) { const c = view.merge.choices.get(g.id); c.include = mergeAll.dataset.acMergeAll === "1" && mergeReady(g, c); } return renderArtistCleanup(); }
   const splitAll = target.closest("[data-ac-split-all]");

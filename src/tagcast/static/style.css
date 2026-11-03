@@ -1026,7 +1026,7 @@ body.has-player .settings-save-bar{bottom:calc(var(--player-clearance,112px) + 1
 .ac-tabs{grid-template-columns:repeat(5,minmax(0,1fr));width:100%;margin-top:6px}
 .ac-tabs button span{font-size:calc(12px*var(--ts))}
 .ac-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin:16px 0}
-.ac-card{border:1px solid var(--line);border-radius:8px;padding:14px;background:var(--palette-surface,#fff)}
+.ac-card{border:1px solid var(--line);border-radius:8px;padding:14px;background:var(--palette-surface,#fff)}.ac-card .ac-separate{display:block;margin-top:10px;font-size:calc(12px*var(--ts))}
 .ac-card h3{font-size:calc(13px*var(--ts));margin:0 0 10px}
 .ac-card.ac-off{opacity:.6}
 .ac-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}

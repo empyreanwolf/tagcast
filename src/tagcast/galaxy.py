@@ -1039,7 +1039,7 @@ class Galaxy:
                     self.manager.remove([job["id"]])
                 except (JobFailed, GalaxyError) as e:
                     self.manager.update_item(job["id"], persist=True, state="failed", note=str(e), speed=0, eta=0)
-                    if "No download link" in str(e) and self.on_failed:  # v65: try the other sources
+                    if ("No download link" in str(e) or "Preview only" in str(e)) and self.on_failed:  # v65/v70: try the other sources
                         failed = self.manager.item(job["id"])
                         threading.Thread(target=self.on_failed, args=(failed,), daemon=True, name="galaxy-fallback").start()
                 except Exception as e:  # never let one song stop the queue

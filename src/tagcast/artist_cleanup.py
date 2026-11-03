@@ -30,6 +30,8 @@ from . import artist_match as match
 from .cleanup import album_context, credit_state
 from .library import LibraryError, fold, number, stored_genres, text
 
+SEPARATE_FILE = "artist_separate.json"  # v70: pairs of names you keep apart in Duplicates
+
 log = logging.getLogger("tagcast")
 MODES = {"merge", "split", "feat"}
 BATCH_TRACKS = 200
@@ -255,6 +257,58 @@ class ArtistCleanup:
     def label(self, library, ref):
         return self.name(library, ref) if "id" in ref else f"{ref['name']} (new)"
 
+    # -- names you keep separate (v70) -----------------------------------------
+
+    def separate_pairs(self):
+        data = self.studio._read(SEPARATE_FILE)
+        pairs = data.get("pairs") if isinstance(data, dict) else None
+        return [p for p in pairs or [] if isinstance(p, list) and len(p) == 2 and all(isinstance(n, str) and n for n in p)]
+
+    @staticmethod
+    def _pair_key(a, b):
+        return tuple(sorted((text(a).strip(), text(b).strip())))
+
+    def _without_separate(self, groups):
+        """Duplicate cards minus the names you said are different artists: a name is left out when every other name
+        on its card is one you keep it apart from; a card with one name left is not shown at all."""
+        ignored = {self._pair_key(a, b) for a, b in self.separate_pairs()}
+        if not ignored:
+            return groups, 0
+        out, hidden = [], 0
+        for group in groups:
+            members = group["members"]
+            keep = [m for m in members
+                    if not all(self._pair_key(m["name"], o["name"]) in ignored for o in members if o is not m)]
+            if len(keep) < 2:
+                hidden += 1
+                continue
+            if len(keep) < len(members):
+                group = {**group, "members": keep}
+                if group.get("target", {}).get("id") and not any(m["id"] == group["target"]["id"] for m in keep):
+                    group["target"] = {"id": keep[0]["id"], "name": keep[0]["name"]}
+            out.append(group)
+        return out, hidden
+
+    def keep_separate(self, body):
+        """Remember (or forget) pairs of names that are different artists: ``{"add": [[a, b], ...]}`` or ``{"remove": ...}``."""
+        body = body if isinstance(body, dict) else {}
+        def pairs(key):
+            value = body.get(key) or []
+            if not isinstance(value, list) or len(value) > 5000:
+                raise LibraryError("Choose the names to keep separate.")
+            out = []
+            for p in value:
+                if not (isinstance(p, list) and len(p) == 2 and all(isinstance(n, str) and 0 < len(n.strip()) <= 1000 for n in p)):
+                    raise LibraryError("Choose the names to keep separate.")
+                if text(p[0]).strip() != text(p[1]).strip():
+                    out.append(self._pair_key(*p))
+            return out
+        add, remove = pairs("add"), set(pairs("remove"))
+        current = [self._pair_key(a, b) for a, b in self.separate_pairs()]
+        merged = [p for p in dict.fromkeys(current + add) if p not in remove]
+        self.studio._write(SEPARATE_FILE, {"pairs": [list(p) for p in merged]})
+        return {"separate": [list(p) for p in merged]}
+
     # -- reading ---------------------------------------------------------------
 
     def suggestions(self, kind):
@@ -262,8 +316,8 @@ class ArtistCleanup:
         library, _ = self.studio._library()
         index = self.index(library)
         if kind == "merge":
-            groups = match.merge_groups(index.names, index.usage, index.genres)
-            return {"kind": kind, "groups": groups, "total": len(groups)}
+            groups, hidden = self._without_separate(match.merge_groups(index.names, index.usage, index.genres))
+            return {"kind": kind, "groups": groups, "total": len(groups), "hidden": hidden, "separate": self.separate_pairs()}
         if kind == "split":
             known = set(index.by_key)
             items = match.split_suggestions(index.names, index.usage, known)

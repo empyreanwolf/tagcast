@@ -160,6 +160,7 @@ PACING = {
     "api.deezer.com": 0.15,          # 50 per 5 seconds
     "itunes.apple.com": 3.0,         # about 20 per minute
     "api.discogs.com": 1.1,          # 60 per minute with a token
+    "c.y.qq.com": 0.6,               # QQ Music (unofficial, v70): gently
     "ws.audioscrobbler.com": 0.25,
     "www.theaudiodb.com": 2.1,       # 30 per minute on the free key
     "webservice.fanart.tv": 0.5,

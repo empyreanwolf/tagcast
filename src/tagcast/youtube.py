@@ -103,6 +103,18 @@ def has_word(text, phrase):
     return f" {phrase} " in f" {' '.join(_words(text))} "
 
 
+NOISE_WORDS = {"official", "audio", "video", "music", "lyrics", "lyric", "visualizer", "hd", "4k", "hq", "mv", "topic",
+               "feat", "ft", "featuring", "with", "prod", "by", "the", "a", "and", "x", "full", "version", "explicit", "clean"}
+
+
+def same_words(video, artist, title):
+    """v70: every word of "artist + title" is in the video title, in any order, and little else is: so
+    "Antiheroes - Powdered Water (Neroche Remix)" fits "Neroche - Powdered Water (Antiheroes Remix)"."""
+    wanted = {w for w in _words(f"{artist} {title}") if w not in NOISE_WORDS}
+    have = {w for w in _words(video) if w not in NOISE_WORDS}
+    return len(wanted) >= 2 and wanted <= have and len(have - wanted) <= 2
+
+
 def score_video(entry, artist, title, want_seconds=0):
     """How well one search result is the official audio of this song: 0 means not usable."""
     video = str(entry.get("title") or "")
@@ -126,7 +138,8 @@ def score_video(entry, artist, title, want_seconds=0):
         cleaned = re.sub(re.escape(part), " ", cleaned, flags=re.IGNORECASE)
     cleaned = cleaned.replace("-", " ").replace("–", " ").replace("|", " ")
     wanted = plain_title(title)
-    ratio = max(sim(plain_title(cleaned), wanted), sim(cleaned, title), 1.0 if has_word(video, " ".join(_words(wanted))) and wanted else 0.0)
+    ratio = max(sim(plain_title(cleaned), wanted), sim(cleaned, title), 1.0 if has_word(video, " ".join(_words(wanted))) and wanted else 0.0,
+                0.85 if same_words(video, artist, title) else 0.0)
     if ratio < 0.8:
         return 0.0
     return ratio + (1.0 if topic else 0.0) + (0.5 if match.match_key(channel) == match.match_key(artist) else 0.0)
@@ -324,7 +337,23 @@ class YouTube(YtdlpWorker):
 
     def find_song(self, artist, title, seconds=0):
         entries = self._search(f"{artist} {title}")
+        self._last_entries = entries
         return best_video(entries, artist, title, seconds)
+
+    def closest(self, artist, title):
+        """The result of the last search that comes nearest, for "⬇ Use this one" when nothing fit (v70)."""
+        best, top = None, 0.0
+        for entry in getattr(self, "_last_entries", None) or []:
+            video = str(entry.get("title") or "")
+            seconds = entry.get("duration") or 0
+            if not entry.get("id") or not video or (seconds and not MIN_SECONDS <= seconds <= MAX_SECONDS):
+                continue
+            score = max(sim(video, f"{artist} {title}"), sim(video, f"{artist} - {title}"))
+            if match.match_key(artist) and match.match_key(artist) in match.match_key(f"{video} {self._who(entry)}"):
+                score += 0.3
+            if score > top:
+                best, top = entry, score
+        return best
 
     @staticmethod
     def _who(entry):
@@ -415,7 +444,30 @@ class YouTube(YtdlpWorker):
         if not item or item.get("kind") != "song":
             raise YouTubeError("That download is no longer in the queue.")
         artist = re.split(r"\s*;\s*", item.get("artist") or "")[0].strip()
-        result = self.add_song(artist, re.sub(r"(?i)\s*\((explicit|clean)\)", "", item["title"]), item.get("album", ""))
+        title = re.sub(r"(?i)\s*\((explicit|clean)\)", "", item["title"])
+        try:
+            result = self.add_song(artist, title, item.get("album", ""))
+        except YouTubeError as error:
+            # v70: keep the reason on the row, with the nearest result to download in one click.
+            near = self.closest(match.clean(artist), match.clean(title))
+            reason = (f"YouTube: closest was “{near.get('title')}”, title didn't fit" if near else f"YouTube: {error}")
+            before = re.sub(r"\s*·\s*YouTube:.*$", "", str(item.get("note") or ""))
+            self.manager.update_item(item["id"], persist=True, note=f"{before} · {reason}".strip(" ·"),
+                                     youtube_near={"id": near["id"], "title": str(near.get("title") or ""),
+                                                   "duration": near.get("duration") or 0} if near else None)
+            raise YouTubeError(reason) from None
+        self.manager.remove([item["id"]])
+        return result
+
+    def use_near(self, item_id):
+        """v70: "⬇ Use this one": download the nearest YouTube result Try YouTube showed for a failed song."""
+        item = self.manager.item(str(item_id or ""))
+        near = (item or {}).get("youtube_near")
+        if not item or item.get("kind") != "song" or not near or not re.fullmatch(r"[\w-]{6,20}", str(near.get("id") or "")):
+            raise YouTubeError("That download is no longer waiting for a choice.")
+        artist = match.clean(re.split(r"\s*;\s*", item.get("artist") or "")[0])
+        title = match.clean(item["title"])
+        result = self._submit([self._item(artist, title, match.clean(item.get("album", "")), near, query=f"{artist} {title}")])
         self.manager.remove([item["id"]])
         return result
 

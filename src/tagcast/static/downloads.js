@@ -31,6 +31,7 @@ function downloadsNote(message) {
 
 function showDownloads(tab) {
   if (tab) downloadsView.tab = tab;
+  else if (downloadsView.tab === "queue" && downloadsView.lastTab) downloadsView.tab = downloadsView.lastTab;  // v70: the menu has its own Queue & history
   showScreen("downloads");
   $("#downloads-version").textContent = artistCleanupVersion;
   renderDownloads();
@@ -140,8 +141,22 @@ async function loadDownloadsHistory() {
 // v65: on tabs with a search box, the search and its results come first and the queue follows.
 const DOWNLOADS_SEARCH_TABS = new Set(["youtube", "galaxy", "bandcamp", "soulseek", "more", "discography", "labels", "pagelist", "check"]);
 
+// v70: "Queue & history" has its own entry in the left menu; it lights up instead of Downloads on that tab.
+function syncDownloadsNav() {
+  const view = downloadsView, onPage = state.screen === "downloads";
+  if (view.tab !== "queue") view.lastTab = view.tab;
+  $("#show-downloads")?.classList.toggle("active", onPage && view.tab !== "queue");
+  $("#show-dl-queue")?.classList.toggle("active", onPage && view.tab === "queue");
+  const count = $("#dl-queue-count");
+  if (count) {
+    const waiting = (view.queue || []).filter(i => ["queued", "running", "active"].includes(i.state)).length;
+    count.textContent = waiting ? String(waiting) : ""; count.hidden = !waiting;
+  }
+}
+
 function renderDownloads() {
   const view = downloadsView;
+  syncDownloadsNav();
   $("#downloads-page")?.classList.toggle("dl-queue-last", DOWNLOADS_SEARCH_TABS.has(view.tab));
   $("#downloads-tabs").innerHTML = downloadsTabsHtml();
   const body = {youtube: youtubeHtml, galaxy: galaxyHtml, bandcamp: bandcampHtml, soulseek: soulseekHtml, more: moreHtml, discography: discographyHtml, labels: labelsHtml, missing: missingHtml, tagclean: tagcleanHtml, check: downloadsCheckHtml, pagelist: pagelistHtml, decide: downloadsDecideHtml, queue: downloadsQueueHtml, settings: downloadsSettingsHtml}[view.tab]();
@@ -261,6 +276,7 @@ function downloadsQueueBoxHtml() {
           ${i.album ? `<button type="button" class="button small" data-dl-copy="${escapeHtml(i.album)}" title="Copy the album name">Copy album</button>` : ""}
           <button type="button" class="button small" data-dl-copy="${escapeHtml(i.title)}" title="Copy the song or album title">Copy title</button></span>` : ""}
         ${i.state === "failed" && i.kind !== "album" && i.source !== "youtube" ? `<button type="button" class="button small" data-dl-try-youtube="${escapeHtml(i.id)}" title="Look this song up on YouTube instead">⬇ Try YouTube</button>` : ""}
+        ${i.state === "failed" && i.youtube_near?.id ? `<button type="button" class="button small" data-dl-use-near="${escapeHtml(i.id)}" title="${escapeHtml(i.youtube_near.title)}">⬇ Use this one</button>` : ""}
         ${i.state === "failed" && i.short_seconds ? `<button type="button" class="button small" data-galaxy-control="allow_short" data-id="${escapeHtml(i.id)}" title="It is a real ${escapeHtml(String(i.short_seconds))}-second track (an intro or skit): download it again and keep it">Keep it (short track)</button>` : ""}
         ${i.state === "queued" && i.link && queue.filter(q => q.state === "queued" && q.link === i.link).length > 1 ? `<button type="button" class="button small" data-dl-cancel-link="${escapeHtml(i.link)}" title="Remove every waiting song from this link">✕ All from link (${queue.filter(q => q.state === "queued" && q.link === i.link).length})</button>` : ""}
         ${i.state === "queued" && i.payload ? `<button type="button" class="button small" data-galaxy-control="top" data-id="${escapeHtml(i.id)}" title="Move to top">⤒</button>` : ""}
@@ -330,6 +346,7 @@ async function downloadsRun(work) {
 document.addEventListener("click", event => {
   const target = event.target;
   if (target.closest("#show-downloads")) { showDownloads(); return; }
+  if (target.closest("#show-dl-queue")) { showDownloads("queue"); return; }
   if (!target.closest("#downloads-page")) return;
   const tab = target.closest("[data-downloads-tab]");
   if (tab) {
@@ -502,6 +519,17 @@ document.addEventListener("click", async event => {
     downloadsView.queue = (await api("/api/downloads/queue")).queue;
     toast(`Removed ${ids.length} waiting ${ids.length === 1 ? "song" : "songs"} from this link.`);
   } catch (error) { toast(error.message || String(error)); }
+  renderDownloads();
+});
+
+// v70: "⬇ Use this one": the nearest YouTube result Try YouTube found.
+document.addEventListener("click", async event => {
+  const button = event.target.closest?.("[data-dl-use-near]");
+  if (!button) return;
+  button.disabled = true;
+  try { await api("/api/youtube/use-near", {id: button.dataset.dlUseNear}); toast("Queued from YouTube."); }
+  catch (error) { toast(error.message || String(error)); }
+  downloadsView.queue = (await api("/api/downloads/queue")).queue;
   renderDownloads();
 });
 

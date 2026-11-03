@@ -624,7 +624,7 @@ class Discography:
             source, note = None, str(error)
         if source:
             self.manager.remove([item["id"]])
-            activity.record("downloads", "info", f"Galaxy had no link for {item['title']}: trying {source} instead", source=source.casefold())
+            activity.record("downloads", "info", f"Galaxy couldn't give {item['title']} ({item.get('note') or 'no link'}): trying {source} instead", source=source.casefold())
             return
         note = self._wish("song", artist, item["title"], item.get("album", ""), note=note)
         self.manager.update_item(item["id"], persist=True, note=f"{item.get('note', '')} · {note}".strip(" ·"))

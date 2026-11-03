@@ -410,6 +410,7 @@ class Handler(SimpleHTTPRequestHandler):
                 b.get("mode"), b.get("groups"), b.get("ids")),
             "/api/artist-cleanup/start": lambda b: self.studio.artist_cleanup.start(b.get("id"), b.get("excluded")),
             "/api/artist-cleanup/stop": lambda b: self.studio.artist_cleanup.cancel(b.get("id")),
+            "/api/artist-cleanup/separate": self.studio.artist_cleanup.keep_separate,
             "/api/artist-pictures/start": lambda b: self.studio.artist_pictures.start(),
             "/api/artist-pictures/stop": lambda b: self.studio.artist_pictures.stop(),
             "/api/downloads/check": lambda b: self.studio.download_manager.check(
@@ -433,6 +434,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/tagclean/apply-artists": lambda b: self.studio.tagclean.apply_artists(b.get("ids")),
             "/api/tagclean/apply-genre": lambda b: self.studio.tagclean.apply_genre(b.get("ids")),
             "/api/tagclean/assign-genre": lambda b: self.studio.tagclean.assign_genre(b.get("ids"), b.get("genre")),
+            "/api/tagclean/recheck": lambda b: self.studio.tagclean.recheck(b.get("artists")),
             "/api/charts/get": lambda b: self.studio.charts.get(b.get("chart"), b.get("ranks")),
             "/api/charts/browse/get": lambda b: self.studio.charts.browse_get(
                 b.get("source"), b.get("country") or "", b.get("genre") or "", b.get("ranks")),
@@ -464,6 +466,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/youtube/artist": lambda b: self.studio.youtube.artist_releases(b.get("artist"), b.get("where")),
             "/api/youtube/releases": lambda b: self.studio.youtube.add_releases(b.get("artist"), b.get("releases")),
             "/api/youtube/try": lambda b: self.studio.youtube.try_item(b.get("id")),
+            "/api/youtube/use-near": lambda b: self.studio.youtube.use_near(b.get("id")),
             "/api/more/search": lambda b: self.studio.moresources.search(b.get("query")),
             "/api/more/add": lambda b: self.studio.moresources.add(b.get("rows")),
             "/api/spotify/install": lambda b: self.studio.spotify.install(),
