@@ -111,3 +111,35 @@ class TryYouTubeReasonTests(unittest.TestCase):
         self.assertIn("Preview only · YouTube: closest was", item["note"])
         yt.use_near("x")
         self.assertEqual((submitted[0]["payload"]["id"], manager.removed), ("TYJlkUDKP9o", ["x"]))
+
+
+class ChineseDiscographyTests(unittest.TestCase):
+    """v70: a Chinese name gets NetEase's albums, matched across spellings, and Galaxy before YouTube."""
+
+    def test_spellings_match_on_the_chinese_and_latin_parts(self):
+        from tagcast.discography import same_chinese_artist
+        self.assertTrue(same_chinese_artist("派克特Pact", ["派克特（PACT）"]))
+        self.assertTrue(same_chinese_artist("派克特Pact", ["派克特"]))
+        self.assertFalse(same_chinese_artist("派克特Pact", ["派克特（Other）"]))
+        self.assertFalse(same_chinese_artist("派克特Pact", ["法老"]))
+
+    def test_netease_albums_fill_an_empty_discography(self):
+        from test_discography import FakeHttp
+        from tagcast.discography import Discography
+        answers = {
+            "/api/cloudsearch/pc": {"result": {"artists": [{"id": 7, "name": "派克特（PACT）", "albumSize": 13},
+                                                           {"id": 8, "name": "法老", "albumSize": 35}]}},
+            "/api/artist/albums/7": {"more": False, "hotAlbums": [
+                {"id": 1, "name": "顺流逆流", "type": "专辑", "size": 12, "publishTime": 1728518400000, "artist": {"id": 7}},
+                {"id": 2, "name": "NEW BEAT", "type": "Single", "size": 1, "publishTime": 1770220800000, "artist": {"id": 7}},
+                {"id": 3, "name": "窝囊废", "type": "Single", "size": 2, "artist": {"id": 99}}]},
+        }
+        disc = Discography.__new__(Discography)
+        disc.http, disc._chinese_artists = FakeHttp(answers), {}
+        releases, notes = {}, []
+        disc._add_chinese("派克特Pact", releases, notes)
+        got = sorted((r["title"], r["type"], r["year"], r["sources"][0]) for r in releases.values())
+        self.assertEqual(got, [("NEW BEAT", "single", "2026", "NetEase (as 派克特(PACT))"),
+                               ("窝囊废", "compile", "", "NetEase (as 派克特(PACT))"),
+                               ("顺流逆流", "album", "2024", "NetEase (as 派克特(PACT))")])
+        self.assertEqual(disc._spellings("派克特Pact"), ["派克特Pact", "派克特(PACT)"])

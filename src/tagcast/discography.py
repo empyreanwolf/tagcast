@@ -9,6 +9,9 @@ the iBroadcast library and the download history.
 Top 30 songs come from Deezer's ranking (with 30-second previews); when Deezer is unavailable,
 Galaxy's search order is used. Each song shows Have / Missing.
 
+Chinese names (v70) also get NetEase's album list (QQ Music when NetEase has nothing) and NetEase's hot
+songs, and "get the missing" tries Galaxy before YouTube for them.
+
 "Get the missing" runs in the background and tries the sources in the agreed order:
 **Galaxy → Bandcamp → Soulseek** (fork v54; v45-v53 were Galaxy → Bandcamp → Soulseek).
 Galaxy tries every way (album, song title, the artist's songs, traditional and simplified Chinese); then
@@ -59,6 +62,43 @@ def release_key(title):
     return album_key(FEAT_BRACKET.sub("", SUFFIX.sub("", match.clean(title))))
 
 
+NETEASE = "https://music.163.com"
+QQ = "https://c.y.qq.com"
+# v70: NetEase answers a browser, not a script: a browser's name and the site as referrer.
+NETEASE_HEADERS = {"Referer": "https://music.163.com/",
+                   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"}
+NETEASE_TYPES = {"专辑": "album", "EP": "ep", "EP/Single": "ep", "Single": "single", "精选集": "compile", "合集": "compile"}
+HAS_CJK = re.compile(r"[\u4e00-\u9fff]")
+
+
+def chinese_name(name):
+    """An artist name written with Chinese characters (no Japanese kana or Korean hangul): NetEase first (v70)."""
+    return bool(HAS_CJK.search(str(name or ""))) and not re.search(r"[\u3040-\u30ff\uac00-\ud7af]", str(name or ""))
+
+
+def name_parts(name):
+    """({Chinese parts}, {Latin parts}) as match keys: "派克特Pact" and "派克特（PACT）" both give ({派克特}, {pact})."""
+    value = re.sub(r"[（）()【】\[\]]", " ", str(name or ""))
+    parts = match.chunks(value)
+    cjk = {match.match_key(p) for p in parts if HAS_CJK.search(p) and match.match_key(p)}
+    latin = {match.match_key(p) for p in parts if not HAS_CJK.search(p) and match.match_key(p)}
+    return cjk, latin
+
+
+def same_chinese_artist(mine, names):
+    """v70: the same artist across spellings: the Chinese parts agree, and the Latin parts too when both have one."""
+    my_cjk, my_latin = name_parts(mine)
+    for other in names:
+        if not other:
+            continue
+        if match.match_key(other) == match.match_key(mine):
+            return True
+        cjk, latin = name_parts(other)
+        if my_cjk and my_cjk & cjk and (not my_latin or not latin or my_latin & latin):
+            return True
+    return False
+
+
 DISCOGS = "https://api.discogs.com"
 DISCOGS_NUMBER = re.compile(r"\s*\(\d+\)$")  # "Neroche (2)": Discogs' mark for a second artist of that name
 
@@ -87,6 +127,7 @@ class Discography:
         data = studio._read(CACHE_FILE)
         self.cache = data if isinstance(data, dict) else {}
         self.jobs = {}
+        self._chinese_artists = {}  # name -> NetEase artist ({} = not there), this session only (v70)
         soulseek = getattr(studio, "soulseek", None)
         if soulseek is not None:
             soulseek.on_failed = self.fallback
@@ -186,7 +227,92 @@ class Discography:
             entry["genre"] = a.get("primaryGenreName", "")
             if "Apple Music" not in entry["sources"]:
                 entry["sources"].append("Apple Music")
+        if chinese_name(name):
+            self._add_chinese(name, releases, notes)
         return {"name": name, "artist": chosen, "candidates": candidates[:6], "releases": list(releases.values()), "notes": notes}
+
+    # -- Chinese artists: NetEase, then QQ Music (v70) --------------------------------------------
+
+    def _netease_artist(self, name):
+        """NetEase's artist for this name ({"id", "name"}), matched on the Chinese and Latin parts; None if not there."""
+        cached = self._chinese_artists.get(match.match_key(name))
+        if cached is not None:
+            return cached or None
+        found = []
+        cjk, _ = name_parts(name)
+        for query in dict.fromkeys([name, *sorted(cjk)]):
+            data = self.http.json(f"{NETEASE}/api/cloudsearch/pc", {"s": query, "type": 100, "limit": 10}, headers=NETEASE_HEADERS) or {}
+            for a in (data.get("result") or {}).get("artists") or []:
+                names = [a.get("name"), *(a.get("alias") or []), a.get("trans"), *(a.get("transNames") or [])]
+                if a.get("id") and same_chinese_artist(name, names) and all(f["id"] != a["id"] for f in found):
+                    found.append({"id": a["id"], "name": match.clean(a.get("name")), "albums": a.get("albumSize") or 0})
+            if found:
+                break
+        best = max(found, key=lambda a: a["albums"]) if found else None
+        self._chinese_artists[match.match_key(name)] = best or {}
+        return best
+
+    def _netease_releases(self, artist):
+        rows, offset = [], 0
+        for _ in range(3):
+            data = self.http.json(f"{NETEASE}/api/artist/albums/{artist['id']}", {"offset": offset, "limit": 100},
+                                  headers=NETEASE_HEADERS) or {}
+            rows += data.get("hotAlbums") or []
+            if not data.get("more"):
+                break
+            offset += 100
+        out = []
+        for a in rows:
+            own = (a.get("artist") or {}).get("id") == artist["id"]
+            kind = NETEASE_TYPES.get(str(a.get("type") or ""), "album") if own else "compile"
+            date = time.strftime("%Y-%m-%d", time.gmtime((a.get("publishTime") or 0) / 1000)) if a.get("publishTime") else ""
+            out.append({"title": match.clean(a.get("name")), "year": date[:4], "date": date, "type": kind,
+                        "tracks": a.get("size") or None, "cover": f"{a['picUrl']}?param=250y250" if a.get("picUrl") else "",
+                        "netease_id": a.get("id")})
+        return out
+
+    def _qq_releases(self, name):
+        data = self.http.json(f"{QQ}/soso/fcgi-bin/client_search_cp", {"w": name, "format": "json", "t": 8, "n": 60},
+                              headers={"Referer": "https://y.qq.com/"}) or {}
+        out = []
+        for a in ((data.get("data") or {}).get("album") or {}).get("list") or []:
+            singers = [s.get("name") for s in a.get("singer_list") or []] or [a.get("singerName")]
+            if not same_chinese_artist(name, singers):
+                continue
+            count = a.get("song_count") or 0
+            kind = "single" if 0 < count <= 3 else "ep" if 0 < count <= 6 else "album"
+            out.append({"title": match.clean(a.get("albumName")), "year": str(a.get("publicTime") or "")[:4],
+                        "date": str(a.get("publicTime") or "")[:10], "type": kind, "tracks": count or None,
+                        "cover": str(a.get("albumPic") or "").replace("http://", "https://")})
+        return out
+
+    def _add_chinese(self, name, releases, notes):
+        """NetEase's album list for a Chinese name (QQ Music when NetEase has nothing), merged like the others."""
+        rows, label = [], ""
+        try:
+            artist = self._netease_artist(name)
+            if artist:
+                rows = self._netease_releases(artist)
+                label = "NetEase" if match.match_key(artist["name"]) == match.match_key(name) else f"NetEase (as {artist['name']})"
+        except SourceError as error:
+            notes.append(f"NetEase {error}")
+        if not rows:
+            try:
+                rows, label = self._qq_releases(name), "QQ Music"
+            except SourceError as error:
+                notes.append(f"QQ Music {error}")
+        for row in rows:
+            key = release_key(row["title"])
+            if not key:
+                continue
+            entry = releases.get(key)
+            if entry is None:
+                releases[key] = {**row, "deezer_id": None, "sources": [label]}
+                continue
+            for field in ("year", "date", "tracks", "cover", "netease_id"):
+                entry[field] = entry.get(field) or row.get(field)
+            if label not in entry["sources"]:
+                entry["sources"].append(label)
 
     def _apple(self, name, known):
         data = self.http.json(f"{ITUNES}/search", {"term": name, "entity": "musicArtist", "limit": 10}) or {}
@@ -217,6 +343,7 @@ class Discography:
         self._statuses(data)
         data["releases"].sort(key=lambda r: (r.get("year") or "0000", r["title"]), reverse=True)
         data["counts"] = dict(Counter(r["status"] for r in data["releases"]))
+        data["chinese"] = chinese_name(name)
         return data
 
     def _discogs_token(self):
@@ -330,6 +457,18 @@ class Discography:
                           "cover": (r.get("album") or {}).get("cover_small", "")} for r in rows]
         except SourceError as error:
             log.info("Deezer top songs failed: %s", error)
+        if not songs and chinese_name(name):  # v70: NetEase's hot songs for a Chinese name
+            try:
+                artist = self._netease_artist(name)
+                if artist:
+                    rows = (self.http.json(f"{NETEASE}/api/artist/top/song", {"id": artist["id"]}, headers=NETEASE_HEADERS) or {}).get("songs") or []
+                    songs = [{"title": match.clean(r.get("name")), "album": match.clean((r.get("al") or {}).get("name")),
+                              "preview": "", "duration": int((r.get("dt") or 0) / 1000),
+                              "cover": f"{(r.get('al') or {}).get('picUrl')}?param=60y60" if (r.get("al") or {}).get("picUrl") else ""}
+                             for r in rows[:30]]
+                    source = "NetEase"
+            except SourceError as error:
+                log.info("NetEase top songs failed: %s", error)
         if not songs:
             source = "Galaxy"
             from .galaxy import artist_tracks
@@ -494,18 +633,30 @@ class Discography:
         return NOT_FOUND + (f" ({'; '.join(why)})" if why else "")
 
     def _album(self, name, title, status, deezer_id, ctx):
-        # 0. YouTube (v59) when it is switched on: an album playlist of this artist
-        self._step(ctx, f"{title}: searching YouTube…")
         tried = []
-        found = self._youtube_album(name, title, tried)
-        if found:
-            return found
-        # 1. Galaxy: every way (album, then the title as a song, then the artist's songs)
-        self._step(ctx, f"{title}: searching Galaxy…")
-        source, note = self._galaxy_album(name, title)
-        if source:
-            return source, note
-        galaxy_note = note
+        if chinese_name(name):
+            # v70: a Chinese artist: Galaxy first (NetEase's own album and track list), then YouTube.
+            self._step(ctx, f"{title}: searching Galaxy…")
+            source, note = self._galaxy_album(name, title)
+            if source:
+                return source, note
+            galaxy_note = note
+            self._step(ctx, f"{title}: searching YouTube…")
+            found = self._youtube_album(name, title, tried)
+            if found:
+                return found
+        else:
+            # 0. YouTube (v59) when it is switched on: an album playlist of this artist
+            self._step(ctx, f"{title}: searching YouTube…")
+            found = self._youtube_album(name, title, tried)
+            if found:
+                return found
+            # 1. Galaxy: every way (album, then the title as a song, then the artist's songs)
+            self._step(ctx, f"{title}: searching Galaxy…")
+            source, note = self._galaxy_album(name, title)
+            if source:
+                return source, note
+            galaxy_note = note
         # 2. Bandcamp: the artist's page first, then Bandcamp's own album search (v46)
         self._step(ctx, f"{title}: looking on Bandcamp…")
         why = self._bandcamp_album(name, title, ctx)
@@ -519,6 +670,18 @@ class Discography:
             result = soulseek.add([{"kind": "album", "artist": name, "album": title, "fallback": True}])
             return "Soulseek", self._summary(result) + " (wishlist if Soulseek has nothing)"
         return None, self._not_found(galaxy_note, tried)
+
+    def _spellings(self, name):
+        """Your spelling first, then NetEase's for a Chinese name ("派克特Pact", "派克特（PACT）") (v70)."""
+        out = [name]
+        if chinese_name(name):
+            try:
+                artist = self._netease_artist(name)
+            except SourceError:
+                artist = None
+            if artist and artist["name"] not in out:
+                out.append(artist["name"])
+        return out
 
     def _galaxy_sources(self):
         """The chosen source first, then the other open ones (v32): one source missing a song
@@ -536,9 +699,12 @@ class Discography:
         galaxy = self.studio.galaxy
         try:
             for source in self._galaxy_sources():
-                data = galaxy.album(title, name, source)
-                if data.get("found"):
-                    return "Galaxy", self._summary(galaxy.add(data["tracks"], data["album_artist"], len(data["tracks"])))
+                for spelling in self._spellings(name):
+                    data = galaxy.album(title, spelling, source)
+                    if data.get("found"):
+                        # Saved under your own spelling of the artist, so it lands next to what you have (v70).
+                        artist = name if spelling != name else data["album_artist"]
+                        return "Galaxy", self._summary(galaxy.add(data["tracks"], artist, len(data["tracks"])))
             # The album search found nothing: the title may be a song (a single, or an album that
             # shares its name with its first song), listed under another album name on Galaxy.
             best = find_song(galaxy.api, self._galaxy_sources(), name, title, deep=True)
@@ -557,16 +723,26 @@ class Discography:
 
     def _song(self, name, title, album, ctx, skip_galaxy=False):
         tried = []
-        found = self._youtube_song(name, title, album, tried)
-        if found:
-            return found
-        if skip_galaxy:
-            galaxy_note = "Galaxy had no download link"
-        else:
+        if chinese_name(name) and not skip_galaxy:
+            # v70: a Chinese artist: Galaxy first, then YouTube.
             source, note = self._galaxy_song(name, title)
             if source:
                 return source, note
             galaxy_note = note
+            found = self._youtube_song(name, title, album, tried)
+            if found:
+                return found
+        else:
+            found = self._youtube_song(name, title, album, tried)
+            if found:
+                return found
+            if skip_galaxy:
+                galaxy_note = "Galaxy had no download link"
+            else:
+                source, note = self._galaxy_song(name, title)
+                if source:
+                    return source, note
+                galaxy_note = note
         base = self._bandcamp_base(name, ctx, [album] if album else [])
         if base and album:
             try:
@@ -588,7 +764,11 @@ class Discography:
             return None, "Galaxy was blocked by GD Studio a moment ago and is paused"
         galaxy = self.studio.galaxy
         try:
-            best = find_song(galaxy.api, self._galaxy_sources(), name, title, deep=True)
+            best = None
+            for spelling in self._spellings(name):
+                best = find_song(galaxy.api, self._galaxy_sources(), spelling, title, deep=True)
+                if best:
+                    break
         except GalaxyBlocked as error:
             _galaxy_block["until"] = time.time() + GALAXY_PAUSE
             log.warning("Galaxy blocked: %s", error)
