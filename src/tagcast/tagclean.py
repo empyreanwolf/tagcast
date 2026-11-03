@@ -260,7 +260,28 @@ class TagClean:
             return []
         return [g["label"] for g in library.genre_labels()]
 
+    def _fill_albums(self):
+        """Rows saved before v70 have no album: read it once from the file (or the library) so they group by album."""
+        changed = False
+        with self.lock:
+            missing = [r for r in self.state["rows"] if "album" not in r][:500]
+        library = None
+        for r in missing:
+            album = ""
+            try:
+                if r.get("scope") == "folder" and Path(r["ref"]).is_file():
+                    album = text(read_tags(Path(r["ref"]), detect_audio_format(Path(r["ref"]))).get("album"))
+                elif r.get("scope") == "library" and r.get("album_id"):
+                    library = library or self.studio._library()[0]
+                    album = text((library.albums.get(number(r["album_id"])) or {}).get("name"))
+            except Exception as error:
+                log.info("Tag clean-up could not read the album of %s: %s", r.get("ref"), error)
+            r["album"], changed = album, True
+        if changed:
+            self._persist()
+
     def view(self):
+        self._fill_albums()
         with self.lock:
             rows = list(self.state["rows"])
             grouped, albums = {}, {}
