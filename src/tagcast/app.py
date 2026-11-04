@@ -192,6 +192,25 @@ class Handler(SimpleHTTPRequestHandler):
                                        int(query.get("after") or 0), int(query.get("limit") or 300))
                       if log else {"entries": [], "latest": 0, "summary": [], "categories": activity.CATEGORIES})
             return
+        if url.path == "/api/debug-report":
+            self._activity = None
+            from . import debug_report
+            try:
+                body = debug_report.build(self.studio)
+            except Exception as error:
+                self._json(500, {"error": f"Could not build the report ({type(error).__name__}: {error})"})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", f'attachment; filename="tagcast-debug-{time.strftime("%Y%m%d-%H%M")}.zip"')
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if url.path == "/api/sync":
+            self._run(self.studio.settings_sync.view)
+            return
         if url.path == "/api/activity/export":
             self._activity = None
             log = activity.current()
@@ -509,6 +528,8 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/metadata-export/cancel": self.studio.metadata_export.cancel,
             "/api/album-guide/analyse": lambda b: self.studio.album_guide.analyse(),
             "/api/album-guide/link": self.studio.album_guide.link,
+            "/api/updates/install": lambda b: __import__("tagcast.selfupdate", fromlist=["install"]).install(),
+            "/api/sync/now": lambda b: self.studio.settings_sync.sync_now(),
             "/api/updates/check": lambda b: self.studio.check_updates(manual=True),
             "/api/artwork": self.studio.change_artwork,
             "/api/artwork/undo": self.studio.undo_artwork,
@@ -860,6 +881,7 @@ def main(argv=None):
         print("Stop Tagcast with Ctrl+C, or by closing this window.", flush=True)
         if args.open:
             webbrowser.open(url)
+        server.RequestHandlerClass.func.studio.settings_sync.start()  # v73: same choices on both PCs
         try:
             server.serve_forever()
         except KeyboardInterrupt:

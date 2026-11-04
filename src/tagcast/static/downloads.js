@@ -327,6 +327,7 @@ function downloadsSettingsHtml() {
       <div class="dl-actions"><button type="button" class="button primary" data-downloads-pc>Save</button></div>
       ${info?.sync_error ? `<p class="error-text">${escapeHtml(info.sync_error)}</p>` : ""}
       ${info?.other_pcs?.length ? `<p class="muted">Also seen here: ${info.other_pcs.map(escapeHtml).join(", ")}.</p>` : info?.sync_folder ? '<p class="muted">No other PC has written to this folder yet.</p>' : ""}</section>
+    ${typeof syncCardHtml === "function" ? syncCardHtml() : ""}
     <section class="dl-card"><h3>Import the Galaxy history</h3>
       <p class="muted">The Galaxy app keeps <code>history.json</code> in its own folder, next to <code>app.py</code> and <code>run.bat</code>.</p>
       <div class="dl-actions"><input id="downloads-galaxy-path" class="dl-path" maxlength="400" placeholder="C:\\Users\\you\\Documents\\gd-music-downloader\\history.json" aria-label="Galaxy history.json">

@@ -26,7 +26,10 @@ function updateSettingsPanel() {
     <p class="muted">Checks your fork on GitHub (empyreanwolf/tagcast) at startup, at most once a day. The original Tagcast's releases are not offered: installing one would replace this fork. No account or library data is sent.</p>
     <p id="updates-settings-status" class="muted" aria-live="polite">${escapeHtml(updateStatusText())}</p>
     <div class="update-actions"><button type="button" class="button small" id="check-updates" data-check-updates ${updateNotice.busy ? "disabled" : ""}>Check for updates</button>
-    <button type="button" class="text-action" id="settings-update-details" data-update-details ${updateReleaseURL() ? "" : "hidden"}>View release &amp; downloads →</button></div></section>`;
+    <button type="button" class="button small primary" id="settings-update-now" data-update-install ${updateReleaseURL() ? "" : "hidden"}>⬆ Update now &amp; restart</button>
+    <button type="button" class="text-action" id="settings-update-details" data-update-details ${updateReleaseURL() ? "" : "hidden"}>View release &amp; downloads →</button></div>
+    <h3>Debug report</h3><p class="muted">One zip with the logs, versions and the queue's titles and reasons, for sending when something goes wrong. No sign-in tokens, keys or passwords are included.</p>
+    <p><a class="button small" href="/api/debug-report" download>⬇ Debug report</a></p></section>`;
 }
 
 function applyUpdateSettings(data) {
@@ -47,6 +50,8 @@ function renderUpdateNotice() {
   if (check) check.disabled = updateNotice.busy;
   const details = $("#settings-update-details");
   if (details) details.hidden = !url;
+  const now = $("#settings-update-now");
+  if (now) now.hidden = !url;
 }
 
 async function checkForUpdates(manual = false) {
@@ -72,7 +77,7 @@ function openUpdateDetails() {
   $("#updates-content").innerHTML = `<p><strong>Tagcast ${escapeHtml(data.latest)} is available.</strong> You are running ${escapeHtml(data.current)}.</p>
     <p>Download the zip, close Tagcast, extract it over your Tagcast folder (the files are inside <code>tagcast-main</code>), then start <code>start-tagcast-fork.bat</code> again. Your settings and sign-in are kept.</p>
     ${data.error || updateNotice.error ? `<p class="muted">${escapeHtml(data.error || updateNotice.error)} This notification uses the last successful check.</p>` : ""}
-    <div class="dialog-footer"><button class="button" data-close="updates">Later</button><a class="button" href="${escapeHtml(data.page || "")}" target="_blank" rel="noopener noreferrer">What changed ↗</a><a class="button primary" href="${url}" target="_blank" rel="noopener noreferrer">⬇ Download fork zip</a></div>`;
+    <div class="dialog-footer"><button class="button" data-close="updates">Later</button><a class="button" href="${escapeHtml(data.page || "")}" target="_blank" rel="noopener noreferrer">What changed ↗</a><button class="button primary" data-update-install>⬆ Update now &amp; restart</button><a class="button" href="${url}" target="_blank" rel="noopener noreferrer">⬇ Download fork zip</a></div>`;
   $("#updates").showModal();
 }
 
@@ -80,4 +85,37 @@ $("#update-button").addEventListener("click", openUpdateDetails);
 document.addEventListener("click", event => {
   if (event.target.closest("[data-check-updates]")) checkForUpdates(true);
   if (event.target.closest("[data-update-details]")) openUpdateDetails();
+  if (event.target.closest("[data-update-install]")) installUpdate();
 });
+
+// v73: one click downloads the fork from GitHub, replaces the files and restarts Tagcast; the page reloads on the new version.
+async function installUpdate() {
+  if (updateNotice.busy) return;
+  const target = updateNotice.data?.latest;
+  updateNotice.busy = true; renderUpdateNotice();
+  const say = text => { for (const el of [$("#updates-settings-status"), $("#updates-content")?.querySelector("p")]) if (el) el.textContent = text; };
+  say("Downloading the update and installing it…");
+  try {
+    const result = await api("/api/updates/install", {});
+    say(result.message);
+    if (!result.restarting) { updateNotice.busy = false; renderUpdateNotice(); return; }
+    await updateWaitForRestart(target);
+  } catch (error) {
+    updateNotice.busy = false; renderUpdateNotice();
+    say(error.message || "The update failed. Nothing was changed.");
+  }
+}
+
+async function updateWaitForRestart(target) {
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  for (let i = 0; i < 60; i++) {
+    try {
+      const data = await fetch("/api/updates", {cache: "no-store"}).then(r => r.json());
+      if (data && data.current && (!target || data.current === target)) { location.reload(); return; }
+    } catch { /* the server is still restarting */ }
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+  updateNotice.busy = false; renderUpdateNotice();
+  const status = $("#updates-settings-status");
+  if (status) status.textContent = "Tagcast did not come back by itself. Start start-tagcast-fork.bat again.";
+}

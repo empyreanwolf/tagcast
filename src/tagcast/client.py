@@ -69,6 +69,7 @@ from .sources import KEYS as SOURCE_KEYS
 from .sources import Lookup
 from .tagclean import TagClean
 from .uploader import Uploader
+from .settings_sync import SettingsSync
 from .tags import Tags
 from .tasks import TaskQueue
 from .updates import UpdateChecker
@@ -477,6 +478,7 @@ class Studio:
         self.completion = Completion(self)
         self.tagclean = TagClean(self)
         self.uploader = Uploader(self)
+        self.settings_sync = SettingsSync(self)
         self.charts = Charts(self)
         self.pagelist = PageList(self)
         self.labels = Labels(self)

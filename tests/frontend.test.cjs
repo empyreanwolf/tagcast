@@ -11294,3 +11294,24 @@ test("v72: a flagged duplicate blocks the upload until you choose, and Skip all 
   assert.doesNotMatch(html, /data-uploader="upload" disabled/);
   assert.match(html, /In iBroadcast[\s\S]*same title/);
 });
+
+test("v73: the queue notification fires once when the last waiting download ends", async () => {
+  const p = page(); await settle();
+  assert.equal(p.run('queueNotifyCheck([{id: "a", state: "queued"}, {id: "b", state: "active"}])'), null);
+  assert.equal(p.run('queueNotifyCheck([{id: "a", state: "done"}, {id: "b", state: "active"}])'), null);
+  const done = JSON.parse(p.run('JSON.stringify(queueNotifyCheck([{id: "a", state: "done"}, {id: "b", state: "failed"}]))'));
+  assert.match(done.title, /some failed/);
+  assert.equal(done.body, "1 saved, 1 failed.");
+  assert.equal(p.run('queueNotifyCheck([{id: "a", state: "done"}, {id: "b", state: "failed"}])'), null, "no second notification");
+});
+
+test("v73: Downloads settings shows the PC sync card and the update button is wired", async () => {
+  const p = page(); await settle();
+  p.run('syncView.data = {folder: "C:\\\\Sync", last: 1700000000, merged: {wishlist: 2}, others: ["Home"], error: ""}');
+  const html = p.run("syncCardHtml()");
+  assert.match(html, /Sync now/);
+  assert.match(html, /added 2 wishlist items/);
+  assert.match(html, /Other PCs: Home/);
+  assert.match(html, /data-queue-notify/);
+  assert.match(p.run("updateSettingsPanel()"), /data-update-install[\s\S]*Debug report/);
+});
