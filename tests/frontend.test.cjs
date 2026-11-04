@@ -11315,3 +11315,13 @@ test("v73: Downloads settings shows the PC sync card and the update button is wi
   assert.match(html, /data-queue-notify/);
   assert.match(p.run("updateSettingsPanel()"), /data-update-install[\s\S]*Debug report/);
 });
+
+test("v74: range select ticks every album between two clicks and can untick them", async () => {
+  const p = page(); await settle();
+  p.run('state.albums = ["1", "2", "3", "4"].map(id => ({id, name: "Album " + id, artist: "A", albumArtist: "A", artist_id: 1, disc: 0, tracks: []})); state.selected.clear()');
+  p.run('rangeSelectApply(["2", "3"], true)');
+  assert.deepEqual(JSON.parse(p.run("JSON.stringify([...state.selected].sort())")), ["2", "3"]);
+  p.run('rangeSelectApply(["3"], false)');
+  assert.deepEqual(JSON.parse(p.run("JSON.stringify([...state.selected])")), ["2"]);
+  assert.equal(p.run("typeof rangeSelectIds"), "function");
+});
