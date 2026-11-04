@@ -11325,3 +11325,12 @@ test("v74: range select ticks every album between two clicks and can untick them
   assert.deepEqual(JSON.parse(p.run("JSON.stringify([...state.selected])")), ["2"]);
   assert.equal(p.run("typeof rangeSelectIds"), "function");
 });
+
+test("v74: Swap artist/album builds one swapped change per selected album", async () => {
+  const p = page(); await settle();
+  p.run('albumDetails = async ids => ids.map(id => ({id, name: "Hell Razah", artist: "Blood On The Chessboard"}))');
+  const changes = JSON.parse(await p.run('swapNamesChanges(["7"]).then(c => JSON.stringify(c))'));
+  assert.equal(changes.length, 1);
+  assert.deepEqual(changes[0].fields.artist, {before: "Blood On The Chessboard", after: "Hell Razah"});
+  assert.deepEqual(changes[0].fields.name, {before: "Hell Razah", after: "Blood On The Chessboard"});
+});

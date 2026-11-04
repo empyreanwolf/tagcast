@@ -631,6 +631,7 @@ function render() {
   if (typeof updateResultsActions === "function") updateResultsActions();
   $("#quick-add-selection").disabled = !live() || !state.selected.size;
   $("#trash-selection").hidden = !live();
+  $("#swap-selection").hidden = !live();
   $("#trash-selection").disabled = saving || checking > 0 || !state.selected.size;
   $("#edit-selection").hidden = !state.artist;
   if (typeof updateAlbumMergeControls === "function") updateAlbumMergeControls();
