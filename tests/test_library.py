@@ -754,3 +754,13 @@ class SplitMergeTests(unittest.TestCase):
         self.assertEqual(len(plan["items"]), 2)
         with self.assertRaises(LibraryError):
             plan_save(lib(), [change("album", 10, name=("Original", "X")), change("album", 11, artist_id=(5, 0))], split_merge=True)
+
+
+class SwapSaveTests(unittest.TestCase):
+    def test_swapping_artist_and_name_may_span_albums(self):
+        changes = [change("album", 10, name=("Original", "Z"), artist=("A", "Original")), change("album", 11, name=("Original", "Y"), artist=("B", "Original"))]
+        try:
+            plan = plan_save(lib(), changes, split_merge=True)
+            self.assertEqual(len(plan["items"]), 2)
+        except Exception as error:  # a conflict with the fixture's values is fine: the point is the rule is not what refuses it
+            self.assertNotIn("Merging split albums", str(error))

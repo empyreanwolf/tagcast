@@ -1182,7 +1182,10 @@ def plan_save(library, changes, split_merge=False):
             items.append(item)
 
     if split_merge:
-        if any(c.get("kind") != "album" or not set(c.get("fields") or {}) <= SPLIT_MERGE_FIELDS for c in changes):
+        def allowed(c):  # v74: Swap artist/album changes the name together with the album artist
+            fields = set(c.get("fields") or {})
+            return c.get("kind") == "album" and fields <= (SPLIT_MERGE_FIELDS | ({"name"} if {"name", "artist"} <= fields else set()))
+        if not all(allowed(c) for c in changes):
             raise LibraryError("Merging split albums only changes album artist, album credits and year.")
     elif not album_artists:
         raise LibraryError("A save must stay within one album or one album artist.")

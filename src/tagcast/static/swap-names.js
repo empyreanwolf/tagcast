@@ -20,7 +20,7 @@ async function swapSelectedNames() {
   try {
     const changes = await swapNamesChanges(ids);
     if (!changes.length) { toast("Nothing to swap."); return; }
-    pending = {scope: "album", selection: changes.map(c => ({id: c.id, name: c.fields.name.before, artist: c.fields.artist.before})), changes};
+    pending = {scope: "split", splitMerge: true, selection: changes.map(c => ({id: c.id, name: c.fields.name.before, artist: c.fields.artist.before})), changes};
     showReview(changes);
     $("#review-intro").textContent = `Swapping album artist and album name on ${changes.length} ${changes.length === 1 ? "album" : "albums"}. Check the list, then Save. Track artists are not changed. ${$("#review-intro").textContent}`;
   } catch (error) {
