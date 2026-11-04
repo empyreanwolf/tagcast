@@ -45,7 +45,7 @@ function showScreen(name) {
   $("#overview-page").hidden = name !== "overview";
   $("#downloads-page").hidden = name !== "downloads";
   $("#show-downloads").classList.toggle("active", name === "downloads");
-  if (name !== "downloads") $("#show-dl-queue")?.classList.remove("active");
+  if (name !== "downloads") { $("#show-dl-queue")?.classList.remove("active"); $("#show-upload")?.classList.remove("active"); }
   $("#digest-page").hidden = name !== "digest";
   $("#show-digest").classList.toggle("active", name === "digest");
   $("#artist-pictures-page").hidden = name !== "artist-pictures";

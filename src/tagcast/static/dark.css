@@ -235,6 +235,9 @@
 :root[data-theme="dark"] .dl-genre-banner{border:1px solid var(--line,#8884)}
 :root[data-theme="dark"] .split-row{border:1px solid var(--line, #414141)}
 :root[data-theme="dark"] .split-row img,:root[data-theme="dark"] .split-noart{background:var(--panel, #2f2f2f)}
+:root[data-theme="dark"] .upl-sel{background:color-mix(in srgb,var(--accent,#569eff) 14%,transparent)}
+:root[data-theme="dark"] .upl-pending{background:color-mix(in srgb,#7c5000 35%,transparent)}
+:root[data-theme="dark"] .upl-compare td{background:color-mix(in srgb,#7c5000 10%,transparent)}
 
 /* set by hand */
 :root[data-theme="dark"]{color-scheme:dark}
@@ -485,6 +488,9 @@
 :root:not([data-theme="light"]) .dl-genre-banner{border:1px solid var(--line,#8884)}
 :root:not([data-theme="light"]) .split-row{border:1px solid var(--line, #414141)}
 :root:not([data-theme="light"]) .split-row img,:root:not([data-theme="light"]) .split-noart{background:var(--panel, #2f2f2f)}
+:root:not([data-theme="light"]) .upl-sel{background:color-mix(in srgb,var(--accent,#569eff) 14%,transparent)}
+:root:not([data-theme="light"]) .upl-pending{background:color-mix(in srgb,#7c5000 35%,transparent)}
+:root:not([data-theme="light"]) .upl-compare td{background:color-mix(in srgb,#7c5000 10%,transparent)}
 
 /* set by hand */
 :root:not([data-theme="light"]){color-scheme:dark}

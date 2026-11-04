@@ -14,7 +14,7 @@ const SIDEBAR_ITEMS = [
   ["show-genres", "Genres"], ["show-tags", "Tags"], ["show-years", "Release year"], ["show-decades", "Decades"],
   ["show-tracks", "Tracks"], ["show-favourites", "Favourites"], ["show-playlists", "Playlists"],
   ["show-recently-played", "Recently played"],
-  ["show-album-guide", "1001 Albums"], ["show-downloads", "Downloads"], ["show-dl-queue", "Queue & history"], ["show-overview", "Overview"], ["show-history", "Change history", true],
+  ["show-album-guide", "1001 Albums"], ["show-downloads", "Downloads"], ["show-dl-queue", "Queue & history"], ["show-upload", "Upload"], ["show-overview", "Overview"], ["show-history", "Change history", true],
 ];
 // Hidden the first time Tagcast ever runs in a browser (nothing saved yet). Once someone
 // opens Settings and changes anything, their own choice is kept from then on, even if they

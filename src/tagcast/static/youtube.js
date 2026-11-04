@@ -67,6 +67,7 @@ document.addEventListener("click", async event => {
   view.busy = true; renderDownloads();
   try {
     view.results = (await api("/api/youtube/add", {lines: view.lines})).results;
+    view.lines = dropQueuedLines(view.lines, view.results);
     downloadsView.queue = (await api("/api/downloads/queue")).queue;
   } catch (error) { setActionStatus("#downloads-status", error.message || String(error)); }
   view.busy = false; renderDownloads();

@@ -68,6 +68,7 @@ from .moresources import MoreSources
 from .sources import KEYS as SOURCE_KEYS
 from .sources import Lookup
 from .tagclean import TagClean
+from .uploader import Uploader
 from .tags import Tags
 from .tasks import TaskQueue
 from .updates import UpdateChecker
@@ -94,6 +95,7 @@ KEY_ENV = {"lastfm_api_key": "LASTFM_API_KEY", "discogs_token": "DISCOGS_TOKEN",
 API_URL = "https://api.ibroadcast.com"
 LIBRARY_URL = "https://library.ibroadcast.com"
 ARTWORK_UPLOAD_URL = "https://artwork-upload.ibroadcast.com"
+UPLOAD_URL = "https://upload.ibroadcast.com"
 STREAM_URL = "https://streaming.ibroadcast.com"
 
 # Point everything at a test server, e.g. TAGCAST_IBROADCAST_BASE=http://127.0.0.1:9000
@@ -101,6 +103,7 @@ _test_base = os.environ.get("TAGCAST_IBROADCAST_BASE", "").rstrip("/")
 if _test_base:
     API_URL, LIBRARY_URL = f"{_test_base}/api", f"{_test_base}/library"
     ARTWORK_UPLOAD_URL, STREAM_URL = f"{_test_base}/artwork-upload", f"{_test_base}/stream"
+    UPLOAD_URL = f"{_test_base}/upload"
     oauth.OAUTH_BASE = f"{_test_base}/oauth"
     oauth.AUTHORIZE_URL = f"{oauth.OAUTH_BASE}/authorize"
     oauth.TOKEN_URL = f"{oauth.OAUTH_BASE}/token"
@@ -343,6 +346,32 @@ class StudioClient(ibroadcast.iBroadcast):
                            or f"iBroadcast did not accept the image (HTTP {response.status_code}).")
         return number(result["artwork_id"])
 
+    def upload_track(self, path, user_id):
+        """Send one audio file to iBroadcast (fork v72), the way iBroadcast's own uploader does: a multipart POST to
+        upload.ibroadcast.com with the file and the account id. The file is only read, never moved or deleted."""
+        path = Path(path)
+
+        def send(access_token):
+            with open(path, "rb") as handle:
+                return requests.post(
+                    UPLOAD_URL, timeout=600,
+                    headers={"Authorization": f"Bearer {access_token}", "User-Agent": self._user_agent},
+                    data={"method": self._client, "client": self._client, "version": self._version,
+                          "device_name": self._device_name, "user_id": user_id, "file_path": str(path.name)},
+                    files={"file": (path.name, handle, "application/octet-stream")})
+        try:
+            response = self._with_fresh_token(send)
+        except requests.RequestException as error:
+            raise ApiError(f"Could not reach iBroadcast ({error.__class__.__name__}).") from None
+        try:
+            result = response.json()
+        except ValueError:
+            result = {}
+        if not response.ok or (isinstance(result, dict) and result.get("result") is False):
+            message = result.get("message") if isinstance(result, dict) else ""
+            raise ApiError(message or f"iBroadcast did not accept the file (HTTP {response.status_code}).")
+        return result
+
     def open_stream(self, path, file_id, user_id, expires, range_header=None):
         """Open the audio of one track. The caller closes the returned response."""
         def send(access_token):
@@ -447,6 +476,7 @@ class Studio:
         self.wishlist = Wishlist(self)
         self.completion = Completion(self)
         self.tagclean = TagClean(self)
+        self.uploader = Uploader(self)
         self.charts = Charts(self)
         self.pagelist = PageList(self)
         self.labels = Labels(self)

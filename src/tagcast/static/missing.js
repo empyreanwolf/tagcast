@@ -23,6 +23,14 @@ function missingRefresh() {
   if (downloadsView.tab === "missing" && $("#missing-body")) $("#missing-body").innerHTML = missingBodyHtml();
 }
 
+// v72: copy a row's title, artist, album or all three ("Artist - Title (Album)") with one click.
+function missingCopyHtml(title, artist, album = "") {
+  const t = String(title || ""), a = String(artist || ""), b = String(album || "");
+  const all = `${a ? `${a} - ` : ""}${t}${b && b !== t ? ` (${b})` : ""}`;
+  const button = (label, value, what) => value ? `<button type="button" class="text-action" data-dl-copy="${escapeHtml(value)}" title="Copy the ${what}" aria-label="Copy the ${what}: ${escapeHtml(value)}">${label}</button>` : "";
+  return `<span class="missing-copy" aria-label="Copy">⧉ ${[button("Title", t, "title"), button("Artist", a, "artist"), button("Album", b, "album"), button("All", all, "artist, title and album")].filter(Boolean).join(" · ")}</span>`;
+}
+
 function missingDate(seconds) {
   return seconds ? new Date(seconds * 1000).toLocaleString("en-GB", {day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"}) : "never";
 }
@@ -67,7 +75,8 @@ function releasesHtml() {
         <input type="checkbox" data-releases-pick="${x.id}" aria-label="Select ${escapeHtml(x.title)}" ${missingView.picked.has(x.id) ? "checked" : ""}>
         ${bandcampThumb(x.cover, "galaxy-album-art")}
         <div><b>${escapeHtml(x.title)}</b> <span class="muted">· ${escapeHtml(x.artist)}</span>
-          <div class="muted">${escapeHtml([x.date, ({album: "Album", ep: "EP", single: "Single", compile: "Compilation"})[x.type], x.tracks ? `${x.tracks} tracks` : ""].filter(Boolean).join(" · "))}</div></div>
+          <div class="muted">${escapeHtml([x.date, ({album: "Album", ep: "EP", single: "Single", compile: "Compilation"})[x.type], x.tracks ? `${x.tracks} tracks` : ""].filter(Boolean).join(" · "))}</div>
+          ${missingCopyHtml(x.title, x.artist, x.title)}</div>
         <div>${discographyBadge(x.status)}</div></li>`).join("")}</ul>`
       : `<p class="muted">${r.last_check ? "Nothing new that you don't have yet." : "Not checked yet. Check now, or wait for the weekly check."}</p>`}`;
 }
@@ -108,8 +117,9 @@ function completeHtml() {
         <div><b>${escapeHtml(a.title)}</b> <span class="muted">· ${escapeHtml(a.artist)}</span>
           <div class="muted">You have ${a.have} of ${a.expected} (${escapeHtml(a.basis)})${holes ? ` · missing numbers ${escapeHtml(holes)}` : ""}</div>
           <button type="button" class="text-action" data-complete-open="${escapeHtml(a.key)}" aria-expanded="${Boolean(open)}">${open ? "Hide songs" : "Which songs?"}</button>
+          ${missingCopyHtml(a.title, a.artist, a.title)}
           ${open === "loading" ? '<div class="muted">Asking Deezer…</div>' : open?.error ? `<div class="error-text">${escapeHtml(open.error)}</div>`
-            : open ? `${open.note ? `<div class="muted">${escapeHtml(open.note)}</div>` : ""}<ol class="complete-tracks">${open.tracks.map(t => `<li class="${t.have ? "have" : "missing"}">${escapeHtml(t.title)} ${t.have ? '<span class="muted">✓</span>' : '<span class="dl-badge new">Missing</span>'}</li>`).join("")}</ol>` : ""}</div>
+            : open ? `${open.note ? `<div class="muted">${escapeHtml(open.note)}</div>` : ""}<ol class="complete-tracks">${open.tracks.map(t => `<li class="${t.have ? "have" : "missing"}">${escapeHtml(t.title)} ${t.have ? '<span class="muted">✓</span>' : '<span class="dl-badge new">Missing</span>'} ${t.have ? "" : missingCopyHtml(t.title, a.artist, a.title)}</li>`).join("")}</ol>` : ""}</div>
         <div>${discographyBadge("partly")}</div></li>`;
     }).join("")}</ul>`;
 }
@@ -143,10 +153,11 @@ function wishlistHtml() {
       <ul class="dl-list">${w.items.map(i => `<li><input type="checkbox" data-wishlist-pick="${i.id}" aria-label="Select ${escapeHtml(i.title)}" ${missingView.picked.has(i.id) ? "checked" : ""}>
         <span class="dl-badge new">${i.kind === "album" ? "Album" : "Song"}</span>
         <div><b>${escapeHtml(i.title)}</b> <span class="muted">· ${escapeHtml(i.artist)}${i.album ? ` · ${escapeHtml(i.album)}` : ""}</span>
-          <div class="muted">${i.tries} ${i.tries === 1 ? "try" : "tries"} · ${escapeHtml(i.note || "")} · next try ${missingDate(i.next_try)}</div></div></li>`).join("")}</ul>`
+          <div class="muted">${i.tries} ${i.tries === 1 ? "try" : "tries"} · ${escapeHtml(i.note || "")} · next try ${missingDate(i.next_try)}</div>
+          ${missingCopyHtml(i.title, i.artist, i.kind === "album" ? i.title : i.album)}</div></li>`).join("")}</ul>`
       : '<p class="muted">Your wishlist is empty.</p>'}
     ${w.found.length ? `<h3>Found lately</h3><ul class="dl-list">${w.found.slice(0, 20).map(f => `<li><span class="dl-badge have">${escapeHtml(f.source)}</span>
-      <div><b>${escapeHtml(f.title)}</b> <span class="muted">· ${escapeHtml(f.artist)} · ${escapeHtml(f.note || "")} · ${missingDate(f.when)}</span></div></li>`).join("")}</ul>` : ""}`;
+      <div><b>${escapeHtml(f.title)}</b> <span class="muted">· ${escapeHtml(f.artist)} · ${escapeHtml(f.note || "")} · ${missingDate(f.when)}</span> ${missingCopyHtml(f.title, f.artist)}</div></li>`).join("")}</ul>` : ""}`;
 }
 
 // -- get the missing, grouped by artist ----------------------------------------------------

@@ -9,7 +9,7 @@ const downloadsView = {
   history: {query: "", source: "", offset: 0, data: null}, picked: new Set(), busy: false, timer: null,
   persistError: "", stalled: [],
 };
-const downloadsTabs = [["youtube", "YouTube"], ["galaxy", "Galaxy"], ["bandcamp", "Bandcamp"], ["soulseek", "Soulseek"], ["more", "More sources"], ["discography", "Discography"], ["labels", "Labels"], ["missing", "Missing"], ["tagclean", "Clean up"], ["check", "Check"], ["pagelist", "From a page"], ["decide", "Needs your decision"], ["queue", "Queue & history"], ["settings", "Settings"]];
+const downloadsTabs = [["youtube", "YouTube"], ["galaxy", "Galaxy"], ["bandcamp", "Bandcamp"], ["soulseek", "Soulseek"], ["more", "More sources"], ["discography", "Discography"], ["labels", "Labels"], ["missing", "Missing"], ["tagclean", "Clean up"], ["upload", "Upload"], ["check", "Check"], ["pagelist", "From a page"], ["decide", "Needs your decision"], ["queue", "Queue & history"], ["settings", "Settings"]];
 const downloadsStatusLabels = {have: "In iBroadcast", partly: "Partly (other edition)", downloaded: "Downloaded before", folder: "In your download folder", new: "New"};
 const downloadsSourceLabels = {youtube: "YouTube", galaxy: "Galaxy", telegram: "Telegram", bandcamp: "Bandcamp", soulseek: "Soulseek", more: "YouTube/SoundCloud/Audiomack", manual: "Added here"};
 
@@ -31,7 +31,7 @@ function downloadsNote(message) {
 
 function showDownloads(tab) {
   if (tab) downloadsView.tab = tab;
-  else if (downloadsView.tab === "queue" && downloadsView.lastTab) downloadsView.tab = downloadsView.lastTab;  // v70: the menu has its own Queue & history
+  else if (["queue", "upload"].includes(downloadsView.tab) && downloadsView.lastTab) downloadsView.tab = downloadsView.lastTab;  // v70: the menu has its own Queue & history
   showScreen("downloads");
   $("#downloads-version").textContent = artistCleanupVersion;
   renderDownloads();
@@ -144,8 +144,9 @@ const DOWNLOADS_SEARCH_TABS = new Set(["youtube", "galaxy", "bandcamp", "soulsee
 // v70: "Queue & history" has its own entry in the left menu; it lights up instead of Downloads on that tab.
 function syncDownloadsNav() {
   const view = downloadsView, onPage = state.screen === "downloads";
-  if (view.tab !== "queue") view.lastTab = view.tab;
-  $("#show-downloads")?.classList.toggle("active", onPage && view.tab !== "queue");
+  if (view.tab !== "queue" && view.tab !== "upload") view.lastTab = view.tab;
+  $("#show-downloads")?.classList.toggle("active", onPage && view.tab !== "queue" && view.tab !== "upload");
+  $("#show-upload")?.classList.toggle("active", onPage && view.tab === "upload");
   $("#show-dl-queue")?.classList.toggle("active", onPage && view.tab === "queue");
   const count = $("#dl-queue-count");
   if (count) {
@@ -159,7 +160,7 @@ function renderDownloads() {
   syncDownloadsNav();
   $("#downloads-page")?.classList.toggle("dl-queue-last", DOWNLOADS_SEARCH_TABS.has(view.tab));
   $("#downloads-tabs").innerHTML = downloadsTabsHtml();
-  const body = {youtube: youtubeHtml, galaxy: galaxyHtml, bandcamp: bandcampHtml, soulseek: soulseekHtml, more: moreHtml, discography: discographyHtml, labels: labelsHtml, missing: missingHtml, tagclean: tagcleanHtml, check: downloadsCheckHtml, pagelist: pagelistHtml, decide: downloadsDecideHtml, queue: downloadsQueueHtml, settings: downloadsSettingsHtml}[view.tab]();
+  const body = {youtube: youtubeHtml, galaxy: galaxyHtml, bandcamp: bandcampHtml, soulseek: soulseekHtml, more: moreHtml, discography: discographyHtml, labels: labelsHtml, missing: missingHtml, tagclean: tagcleanHtml, upload: uploaderHtml, check: downloadsCheckHtml, pagelist: pagelistHtml, decide: downloadsDecideHtml, queue: downloadsQueueHtml, settings: downloadsSettingsHtml}[view.tab]();
   $("#downloads-content").innerHTML = downloadsCollapsify(body, downloadsTabs.find(([k]) => k === view.tab)?.[1] || "List");
   // The download manager always sits at the top of the page (v54), whichever tab is open.
   downloadsManagerRender();
@@ -347,6 +348,7 @@ document.addEventListener("click", event => {
   const target = event.target;
   if (target.closest("#show-downloads")) { showDownloads(); return; }
   if (target.closest("#show-dl-queue")) { showDownloads("queue"); return; }
+  if (target.closest("#show-upload")) { showDownloads("upload"); return; }
   if (!target.closest("#downloads-page")) return;
   const tab = target.closest("[data-downloads-tab]");
   if (tab) {
@@ -545,3 +547,10 @@ document.addEventListener("click", async event => {
   downloadsView.queue = (await api("/api/downloads/queue")).queue;
   renderDownloads();
 });
+
+// v72: lines (or links) that were queued leave the paste box; the ones that failed or still wait for a choice stay.
+function dropQueuedLines(text, results) {
+  const done = (results || []).filter(r => r && r.ok && r.line).map(r => String(r.line).trim());
+  if (!done.length) return text;
+  return String(text || "").split("\n").filter(line => !done.some(d => line.trim() === d || (d.startsWith("http") && line.includes(d)))).join("\n");
+}

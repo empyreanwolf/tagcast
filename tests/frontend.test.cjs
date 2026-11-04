@@ -11231,3 +11231,66 @@ test("v70: Keep separate sends the unticked names against the ticked ones and th
   p.run('artistCleanupView.merge.filter = "ignored"');
   assert.match(p.run("separateListHtml(false)"), /Air<\/span> ≠ <span class="ac-name">艾热 AIR/);
 });
+
+test("v72: queued links leave the paste box, failed ones stay", async () => {
+  const p = page(); await settle();
+  const out = p.run(`dropQueuedLines("https://youtu.be/a\\nhttps://youtu.be/b\\nColdplay - Yellow", [
+    {line: "https://youtu.be/a", ok: true}, {line: "https://youtu.be/b", ok: false, note: "no"}, {line: "Coldplay - Yellow", ok: true}])`);
+  assert.equal(out, "https://youtu.be/b");
+});
+
+test("v72: Missing rows copy title, artist, album or all", async () => {
+  const p = page(); await settle();
+  const html = p.run(`missingCopyHtml("Shadow", "派克特 PACT", "Rise Of Babel")`);
+  assert.match(html, /data-dl-copy="Shadow"[^>]*>Title/);
+  assert.match(html, /data-dl-copy="派克特 PACT"[^>]*>Artist/);
+  assert.match(html, /data-dl-copy="Rise Of Babel"[^>]*>Album/);
+  assert.match(html, /data-dl-copy="派克特 PACT - Shadow \(Rise Of Babel\)"[^>]*>All/);
+});
+
+test("v72: the cover spins only while a song plays and the setting can turn it off", async () => {
+  const p = page(); await settle();
+  assert.match(p.run("spinDiscSettings()"), /id="spin-disc-enabled" checked/);
+  p.run("spinDisc.enabled = false");
+  assert.doesNotMatch(p.run("spinDiscSettings()"), /spin-disc-enabled" checked/);
+});
+
+test("v72: the Upload grid filters by created date, hides uploaded files and keeps edits pending", async () => {
+  const p = page(); await settle();
+  const now = Date.now() / 1000;
+  p.run(`uploaderView.data = {settings: {folder: "C:\\\\Music", genres: ["Underground Hip Hop", "Chinese Hip Hop"]}, genres: ["Underground Hip Hop", "Chinese Hip Hop", "Rock"], failed: [], progress: null, connected: true, last_upload: ${now - 3600},
+    rows: [
+      {id: "a", name: "new.mp3", folder: "", title: "New", artist: "A", album_artist: "A", album: "X", track_no: 1, disc: 1, year: "2026", genre: "", has_cover: true, format: "mp3", size: 2000000, created: ${now - 60}, uploaded: 0, editable: true},
+      {id: "b", name: "old.mp3", folder: "", title: "Old", artist: "B", album_artist: "B", album: "Y", track_no: 2, disc: 1, year: "2010", genre: "Rock", has_cover: false, format: "mp3", size: 3000000, created: ${now - 40 * 86400}, uploaded: 0, editable: true},
+      {id: "c", name: "done.mp3", folder: "", title: "Done", artist: "C", album_artist: "C", album: "Z", track_no: 1, disc: 1, year: "2020", genre: "", has_cover: true, format: "mp3", size: 1000000, created: ${now - 60}, uploaded: ${now - 30}, editable: true}]}`);
+  const names = () => JSON.parse(p.run("JSON.stringify(uploaderRows().map(r => r.id))"));
+  assert.deepEqual(names().sort(), ["a", "b"], "uploaded files are hidden by default");
+  p.run('uploaderView.showUploaded = true');
+  assert.deepEqual(names().sort(), ["a", "b", "c"]);
+  p.run('uploaderView.showUploaded = false; uploaderView.dates = "week"');
+  assert.deepEqual(names(), ["a"], "last 7 days keeps only the newly created file");
+  p.run('uploaderView.dates = "since"');
+  assert.deepEqual(names(), ["a"], "since the last upload");
+  p.run('uploaderView.dates = "all"; uploaderStage("a", {genre: "Chinese Hip Hop", title: "New"})');
+  assert.deepEqual(JSON.parse(p.run('JSON.stringify([...uploaderView.edits])')), [["a", {genre: "Chinese Hip Hop"}]], "unchanged fields are not edits");
+  const html = p.run("uploaderHtml()");
+  assert.match(html, /Save \(1\)/);
+  assert.match(html, /upl-pending/);
+  assert.match(html, /Show uploaded \(1\)/);
+  assert.match(html, /Created today|Since last upload/);
+  assert.equal(p.run('uploaderCase("hello WORLD of the rings", "title")'), "Hello World Of The Rings");
+  assert.deepEqual(JSON.parse(p.run('JSON.stringify(uploaderFromName("Air - Shadow.mp3", "%artist% - %title%"))')), {artist: "Air", title: "Shadow"});
+});
+
+test("v72: a flagged duplicate blocks the upload until you choose, and Skip all duplicates never uploads them", async () => {
+  const p = page(); await settle();
+  p.run(`uploaderView.data = {settings: {folder: "", genres: []}, genres: [], failed: [], progress: null, connected: true, last_upload: 0,
+    rows: [{id: "a", name: "a.mp3", folder: "", title: "Powdered Water", artist: "Antiheroes", album_artist: "", album: "", track_no: 0, disc: 0, year: "", genre: "", has_cover: false, format: "mp3", size: 1000, created: 1, uploaded: 0, editable: true}]};
+    uploaderView.sel = new Set(["a"]); uploaderView.dupes = {a: [{where: "ibroadcast", title: "Powdered Water", artist: "Antiheroes", album: "Blue", how: "same"}]};`);
+  assert.match(p.run("uploaderHtml()"), /<button type="button" class="button primary" data-uploader="upload" disabled/);
+  assert.match(p.run("uploaderHtml()"), /Decide the flagged duplicates|Choose Skip or Upload anyway/);
+  p.run('uploaderView.decisions.set("a", "upload"); uploaderView.open = new Set(["a"])');
+  const html = p.run("uploaderHtml()");
+  assert.doesNotMatch(html, /data-uploader="upload" disabled/);
+  assert.match(html, /In iBroadcast[\s\S]*same title/);
+});

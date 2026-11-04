@@ -1309,3 +1309,30 @@ th.sortable-th .sort-arrow{font-size:calc(10px*var(--ts));color:var(--accent,cur
 /* v65: search first, queue after, on the search tabs of Downloads */
 #downloads-page.dl-queue-last:not([hidden]){display:flex;flex-direction:column}
 #downloads-page.dl-queue-last #dl-queue-box{order:10;margin-top:24px}
+.missing-copy{font-size:12px;color:var(--muted)}
+/* v72: spinning disc */
+@keyframes disc-turn{to{transform:rotate(360deg)}}
+.player-stage .visual-player-cover.disc-on{border-radius:50%;overflow:hidden;animation:disc-turn 14s linear infinite;animation-play-state:paused}
+.player-stage .visual-player-cover.disc-on img{object-fit:cover}
+.player-stage .visual-player-cover.disc-on::after,.player-cover-button.disc-on::after{content:"";position:absolute;left:50%;top:50%;width:14%;height:14%;transform:translate(-50%,-50%);border-radius:50%;background:var(--bg,#fff);box-shadow:0 0 0 3px #0003 inset;pointer-events:none}
+.player-cover-button.disc-on{position:relative;animation:disc-turn 8s linear infinite;animation-play-state:paused;border-radius:50%;overflow:hidden}
+.player-cover-button.disc-on img{border-radius:50%}
+.disc-playing{animation-play-state:running!important}
+@media(prefers-reduced-motion:reduce){.disc-on{animation:none!important}}
+/* v72: Upload page */
+.upl-scroll{overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:8px}
+.upl-grid{border-collapse:collapse;width:100%;font-size:13px;white-space:nowrap}
+.upl-grid th,.upl-grid td{padding:4px 8px;border-bottom:1px solid var(--line);text-align:left}
+.upl-grid thead th{position:sticky;top:0;background:var(--panel,var(--bg));z-index:1}
+.upl-grid td[data-uploader-cell]{cursor:cell;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.upl-grid td input[data-uploader-input]{width:100%;min-width:120px}
+.upl-sel{background:color-mix(in srgb,var(--accent,#3b82f6) 14%,transparent)}
+.upl-done{opacity:.6}
+.upl-pending{background:color-mix(in srgb,#f5c542 35%,transparent)}
+.upl-compare td{background:color-mix(in srgb,#f5c542 10%,transparent);white-space:normal}
+.upl-side{display:flex;flex-wrap:wrap;gap:16px;margin:6px 0}
+.upl-side>div{min-width:200px}
+.upl-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+.upl-fields label{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted)}
+.upl-genres{margin:6px 0;padding-left:22px}
+.upl-bar,.upl-filters{margin-top:8px}

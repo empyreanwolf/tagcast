@@ -258,7 +258,9 @@ class TagClean:
             library, _ = self.studio._library()
         except Exception:
             return []
-        return [g["label"] for g in library.genre_labels()]
+        labels = [g["label"] for g in library.genre_labels()]
+        uploader = getattr(self.studio, "uploader", None)  # v72: your own genre list (Settings > Genres) comes first
+        return uploader.ordered_genres(labels) if uploader else labels
 
     def _fill_albums(self):
         """Rows saved before v70 have no album: read it once from the file (or the library) so they group by album."""

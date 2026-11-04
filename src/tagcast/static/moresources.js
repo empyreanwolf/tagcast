@@ -124,6 +124,7 @@ document.addEventListener("click", async event => {
   else if (action === "links") {
     v.lines = $("#more-lines")?.value || "";
     v.linkResults = await moreLinks(v.lines);
+    v.lines = dropQueuedLines(v.lines, v.linkResults);  // v72: queued links leave the box, failed ones stay
     renderDownloads();
   }
 });
@@ -135,5 +136,6 @@ document.addEventListener("click", async event => {
   if (!row || v.linkBusy) return;
   const [result] = await moreLinks(row.line, pick.dataset.morePick);
   if (result) v.linkResults[i] = result;
+  if (result?.ok) v.lines = dropQueuedLines(v.lines, [result]);
   renderDownloads();
 });

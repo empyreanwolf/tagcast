@@ -326,6 +326,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._cover(query)
         elif url.path == "/api/complete":
             self._run(self.studio.completion.view)
+        elif url.path == "/api/uploader":
+            self._run(self.studio.uploader.view)
         elif url.path == "/api/tagclean":
             self._run(self.studio.tagclean.view)
         elif url.path == "/api/charts":
@@ -429,6 +431,19 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/bandcamp/add": lambda b: self.studio.bandcamp.add(b.get("url"), b.get("nums")),
             "/api/complete/scan": lambda b: self.studio.completion.scan(),
             "/api/complete/tracks": lambda b: self.studio.completion.missing_tracks(b.get("key")),
+            "/api/uploader/scan": lambda b: self.studio.uploader.scan(b.get("folder")),
+            "/api/uploader/settings": lambda b: self.studio.uploader.save_settings(b),
+            "/api/uploader/save": lambda b: self.studio.uploader.save(b),
+            "/api/uploader/undo": lambda b: self.studio.uploader.undo(b),
+            "/api/uploader/cover": lambda b: self.studio.uploader.copy_cover(b),
+            "/api/uploader/rename": lambda b: self.studio.uploader.rename(b),
+            "/api/uploader/split": lambda b: self.studio.uploader.split(b),
+            "/api/uploader/duplicates": lambda b: self.studio.uploader.duplicates(b),
+            "/api/uploader/artists": lambda b: self.studio.uploader.artist_suggestions(b),
+            "/api/uploader/upload": lambda b: self.studio.uploader.upload(b),
+            "/api/uploader/retry": lambda b: self.studio.uploader.retry_failed(b),
+            "/api/uploader/remove-failed": lambda b: self.studio.uploader.remove_failed(b),
+            "/api/uploader/reveal": lambda b: self.studio.uploader.reveal(b),
             "/api/tagclean/scan": lambda b: self.studio.tagclean.scan(b.get("scope"), b.get("path") or ""),
             "/api/tagclean/settings": lambda b: self.studio.tagclean.save_settings(b),
             "/api/tagclean/apply-artists": lambda b: self.studio.tagclean.apply_artists(b.get("ids")),
@@ -723,7 +738,7 @@ QUIET_ROUTES = {"/api/queue-sync", "/api/galaxy/cards", "/api/galaxy/album-years
                 "/api/album-information", "/api/playlist-import/view", "/api/lyrics/review", "/api/lyrics/display"}
 _ROUTE_CATEGORIES = [
     (("/api/galaxy", "/api/bandcamp", "/api/soulseek", "/api/youtube", "/api/more", "/api/labels", "/api/spotify", "/api/downloads", "/api/discography", "/api/wishlist",
-      "/api/complete", "/api/charts", "/api/recommendations", "/api/releases", "/api/digest"), "downloads"),
+      "/api/complete", "/api/charts", "/api/recommendations", "/api/releases", "/api/digest", "/api/uploader"), "downloads"),
     (("/api/save", "/api/artwork", "/api/tags", "/api/lyrics", "/api/tagclean", "/api/trash", "/api/album-rating",
       "/api/artist-rating", "/api/favourite", "/api/album-favourite", "/api/artist-favourite", "/api/playlist",
       "/api/metadata-export"), "metadata"),

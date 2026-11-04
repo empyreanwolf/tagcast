@@ -115,6 +115,40 @@ def same_words(video, artist, title):
     return len(wanted) >= 2 and wanted <= have and len(have - wanted) <= 2
 
 
+HAS_CJK = re.compile(r"[\u3400-\u9fff]")
+
+
+def artist_parts(artist):
+    """v72: the spellings of one artist name, as written: "PACT派克特" gives ["PACT", "派克特"] (plus the whole name)."""
+    value = re.sub(r"[（）()【】\[\]]", " ", match.clean(artist))
+    parts = [p for p in match.chunks(value) if p]
+    out = []
+    for part in [match.clean(artist), *parts]:
+        if len(re.sub(r"\W", "", part)) >= (1 if HAS_CJK.search(part) and len(part) > 1 else 2) and part not in out:
+            out.append(part)
+    return out
+
+
+def mentions(text, artist):
+    """v72: the text names the artist by any of its parts, in any order. Latin parts must be whole words, so
+    "Pact" is not found inside "ImPact"."""
+    folded = match.match_key(text)
+    for part in artist_parts(artist):
+        key = match.match_key(part)
+        if key and (key in folded if HAS_CJK.search(key) else has_word(text, " ".join(_words(part)))):
+            return True
+    return False
+
+
+def clean_video(video):
+    """v72: a video title without what is not the song: 【album】, a track number in front, "Feat. …"."""
+    value = re.sub(r"【[^】]*】|\[[^\]]*\]", " ", str(video or ""))
+    value = re.sub(r"(?i)[\(（]\s*(feat\.?|ft\.?|featuring|with)\b[^\)）]*[\)）]", " ", value)
+    value = re.sub(r"(?i)\s+(feat\.?|ft\.?|featuring)\s+.*$", " ", value)
+    value = re.sub(r"^\s*\d{1,2}\s*[.\-–_)]?\s+", "", value.strip())
+    return " ".join(value.split())
+
+
 def score_video(entry, artist, title, want_seconds=0):
     """How well one search result is the official audio of this song: 0 means not usable."""
     video = str(entry.get("title") or "")
@@ -128,19 +162,23 @@ def score_video(entry, artist, title, want_seconds=0):
         if has_word(video, word) and not has_word(title, word):
             return 0.0
     topic = fold(channel).endswith(" topic") and match.match_key(channel[: -len(" - Topic")]) == match.match_key(artist)
+    in_title = mentions(video, artist)
     named = bool(match.match_key(artist)) and (match.match_key(artist) in match.match_key(channel) or
-                                                match.match_key(artist) in match.match_key(video))
+                                                match.match_key(artist) in match.match_key(video) or
+                                                mentions(channel, artist) or in_title)
     if not (topic or named):
         return 0.0
-    # "Artist - Title (Official Audio)": compare the title part only.
-    cleaned = re.sub(r"(?i)\(?\[?\s*(official\s*)?(audio|video|music video|lyric video|lyrics|visualizer|hd|4k)\s*\)?\]?", " ", video)
-    for part in (artist, ):
+    # "Artist - Title (Official Audio)": compare the title part only. v72: 【album】, a track number and
+    # "Feat. …" are not part of the title, and the artist may be written in any of its parts.
+    cleaned = re.sub(r"(?i)\(?\[?\s*(official\s*)?(audio|video|music video|lyric video|lyrics|visualizer|hd|4k)\s*\)?\]?", " ", clean_video(video))
+    for part in artist_parts(artist):
         cleaned = re.sub(re.escape(part), " ", cleaned, flags=re.IGNORECASE)
     cleaned = cleaned.replace("-", " ").replace("–", " ").replace("|", " ")
+    cleaned = re.sub(r"^\s*\d{1,2}\s*[.\-–_)]?\s+(?=\D)", "", " ".join(cleaned.split()))  # "01 INTRO" after the artist
     wanted = plain_title(title)
     ratio = max(sim(plain_title(cleaned), wanted), sim(cleaned, title), 1.0 if has_word(video, " ".join(_words(wanted))) and wanted else 0.0,
                 0.85 if same_words(video, artist, title) else 0.0)
-    if ratio < 0.8:
+    if ratio < (0.75 if in_title else 0.8):  # a title that names the artist may differ a little
         return 0.0
     return ratio + (1.0 if topic else 0.0) + (0.5 if match.match_key(channel) == match.match_key(artist) else 0.0)
 
@@ -338,7 +376,16 @@ class YouTube(YtdlpWorker):
     def find_song(self, artist, title, seconds=0):
         entries = self._search(f"{artist} {title}")
         self._last_entries = entries
-        return best_video(entries, artist, title, seconds)
+        found = best_video(entries, artist, title, seconds)
+        parts = artist_parts(artist)
+        for part in parts[1:] if not found else []:  # v72: "PACT派克特": search each name part on its own
+            more = [e for e in self._try(f"{part} {title}") if e.get("id") not in {x.get("id") for x in entries}]
+            entries = entries + more
+            self._last_entries = entries
+            found = best_video(entries, artist, title, seconds)
+            if found:
+                break
+        return found
 
     def closest(self, artist, title):
         """The result of the last search that comes nearest, for "⬇ Use this one" when nothing fit (v70)."""
@@ -349,7 +396,9 @@ class YouTube(YtdlpWorker):
             if not entry.get("id") or not video or (seconds and not MIN_SECONDS <= seconds <= MAX_SECONDS):
                 continue
             score = max(sim(video, f"{artist} {title}"), sim(video, f"{artist} - {title}"))
-            if match.match_key(artist) and match.match_key(artist) in match.match_key(f"{video} {self._who(entry)}"):
+            score = max(score, sim(clean_video(video), f"{artist} {title}"), sim(clean_video(video), title))
+            if (match.match_key(artist) and match.match_key(artist) in match.match_key(f"{video} {self._who(entry)}")) \
+                    or mentions(f"{video} {self._who(entry)}", artist):
                 score += 0.3
             if score > top:
                 best, top = entry, score
@@ -389,11 +438,44 @@ class YouTube(YtdlpWorker):
             songs = self._album_from(entry, artist, album, need_artist=False)
             if songs:
                 return {"title": album, "artist": artist, "tracks": songs}
-        for entry in self._try(f"{artist} {album} album", playlists=True)[:6]:
+        results = self._try(f"{artist} {album} album", playlists=True)[:6]
+        for entry in results:
             songs = self._album_from(entry, artist, album, need_artist=True)
             if songs:
                 return {"title": album, "artist": artist, "tracks": songs}
+        for part in artist_parts(artist)[1:]:  # v72: the other spelling of the name finds playlists too
+            more = self._try(f"{part} {album}", playlists=True)[:6]
+            results += [e for e in more if e not in results]
+        for entry in results:
+            songs = self._loose_album(entry, artist, album)
+            if songs:
+                return {"title": album, "artist": artist, "tracks": songs}
         return None
+
+    def _loose_album(self, entry, artist, album):
+        """v72: an album playlist whose name or channel is not the artist's: the album's words are in its name, and
+        the artist is in the playlist name or in most of its videos ("PACT派克特【… / ImPact 0.5 - Rise Of Babel】")."""
+        name = str(entry.get("title") or "")
+        wanted = {w for w in _words(plain_title(album)) if w not in NOISE_WORDS}
+        have = set(_words(name))
+        if not wanted or not (wanted <= have or sim(plain_title(name), plain_title(album)) >= 0.9):
+            return None
+        songs = [e for e in self._search_playlist(entry) if e.get("id") and e.get("title")]
+        if not 2 <= len(songs) <= 60:
+            return None
+        if not mentions(name, artist) and sum(1 for e in songs if mentions(f"{e.get('title')} {self._who(e)}", artist)) * 2 < len(songs):
+            return None
+        for e in songs:  # the track title is what is left of the video title
+            e["title"] = self._track_name(e.get("title"), artist) or e["title"]
+        return songs
+
+    @staticmethod
+    def _track_name(video, artist):
+        value = clean_video(video)
+        for part in artist_parts(artist):
+            value = re.sub(re.escape(part), " ", value, flags=re.IGNORECASE)
+        value = re.sub(r"^\s*\d{1,2}\s*[.\-–_)]?\s+", "", " ".join(value.replace("–", " ").split()).lstrip("-– "))
+        return " ".join(value.split(" - ")[-1].split())
 
     def _search_playlist(self, entry):
         url = entry.get("url") or entry.get("webpage_url") or (f"https://www.youtube.com/playlist?list={entry['id']}" if entry.get("id") else "")
