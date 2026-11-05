@@ -2,7 +2,12 @@
 
 // Optional experimental album playback. The ordinary URL player remains the fallback.
 const gaplessTrial = {enabled: false, origins: new WeakMap(), active: null, bypass: false, offset: 0, message: "Gapless playback ready", failures: new WeakMap()};
-try { gaplessTrial.enabled = localStorage.getItem("tagcast-gapless-test") === "on"; } catch { /* Local preference is optional. */ }
+try {
+  // Fork v80: gapless waits for the whole song to download before it plays (5+ s). Switched off once for everyone;
+  // turn it on again in Settings > Playback if you want it.
+  if (localStorage.getItem("tagcast-gapless-v80") !== "done") { localStorage.setItem("tagcast-gapless-v80", "done"); localStorage.setItem("tagcast-gapless-test", "off"); }
+  gaplessTrial.enabled = localStorage.getItem("tagcast-gapless-test") === "on";
+} catch { /* Local preference is optional. */ }
 // Only explicitly started, ordered album queues qualify; playlist/server rows never acquire this provenance.
 function gaplessAlbumQueue(entries, ordered) {
   if (!ordered) return;

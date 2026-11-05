@@ -770,3 +770,15 @@ class ForkV78LyricsTests(unittest.TestCase):
         result, calls = self.fetch(lambda params: hits[:2], {"title": "吻别", "artist": "张学友", "length": 260})
         self.assertEqual(result["status"], "missing")
         self.assertFalse([c for c in calls if c["types"] == "lyric"])
+
+
+class ForkV80StreamSessionTests(unittest.TestCase):
+    def test_the_stream_connection_is_reused_inside_a_thread_and_not_shared_across_threads(self):
+        import threading
+        from tagcast.client import _stream_session
+        first = _stream_session()
+        self.assertIs(first, _stream_session())
+        other = []
+        thread = threading.Thread(target=lambda: other.append(_stream_session()))
+        thread.start(); thread.join()
+        self.assertIsNot(first, other[0])

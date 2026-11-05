@@ -177,6 +177,19 @@ class UncertainWrite(ApiError):
     """A request may have been applied; never resend it without a fresh review."""
 
 
+_stream_local = threading.local()
+
+
+def _stream_session():
+    session = getattr(_stream_local, "session", None)
+    if session is None:
+        session = _stream_local.session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=2, pool_maxsize=4)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+    return session
+
+
 class StudioClient(ibroadcast.iBroadcast):
     """iBroadcast client that keeps server messages and refreshes tokens up front."""
 
@@ -383,8 +396,9 @@ class StudioClient(ibroadcast.iBroadcast):
             headers = {"User-Agent": self._user_agent}
             if range_header:
                 headers["Range"] = range_header
-            return requests.get(STREAM_URL + path, params=params, headers=headers,
-                                stream=True, timeout=TIMEOUT)
+            # Fork v80: one kept-alive connection per thread instead of a new TLS handshake for every song.
+            return _stream_session().get(STREAM_URL + path, params=params, headers=headers,
+                                         stream=True, timeout=TIMEOUT)
         try:
             return self._with_fresh_token(send)
         except requests.RequestException as error:

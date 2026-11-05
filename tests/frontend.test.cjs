@@ -16,6 +16,7 @@ const LEGACY_PAGE_SIZES = {"tagcast-artists-per-page": "24", "tagcast-favourite-
   "tagcast-recently-played-per-page": "50", "tagcast-guide-per-page": "24"};
 function page({hash = "", storage = {}, server = true, browserNavigator = {}, metadataClass, setupAudio, deferReady = false, freshPageSizes = false} = {}) {
   if (!("tagcast-look" in storage)) storage["tagcast-look"] = "classic";   // fork v76 tests turn Sonora on
+  if (!("tagcast-gapless-v80" in storage)) storage["tagcast-gapless-v80"] = "done";   // fork v80 resets gapless once
   if (!("tagcast-heart-playlist" in storage)) storage["tagcast-heart-playlist"] = "off";   // fork v53 tests turn it on
   if (!("tagcast-preload" in storage)) storage["tagcast-preload"] = "off";   // fork v50 tests turn it on
   if (!freshPageSizes && !("tagcast-page-size-v33" in storage)) {
@@ -11399,6 +11400,16 @@ test("fork v77: the device follows the album year, a forced choice wins, and no 
   assert.equal(ids.length, 20);
   assert.ok(ids.includes(pick(0, "album 7")) && ids.includes(pick("", "album 8")));
   assert.equal(pick(0, "album 7"), pick(0, "album 7"), "the same album always gets the same random device");
+});
+
+test("fork v80: gapless is switched off once for everyone, then the user's choice stays", async () => {
+  const storage = {"tagcast-gapless-test": "on"}; delete storage["tagcast-gapless-v80"];
+  const p = page({storage}); delete storage["tagcast-gapless-v80"]; storage["tagcast-gapless-test"] = "on";
+  const fresh = page({storage: {"tagcast-gapless-test": "on", "tagcast-gapless-v80": undefined}});
+  await settle();
+  assert.equal(fresh.run("gaplessTrial.enabled"), false);
+  const kept = page({storage: {"tagcast-gapless-test": "on", "tagcast-gapless-v80": "done"}}); await settle();
+  assert.equal(kept.run("gaplessTrial.enabled"), true);
 });
 
 // -- fork v78: rapper for hip hop, removed devices, visualizer, lyrics search ------------------
