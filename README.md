@@ -51,7 +51,7 @@ together, shuffle an album and browse albums in a stable random order.
 - **Keep track:** read-back checks distinguish confirmed saves from uncertain
   results; Change history records metadata outcomes and available artwork Undo.
 
-## This fork (v58): everything it adds
+## This fork (v79): everything it adds
 
 This is a personal fork of Tagcast 0.85.1 / 1.0 with extra features, run on Windows with
 `start-tagcast-fork.bat` (port 8913). The version shows in the UI as "fork vN". The full
@@ -91,6 +91,40 @@ change list per version is in [FORK.md](FORK.md).
 - **Complete my albums:** finds partly owned albums (gaps in track numbers, fewer songs than Deezer lists) and gets the rest.
 - **Soulseek safety:** SoulseekQt is refused in place of Sockseek; stalled jobs go yellow, then red, then hand over after 30 minutes.
 
+### Newer download sources and tools (v59 to v75)
+- **YouTube (yt-dlp), tried first:** an artist search shows Albums and Singles with tracks, one-click Download per release or
+  Download all; YouTube Music first, then plain YouTube, and a Galaxy fallback if neither has it. Links with a list wait for a
+  click (this song, or the whole album / playlist).
+- **More sources:** one SoundCloud search bar, SoundCloud and Audiomack links, Spotify links (spotDL), and SoundCloud Top Hip-hop & Rap on Charts.
+- **Labels:** type a record label (MusicBrainz) or paste its Bandcamp link; missing releases are marked and can be downloaded in one click.
+- **Discography** also uses Discogs (with a token) and NetEase for Chinese artist names; genre decisions ask Discogs, Apple,
+  QQ Music, then MusicBrainz.
+- **Split albums:** finds one album that was split into many by different album artists and merges it in one click.
+  **Swap artist/album** saves, and **Shift-click or drag** to select many albums at once.
+- **Upload page:** scan a folder into an Mp3tag-style grid (title, artist, album, year, genre, cover, created date) and upload.
+- **Update now & restart:** one button downloads the fork's newest version from GitHub and installs it over the folder; both PCs
+  can share the same choices. A debug report and a queue notification help when something breaks.
+
+### Look and players (v76 to v78)
+- **Sonora look** (Theme menu › Look, default): dark, glassy, Inter font, big rounded album art that glows on hover, a glass
+  player bar. **Classic** brings the old look back. Seven **accent colours** plus Auto, which follows the playing cover.
+- **Players that follow the music's age:** Now playing, the bottom bar and the Mini Player draw a device for the album's year,
+  with the cover on it, moving while a song plays: phonograph, gramophone, radio, jukebox, transistor, reel-to-reel, vinyl, car
+  radio, boombox, Walkman, cassette, MiniDisc, portable CD, CD, MP3 player, iPod, headphones, DJ decks and a festival stage.
+  **Hip hop albums get an animated rapper.** Theme menu › Player style forces one or turns it off; **How we listen** is a
+  timeline of every device. The device keeps to the left column beside the lyrics.
+- **Visualizer (Butterchurn / Milkdrop):** Theme menu › Visualizer. Show it instead of the player picture (also beside the
+  lyrics), as a full-page Now playing background, or behind the whole site; Now playing has Visualizer, Lock and Next look
+  buttons, the Mini Player has its own button, and the look changes every 30 seconds unless locked. Loaded from a CDN on first use.
+
+### Lyrics (v69, v78, v79)
+- **Now playing › Lyrics:** iBroadcast lyrics first, then Unison and LRCLIB online, with timed lines that follow the music.
+- **Better matching:** ignores a leading "Artist - ", Dirty / Clean / Explicit, "Da / The" slang and traditional vs simplified
+  Chinese, and allows a few seconds of length difference.
+- **Search lyrics…** lets you type another title and artist when nothing (or the wrong song) is found.
+- **Chinese lyrics:** GD Studio (NetEase) is the fallback after LRCLIB, checked against title, artist and song length.
+- **Galaxy downloads carry their lyrics:** timed lyrics are embedded in the file and saved as a `.lrc` file next to it.
+
 ### Discover
 - **Charts:** Chinese Rap (NetEase) and hip-hop charts, a Browse tab, and public Spotify playlists.
 - **Recommendations** (Deezer, no AI) and a **Daily Digest** pulling together new releases, wishlist finds, chart movement and
@@ -118,7 +152,8 @@ change list per version is in [FORK.md](FORK.md).
 - **200 per page** by default everywhere; Release year and Decades load faster; Sidebar entries can be shown or hidden in Settings.
 
 ### Listening
-- **One-click add:** ♫＋ on any track, album card or album page adds to your quick playlist; track rows show Queue, Next and Playlist buttons.
+- **Quick add:** track rows show Queue, Next and Playlist buttons (the ♫＋ one-click button has been hidden since v76).
+- **Favourites:** Play and Shuffle buttons play every favourite song as one queue.
 - **Heart also adds** the song to a playlist you choose.
 - **Pre-loads the next 2 songs**, optional **crossfade**, **resume last queue** after a restart.
 - **Queue:** drag or Alt+arrow to reorder, Clear with Undo, smart shuffle that keeps the same artist apart.
