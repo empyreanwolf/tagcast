@@ -123,8 +123,36 @@ async function readNativeDisplay(selection, entry) {
   const text = entry.data?.native_text || "";
   const lines = text.split(/\r?\n/);
   if (lines.length > 2000) throw Error("This iBroadcast text has too many lines for this view.");
+  const timed = playbackLyricsParseLrc(lines);
+  if (timed) return {status: "ready", source: "ibroadcast", timed: true, lines: timed};
   return {status: text.trim() ? "ready" : "missing", source: "ibroadcast", timed: false,
     lines: text.trim() ? lines.map(text => ({start: null, end: null, text})) : []};
+}
+
+// Fork v81: lyrics saved by "Find lyrics" are LRC text ("[01:23.45]words"); those follow the song. Plain text, or
+// text with too few time marks, stays a plain list. Returns null when the text is not timed.
+function playbackLyricsParseLrc(lines) {
+  const rows = [];
+  let stamped = 0;
+  for (const raw of lines) {
+    const match = /^((?:\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\])+)(.*)$/.exec(raw.trim());
+    if (!match) {
+      if (raw.trim() && !/^\[[a-z_]+:/i.test(raw.trim())) return null;  // an unmarked text line: not an LRC text
+      continue;
+    }
+    const content = match[2].trim();
+    for (const stamp of match[1].match(/\[[^\]]+\]/g)) {
+      const parts = /^\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]$/.exec(stamp);
+      if (!parts) continue;
+      const start = Number(parts[1]) * 60 + Number(parts[2]) + (parts[3] ? Number(parts[3]) / 10 ** parts[3].length : 0);
+      rows.push({start, end: null, text: content});
+      if (content) stamped++;
+    }
+  }
+  if (stamped < 2 || rows.length > 2000) return null;
+  rows.sort((a, b) => a.start - b.start);
+  rows.forEach((row, index) => { row.end = index + 1 < rows.length ? rows[index + 1].start : row.start + 8; });
+  return rows;
 }
 
 async function loadPlaybackLyrics(selection, entry, request, details) {

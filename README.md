@@ -149,6 +149,7 @@ change list per version is in [FORK.md](FORK.md).
 - **Uploaded today** filter on the Albums page.
 - **Saves run in the background:** the dialog closes at once, values show immediately, a Tasks pill shows progress, and a refused save can be reviewed again.
 - **Artist pictures** (Overview): fills missing album-artist images from a face in their covers, TheAudioDB, or a song cover.
+- **Find lyrics** (Overview): a slow background job that finds timed lyrics for every song without any (LRCLIB, then GD Studio), saves them to iBroadcast, and lists the unsure ones for you to pick. Pause, resume or stop any time.
 - **200 per page** by default everywhere; Release year and Decades load faster; Sidebar entries can be shown or hidden in Settings.
 
 ### Listening

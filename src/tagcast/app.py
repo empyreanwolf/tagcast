@@ -334,6 +334,10 @@ class Handler(SimpleHTTPRequestHandler):
             self._run(lambda: self.studio.artist_cleanup.search(query.get("q", "")))
         elif url.path == "/api/artist-pictures":
             self._run(self.studio.artist_pictures.status)
+        elif url.path == "/api/lyrics-job":
+            self._run(self.studio.lyrics_job.status)
+        elif url.path == "/api/lyrics-job/preview":
+            self._run(lambda: self.studio.lyrics_job.preview(query.get("track_id", ""), query.get("source", ""), query.get("lyric_id", "")))
         elif url.path == "/api/downloads":
             self._run(self.studio.download_manager.view)
         elif url.path == "/api/downloads/queue":
@@ -434,6 +438,12 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/artist-cleanup/separate": self.studio.artist_cleanup.keep_separate,
             "/api/artist-pictures/start": lambda b: self.studio.artist_pictures.start(),
             "/api/artist-pictures/stop": lambda b: self.studio.artist_pictures.stop(),
+            "/api/lyrics-job/start": lambda b: self.studio.lyrics_job.start(b.get("retry") is True),
+            "/api/lyrics-job/pause": lambda b: self.studio.lyrics_job.pause(),
+            "/api/lyrics-job/resume": lambda b: self.studio.lyrics_job.resume(),
+            "/api/lyrics-job/stop": lambda b: self.studio.lyrics_job.stop(),
+            "/api/lyrics-job/pick": lambda b: self.studio.lyrics_job.pick(str(b.get("track_id", "")), str(b.get("source", "")), str(b.get("lyric_id", ""))),
+            "/api/lyrics-job/dismiss": lambda b: self.studio.lyrics_job.dismiss(str(b.get("track_id", ""))),
             "/api/downloads/check": lambda b: self.studio.download_manager.check(
                 b.get("items"), b.get("lines"), b.get("kind", "song")),
             "/api/downloads/submit": lambda b: self.studio.download_manager.submit(b.get("items"), "manual"),
@@ -756,7 +766,8 @@ QUEUED_PATHS = {"/api/save", "/api/artwork", "/api/artwork/undo", "/api/trash", 
 # Successful requests that happen on their own (lookups while browsing, queue sync) are not
 # worth a line each; their failures still are.
 QUIET_ROUTES = {"/api/queue-sync", "/api/galaxy/cards", "/api/galaxy/album-years", "/api/artist-biography",
-                "/api/album-information", "/api/playlist-import/view", "/api/lyrics/review", "/api/lyrics/display"}
+                "/api/album-information", "/api/playlist-import/view", "/api/lyrics/review", "/api/lyrics/display",
+                "/api/lyrics-job"}
 _ROUTE_CATEGORIES = [
     (("/api/galaxy", "/api/bandcamp", "/api/soulseek", "/api/youtube", "/api/more", "/api/labels", "/api/spotify", "/api/downloads", "/api/discography", "/api/wishlist",
       "/api/complete", "/api/charts", "/api/recommendations", "/api/releases", "/api/digest", "/api/uploader"), "downloads"),

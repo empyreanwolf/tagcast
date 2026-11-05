@@ -187,8 +187,11 @@ const pdDevices = [
     <rect x="0" y="214" width="400" height="14" fill="#1d262b"/>
     ${Array.from({length: 11}, (_, i) => `<g class="a-bob" style="animation-delay:${((i * 0.23) % 1.4).toFixed(2)}s"><circle cx="${20 + i * 36}" cy="${262 - (i % 3) * 6}" r="13" fill="#05080a"/><rect x="${12 + i * 36}" y="${272 - (i % 3) * 6}" width="16" height="40" rx="8" fill="#05080a"/>${i % 2 ? `<line x1="${20 + i * 36}" y1="${274 - (i % 3) * 6}" x2="${28 + i * 36}" y2="${244 - (i % 3) * 6}" stroke="#05080a" stroke-width="5" stroke-linecap="round"/>` : ""}</g>`).join("")}`},
   {id: "rapper", name: "Rapper", era: "Hip hop albums", genre: true, body: (A) => `
-    <rect x="14" y="30" width="162" height="190" rx="8" fill="#1a2227" stroke="#33444c" stroke-width="2"/>${A.rect(24, 40, 142, 142, 6)}
-    <rect x="24" y="190" width="70" height="8" rx="4" fill="#e8eef0" opacity="0.8"/><rect x="24" y="204" width="46" height="6" rx="3" fill="#9aa6ab"/>
+    <g class="a-spin slow" style="transform-origin:112px 165px"><circle cx="112" cy="165" r="102" fill="#101417"/>
+    ${[94, 84, 74, 64, 54].map(r => `<circle cx="112" cy="165" r="${r}" fill="none" stroke="#1f272c"/>`).join("")}
+    <path d="M112 165 L112 63 A102 102 0 0 1 157 73 Z" fill="#fff" opacity="0.07"/><path d="M112 165 L112 267 A102 102 0 0 1 67 257 Z" fill="#fff" opacity="0.07"/>
+    ${A.circle(112, 165, 38)}<circle cx="112" cy="165" r="25" fill="none" stroke="#fff" stroke-opacity="0.35"/><circle cx="112" cy="165" r="4" fill="#080c0f"/></g>
+    <g transform="translate(48 45) scale(0.85)">
     <text class="a-bob" x="196" y="96" font-size="30" fill="#f0879e" font-family="sans-serif">♪</text><text class="a-bob" style="animation-delay:.7s" x="178" y="62" font-size="24" fill="#86d7ee" font-family="sans-serif">♫</text>
     <path d="M200 300 V236 Q200 192 270 192 Q340 192 340 236 V300 Z" fill="url(#F)" stroke="#33444c" stroke-width="2"/>
     <path d="M238 196 Q270 246 302 196" fill="none" stroke="#e2bb5e" stroke-width="5" stroke-linecap="round"/><circle cx="270" cy="236" r="9" fill="#e2bb5e" stroke="#8a6a22" stroke-width="2"/>
@@ -203,7 +206,7 @@ const pdDevices = [
     <path d="M226 226 Q186 214 200 176 Q208 160 236 160" fill="none" stroke="#2c3a41" stroke-width="22" stroke-linecap="round"/>
     <circle cx="238" cy="160" r="11" fill="#b97f58"/>
     <rect x="228" y="134" width="14" height="30" rx="7" fill="#cfd8dc" stroke="#6c7b82" stroke-width="2" transform="rotate(-18 235 150)"/><circle cx="244" cy="128" r="10" fill="#4a5a62" stroke="#cfd8dc" stroke-width="2"/>
-    <path class="a-pulse" d="M214 138 q-16 6 -4 22 M200 130 q-26 12 -8 40" fill="none" stroke="#f0879e" stroke-width="3" stroke-linecap="round"/>`},
+    <path class="a-pulse" d="M214 138 q-16 6 -4 22 M200 130 q-26 12 -8 40" fill="none" stroke="#f0879e" stroke-width="3" stroke-linecap="round"/></g>`},
 ];
 
 // The device an album gets: your forced choice, else a rapper for hip hop, else by year, else (no year) a steady

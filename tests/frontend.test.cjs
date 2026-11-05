@@ -9544,6 +9544,23 @@ test('fork v33: Artist pictures opens from Overview, not the sidebar, and return
   assert.equal(p.nodes.get('#overview-page').hidden, false);
 });
 
+test('fork v81: Find lyrics opens from Overview, and iBroadcast LRC lyrics are read as timed lines', async () => {
+  const html = readFileSync(path.join(staticDir, 'index.html'), 'utf8');
+  assert.match(html, /data-lyrics-job-back/);
+  assert.match(html, /<script src="lyrics-job\.js"/);
+  const p = page(); await settle();
+  assert.match(p.run('healthCard({health: {}})'), /data-lyrics-job-open/);
+  p.run('showLyricsJob()');
+  assert.equal(p.nodes.get('#lyrics-job-page').hidden, false);
+  assert.equal(p.nodes.get('#show-overview').classList.contains('active'), true);
+  p.run('showScreen("overview")');
+  assert.equal(p.nodes.get('#lyrics-job-page').hidden, true);
+  const timed = p.json('playbackLyricsParseLrc(["[00:01.50]hello","[01:05.25][02:00.00]world",""])');
+  assert.deepEqual(timed.map(l => [l.start, l.end, l.text]), [[1.5, 65.25, "hello"], [65.25, 120, "world"], [120, 128, "world"]]);
+  assert.equal(p.run('playbackLyricsParseLrc(["plain words","more words"])'), null);
+  assert.equal(p.run('playbackLyricsParseLrc(["[00:01.50]only one"])'), null);
+});
+
 test('fork v33: an album artist page lists every track of the artist on a Tracks tab', async () => {
   const p = page({storage: {"tagcast-artist-tab": "albums"}}); await settle();
   const artist = p.run('albumArtistEntries(state.albums[0])[0].name');

@@ -306,7 +306,7 @@ def _module_category(name):
         return "cleanup"
     if name in ("artist_pictures",):
         return "pictures"
-    if name in ("library", "client", "tags", "lyrics", "artwork", "collections"):
+    if name in ("library", "client", "tags", "lyrics", "lyrics_job", "artwork", "collections"):
         return "library" if name in ("library", "client") else "metadata"
     return "system"
 
