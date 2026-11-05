@@ -11379,3 +11379,53 @@ test("fork v76: accent colours are fixed or follow the cover, and unreadable cov
   assert.equal(p.run('sonoraHashColor("Abbey Road")'), p.run('sonoraHashColor("Abbey Road")'));
   assert.notEqual(p.run('sonoraHashColor("Abbey Road")'), p.run('sonoraHashColor("Dark Side")'));
 });
+
+// -- fork v77: player devices that follow the album's year ----------------------------------
+test("fork v77: the device follows the album year, a forced choice wins, and no year gives a steady random one", async () => {
+  const p = page({storage: {"tagcast-look": "classic"}}); await settle();
+  const pick = (year, seed = "a", choice = "auto") => p.run(`pdPick(${JSON.stringify(year)}, ${JSON.stringify(seed)}, ${JSON.stringify(choice)})`);
+  assert.equal(pick(1905), "phonograph");
+  assert.equal(pick(1935), "radio");
+  assert.equal(pick(1975), "carradio");
+  assert.equal(pick(1985), "walkman");
+  assert.equal(pick(2000), "cd");
+  assert.equal(pick(2025), "earbuds");
+  assert.equal(pick(1985, "a", "vinyl"), "vinyl", "a forced choice wins");
+  assert.equal(pick(1985, "a", "off"), "", "off means the plain cover");
+  const ids = p.json("pdDevices.map(d => d.id)");
+  assert.equal(ids.length, 20);
+  assert.ok(ids.includes(pick(0, "album 7")) && ids.includes(pick("", "album 8")));
+  assert.equal(pick(0, "album 7"), pick(0, "album 7"), "the same album always gets the same random device");
+});
+
+test("fork v77: every device draws with the cover, keeps its ids apart and shows the name", async () => {
+  const p = page({storage: {"tagcast-look": "classic"}}); await settle();
+  for (const id of p.json("pdDevices.map(d => d.id)")) {
+    const svg = p.run(`pdSvg(${JSON.stringify(id)}, 'https://x.test/a"b.jpg', "t1")`);
+    assert.match(svg, /^<svg class="pd pd-/, id);
+    assert.match(svg, /aria-label="[^"]+ playing this album"/, id);
+    assert.doesNotMatch(svg, /url\(#[gWBOMTFS]\)/, id + ": gradients get this svg's own ids");
+    assert.doesNotMatch(svg, /a"b/, id + ": the cover address is escaped");
+    const ids = [...svg.matchAll(/ id="([^"]+)"/g)].map(m => m[1]);
+    assert.equal(new Set(ids).size, ids.length, id + ": ids are unique");
+  }
+  assert.equal(p.run('pdSvg("nonsense")'), "");
+  assert.match(p.run('pdSvg("vinyl", "")'), /fill="url\(#pdg\)"/, "without a cover the shape gets the gradient");
+});
+
+test("fork v77: Player style is saved, forces a device for the playing song and Off brings the plain cover back", async () => {
+  const storage = {"tagcast-look": "classic"};
+  const p = page({storage}); await settle();
+  p.run('player.queue = [{id: "1", title: "Song", artist: "A", album: {id: "9", name: "Album", artist: "A", artwork: ""}, year: 1985}]; player.index = 0');
+  assert.equal(p.run("psCurrentDevice()"), "walkman");
+  p.run('psChoose("vinyl")');
+  assert.equal(storage["tagcast-player-style"], "vinyl");
+  assert.equal(p.run("psCurrentDevice()"), "vinyl");
+  p.run('psChoose("off")');
+  assert.equal(p.run("psCurrentDevice()"), "");
+  p.run('psChoose("bad value")');
+  assert.equal(p.run("psState.choice"), "auto");
+  assert.equal(p.run('psYearsText("walkman")'), "1985–1989");
+  assert.equal(p.run('psYearsText("earbuds")'), "2021 on");
+  assert.equal(p.run('psYearsText("phonograph")'), "before 1910");
+});

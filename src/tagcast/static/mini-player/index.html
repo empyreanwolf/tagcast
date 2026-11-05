@@ -8,7 +8,9 @@
   <link rel="stylesheet" href="../style.css">
   <link rel="stylesheet" href="../dark.css">
   <link rel="stylesheet" href="../palettes.css">
+  <link rel="stylesheet" href="../player-devices.css">
   <link rel="stylesheet" href="mini.css">
+  <script src="../player-devices.js" defer></script>
   <script src="view.js" defer></script>
 </head>
 <body class="mini-page">
@@ -17,6 +19,7 @@
       <div class="mini-cover">
         <svg class="mini-cover-placeholder" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13M9 9l12-2"/><ellipse cx="5.5" cy="18" rx="3.5" ry="3"/><ellipse cx="17.5" cy="16" rx="3.5" ry="3"/></svg>
         <img id="cover" alt="" hidden referrerpolicy="no-referrer">
+        <div id="device" class="mini-device" hidden></div>
       </div>
       <div class="mini-meta">
         <h1 id="title">Tagcast Mini Player</h1>

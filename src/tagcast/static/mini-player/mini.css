@@ -33,3 +33,6 @@
 @media(max-width:360px){.mini-shell{padding:12px;gap:8px}.mini-record{grid-template-columns:56px minmax(0,1fr) 32px;gap:8px;min-height:72px}.mini-cover{width:56px;height:56px}.mini-actions button{width:32px;height:32px}.mini-meta h1{font-size:15px}.mini-meta p{font-size:11px}.mini-meta #album{font-size:10px}.mini-progress{gap:8px}.mini-controls{grid-template-columns:1fr;gap:4px}}
 
 .mini-page button:focus-visible,.mini-page input:focus-visible{outline:2px solid var(--green);outline-offset:3px}
+
+.mini-device{position:absolute;inset:0;display:grid;place-items:center}.mini-device .pd{width:100%;height:100%}
+.mini-cover:has(.mini-device:not([hidden])){background:transparent;overflow:visible}.mini-cover:has(.mini-device:not([hidden])) .mini-cover-placeholder{display:none}

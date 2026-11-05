@@ -116,6 +116,11 @@
 :root[data-look="sonora"] .visual-player-info h2{font-weight:700;letter-spacing:-.03em}
 :root[data-look="sonora"] .now-playing-panel{background:rgba(8,12,14,.9);backdrop-filter:blur(22px);border-left:1px solid var(--sn-edge)}
 
+/* the spinning-disc cover stays round (Player style: Off) */
+:root[data-look="sonora"] .player-stage .visual-player-cover.disc-on{border-radius:50%}
+:root[data-look="sonora"] .player img{border-radius:10px}
+:root[data-look="sonora"] .player-cover-button.disc-on img{border-radius:50%}
+
 /* settings card for the look and accent */
 .sn-menu-colours{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 6px;margin-top:8px}.sn-menu-colours label:first-child{grid-column:1/-1}
 .sn-menu-colours label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}

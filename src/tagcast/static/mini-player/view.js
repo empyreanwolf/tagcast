@@ -3,9 +3,9 @@
 // Fork v69: in a browser the bridge comes from Tagcast's tab (mini-bridge.js): set on a
 // Picture-in-Picture window, or handed to a popup window through its opener.
 const bridge = window.tagcastMini || window.opener?.tagcastMiniBridge?.(window);
-const nodes = Object.fromEntries(["cover", "title", "artist", "album", "previous", "play", "next", "elapsed", "duration", "position", "status", "pin", "open"].map(id => [id, document.getElementById(id)]));
+const nodes = Object.fromEntries(["cover", "device", "title", "artist", "album", "previous", "play", "next", "elapsed", "duration", "position", "status", "pin", "open"].map(id => [id, document.getElementById(id)]));
 const miniColourRoles = ["brand-background", "brand-ink", "brand-paper", "sidebar", "accent", "shell-ink", "shell-muted", "shell-active", "shell-line", "ink", "muted", "paper", "line", "link", "surface", "soft", "tint", "focus", "primary", "primary-hover", "chart", "primary-ink"];
-let playback = null, draft = null, busy = false, cover = "", failure = "";
+let playback = null, draft = null, busy = false, cover = "", failure = "", deviceKey = "";
 function clock(value) {
   const n = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
   return `${n >= 3600 ? `${Math.floor(n/3600)}:${String(Math.floor(n/60)%60).padStart(2,"0")}` : Math.floor(n/60)}:${String(n%60).padStart(2,"0")}`;
@@ -36,6 +36,11 @@ function render() {
   // Do not repeatedly announce an unchanged status on every progress snapshot.
   miniText(nodes.status, failure || s?.status || "");
   if (cover !== (s?.cover || "")) { cover = s?.cover || ""; nodes.cover.hidden = !cover; if (cover) nodes.cover.src = cover; else nodes.cover.removeAttribute("src"); }
+  // Fork v77: the device that fits the album's year, with the cover on it, instead of the plain cover.
+  const device = typeof pdSvg === "function" ? s?.device || "" : "";
+  if (deviceKey !== `${device}|${cover}`) { deviceKey = `${device}|${cover}`; nodes.device.innerHTML = device ? pdSvg(device, cover, "pm") : ""; }
+  nodes.device.hidden = !device; nodes.cover.hidden = Boolean(device) || !cover;
+  nodes.device.classList.toggle("ps-playing", Boolean(device) && s?.paused === false);
 }
 async function send(action, value = playback, position) {
   if (!bridge || !value || busy) return;

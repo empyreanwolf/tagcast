@@ -17,7 +17,7 @@ function miniSnapshot() {
   return {document: miniOwner.document, sequence: ++miniOwner.sequence,
     entry: available ? `${player.epoch}:${miniIdentity(track)}` : "", segment: g ? miniIdentity(g.current || g) : `normal:${miniOwner.normal}`,
     title: available ? track.title : "Nothing playing", artist: available ? track.artist || track.album?.artist || "" : "Choose an album in Tagcast",
-    album: available ? track.album?.name || "" : "", cover: available ? track.album?.artwork || "" : "",
+    album: available ? track.album?.name || "" : "", device: available && typeof psCurrentDevice === "function" ? psCurrentDevice() : "", cover: available ? track.album?.artwork || "" : "",
     position: available && ready ? playerTrackPosition() : 0, duration: available && ready ? duration : 0,
     paused: g && !ready ? !g.autoPlay : audio.paused,
     controllable, seekable: controllable && ready && !state.loading && !audio.error && Number.isFinite(duration) && duration > 0,

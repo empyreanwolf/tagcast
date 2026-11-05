@@ -1,0 +1,28 @@
+/* Motion for the player devices (fork v77). Everything is paused until the song plays (.ps-playing on a parent). */
+.pd{display:block;width:100%;height:100%;overflow:visible}
+@keyframes pd-spin{to{transform:rotate(360deg)}}
+@keyframes pd-pulse{0%,100%{opacity:.3}50%{opacity:1}}
+@keyframes pd-throb{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
+@keyframes pd-eq{0%,100%{transform:scaleY(.2)}50%{transform:scaleY(1)}}
+@keyframes pd-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
+@keyframes pd-sweep{0%,100%{transform:rotate(-38deg)}50%{transform:rotate(38deg)}}
+@keyframes pd-slide{0%,100%{transform:translateX(0)}50%{transform:translateX(64px)}}
+@keyframes pd-grow{from{transform:scaleX(.04)}to{transform:scaleX(1)}}
+@keyframes pd-dash{to{stroke-dashoffset:-48}}
+.pd .a-spin{animation:pd-spin 5s linear infinite}
+.pd .a-spin.slow{animation-duration:9s}
+.pd .a-spin.fast{animation-duration:2.6s}
+.pd .a-pulse{animation:pd-pulse 1.6s ease-in-out infinite}
+.pd .a-throb{animation:pd-throb .7s ease-in-out infinite}
+.pd .a-wave{animation:pd-pulse 1.1s ease-in-out infinite}
+.pd .a-eq{transform-box:fill-box;transform-origin:50% 100%;animation:pd-eq .9s ease-in-out infinite}
+.pd .a-bob{animation:pd-bob 2.6s ease-in-out infinite}
+.pd .a-sweep{animation:pd-sweep 5s ease-in-out infinite}
+.pd rect.a-sweep{animation-name:pd-slide}
+.pd .a-grow{animation:pd-grow 60s linear infinite}
+.pd .a-dash{animation:pd-dash 2s linear infinite}
+.pd .pd-arm{transform:rotate(-26deg);transition:transform .9s cubic-bezier(.3,.7,.2,1)}
+.ps-playing .pd .pd-arm{transform:rotate(0)}
+.pd [class^="a-"],.pd [class*=" a-"]{animation-play-state:paused}
+.ps-playing .pd [class^="a-"],.ps-playing .pd [class*=" a-"]{animation-play-state:running}
+@media (prefers-reduced-motion:reduce){.pd [class^="a-"],.pd [class*=" a-"]{animation:none!important}.pd .pd-arm{transition:none}}

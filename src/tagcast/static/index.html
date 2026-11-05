@@ -10,6 +10,8 @@
   <link rel="stylesheet" href="dark.css">
   <link rel="stylesheet" href="palettes.css">
   <link rel="stylesheet" href="sonora.css">
+  <link rel="stylesheet" href="player-devices.css">
+  <link rel="stylesheet" href="player-styles.css">
   <link rel="stylesheet" href="gapless-controls.css">
   <link rel="stylesheet" href="playback-lyrics.css">
   <script>try { const theme = localStorage.getItem("tagcast-theme"); if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme; const palette = localStorage.getItem("tagcast-palette"); if (["ocean", "warm", "ibroadcast"].includes(palette)) document.documentElement.dataset.palette = palette; if (localStorage.getItem("tagcast-look") !== "classic") { document.documentElement.dataset.look = "sonora"; document.documentElement.dataset.theme = "dark"; } const size = localStorage.getItem("tagcast-text-size"); if (["small", "large", "xlarge"].includes(size)) document.documentElement.dataset.textSize = size; } catch { /* private window */ }</script>
@@ -79,6 +81,8 @@
   <script src="mini-player.js" defer></script>
   <script src="spin-disc.js" defer></script>
   <script src="sonora.js" defer></script>
+  <script src="player-devices.js" defer></script>
+  <script src="player-styles.js" defer></script>
   <script src="uploader.js" defer></script>
   <script src="sync-notify.js" defer></script>
   <script src="range-select.js" defer></script>
@@ -129,6 +133,7 @@
     <button class="nav" id="show-downloads"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v12M7 10l5 5 5-5M4 19h16"/></svg> Downloads</button>
     <button class="nav" id="show-dl-queue"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h11M4 12h11M4 18h7M18 14v7M15 18l3 3 3-3"/></svg> Queue &amp; history <b id="dl-queue-count" hidden></b></button>
     <button class="nav" id="show-upload"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21V9M7 14l5-5 5 5M4 5h16"/></svg> Upload</button>
+    <button class="nav" id="show-listen"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/><path d="M12 4v2.5M20 12h-2.5"/></svg> How we listen</button>
     <button class="nav" id="show-digest"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 4h16v4H4zM4 11h10M4 15h10M4 19h7"/></svg> Daily Digest</button>
     <button class="nav" id="show-charts"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 19V9M10 19V5M16 19v-7M20 19V3"/></svg> Charts</button>
     <button class="nav" id="show-overview"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/></svg> Overview</button>
