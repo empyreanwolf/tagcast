@@ -402,6 +402,12 @@ class GDApi:
             return {}
         return {"url": str(data.get("url") or "").strip(), "br": to_int(data.get("br"), 0), "size": to_float(data.get("size"))}
 
+    def lyric(self, source, lyric_id, low=True):
+        """The song's LRC text (timed lines) from the GD Studio lyric call, or ""."""
+        data = self._get({"types": "lyric", "source": source, "id": lyric_id}, low=low)
+        text = data.get("lyric") if isinstance(data, dict) else ""
+        return text if isinstance(text, str) else ""
+
     def pic(self, source, pic_id, size=500, low=False):
         data = self._get({"types": "pic", "source": source, "id": pic_id, "size": size}, low=low)
         return str(data.get("url") or "").strip() if isinstance(data, dict) else ""
@@ -604,7 +610,7 @@ def read_duration(path, fmt):
 
 
 def write_tags(path, fmt, *, title, artists, album_artist, album, track_no, track_total, year="", genre="", cover=None,
-               mb_track_id="", mb_release_id=""):
+               mb_track_id="", mb_release_id="", lyrics=""):
     """Fresh tags in the native format: ID3v2.4 for MP3, Vorbis comments for FLAC, MP4 atoms for M4A."""
     mime = image_mime(cover or b"")
     artists = list(artists) or ["Unknown Artist"]
@@ -631,6 +637,8 @@ def write_tags(path, fmt, *, title, artists, album_artist, album, track_no, trac
             t["MUSICBRAINZ_TRACKID"] = [mb_track_id]
         if mb_release_id:
             t["MUSICBRAINZ_ALBUMID"] = [mb_release_id]
+        if lyrics:
+            t["LYRICS"] = [lyrics]
         if mime:
             pic = Picture()
             pic.type, pic.mime, pic.desc, pic.data = 3, mime, "Cover", cover
@@ -655,11 +663,13 @@ def write_tags(path, fmt, *, title, artists, album_artist, album, track_no, trac
             t["----:com.apple.iTunes:MusicBrainz Track Id"] = [MP4FreeForm(mb_track_id.encode("utf-8"))]
         if mb_release_id:
             t["----:com.apple.iTunes:MusicBrainz Album Id"] = [MP4FreeForm(mb_release_id.encode("utf-8"))]
+        if lyrics:
+            t["\xa9lyr"] = [lyrics]
         if mime:
             t["covr"] = [MP4Cover(cover, imageformat=MP4Cover.FORMAT_JPEG if mime == "image/jpeg" else MP4Cover.FORMAT_PNG)]
         audio.save()
     else:
-        from mutagen.id3 import APIC, ID3, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK, TXXX, UFID
+        from mutagen.id3 import APIC, ID3, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK, TXXX, UFID, USLT
         tags = ID3()  # a fresh tag replaces whatever the source embedded
         tags.add(TIT2(encoding=3, text=[title]))
         tags.add(TPE1(encoding=3, text=artists))
@@ -677,6 +687,8 @@ def write_tags(path, fmt, *, title, artists, album_artist, album, track_no, trac
             tags.add(UFID(owner="http://musicbrainz.org", data=mb_track_id.encode("ascii", "ignore")))
         if mb_release_id:
             tags.add(TXXX(encoding=3, desc="MusicBrainz Album Id", text=[mb_release_id]))
+        if lyrics:
+            tags.add(USLT(encoding=3, lang="XXX", desc="", text=lyrics))
         if mime:
             tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=cover))
         tags.save(str(path), v2_version=4, v1=0)
@@ -942,6 +954,7 @@ class Galaxy:
             artist = str(album_artist or (artists or ["Unknown Artist"])[0])
             payload = {"id": str(t["id"]), "source": source, "artists": artists, "album": str(t.get("album") or ""),
                        "album_artist": artist, "pic_id": str(t.get("pic_id") or ""),
+                       "lyric_id": str(t.get("lyric_id") or ""),
                        "track_no": to_int(t.get("track_no"), 0) or None, "track_total": to_int(total, 0) or None,
                        "fixed_numbering": bool(t.get("track_no"))}
             items.append({"kind": "song", "title": str(t["title"]), "artist": (artists or [""])[0],
@@ -1103,13 +1116,19 @@ class Galaxy:
         year, genre = (mbinfo or {}).get("year", ""), (mbinfo or {}).get("genre", "")
         self._step(jid, 3, "Fetching cover…")
         cover = self.fetch_cover(p)
+        lyrics = self.fetch_lyrics(link, p)
         self._step(jid, 3, {"flac": "Writing FLAC tags…", "m4a": "Writing M4A tags…"}.get(fmt, "Writing ID3v2.4…"))
         write_tags(part, fmt, title=job["title"], artists=p["artists"], album_artist=p["album_artist"],
                    album=p["album"], track_no=track_no, track_total=total, year=year, genre=genre, cover=cover,
-                   mb_track_id=(mbinfo or {}).get("recording_id", ""), mb_release_id=(mbinfo or {}).get("release_id", ""))
+                   mb_track_id=(mbinfo or {}).get("recording_id", ""), mb_release_id=(mbinfo or {}).get("release_id", ""), lyrics=lyrics)
         final = build_path(self.folder(), p["album_artist"], p["album"], track_no, job["title"], fmt)
         final.parent.mkdir(parents=True, exist_ok=True)
         os.replace(part, final)
+        if lyrics:  # fork v79: the same timed lyrics next to the song, as a .lrc file
+            try:
+                final.with_suffix(".lrc").write_text(lyrics, encoding="utf-8")
+            except OSError as e:
+                log.info("Could not save the .lrc file for %s: %s", final, e)
         for other in AUDIO_EXTS:  # a re-download in another format replaces the old copy
             if other != fmt:
                 try:
@@ -1264,6 +1283,22 @@ class Galaxy:
             raise JobFailed(f"Preview only ({real:.0f}s; MusicBrainz says {mins}:{secs:02d})")
         self.manager.update_item(jid, short_seconds=round(real))
         raise JobFailed(f"Maybe a preview ({real:.0f}s) - if it really is a short track, press Keep it")
+
+    def fetch_lyrics(self, link, p):
+        """Fork v79: the song's timed lyrics (credit lines removed), "" when there are none. Never fails a download."""
+        from .playback_lyrics import MAX_TEXT, gdstudio_clean_lrc
+        lyric_id = p.get("lyric_id") if link.get("source") == p.get("source") else ""
+        lyric_id = str(lyric_id or link.get("id") or p.get("id") or "")
+        try:
+            text = gdstudio_clean_lrc(self.api.lyric(link.get("source") or p["source"], lyric_id)).strip()
+        except (StopRequested, JobCancelled):
+            raise
+        except Exception as e:
+            log.info("Galaxy lyrics fetch failed: %s", e)
+            return ""
+        if not text or len(text) > MAX_TEXT or "\x00" in text or len(text.splitlines()) < 2:
+            return ""
+        return text + "\n"
 
     def fetch_cover(self, p, size=500):
         if not p.get("pic_id"):

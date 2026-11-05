@@ -522,3 +522,48 @@ class SameNamedSinglesTests(unittest.TestCase):
         self.assertEqual([t["artists"][0] for t in tracks], ["Ed Sheeran"])
         tracks, _ = fetch_album_exact(Api(), "netease", "I Don't Care", None)
         self.assertEqual(len(tracks), 1)
+
+
+class LyricsDownloadTests(unittest.TestCase):
+    """Fork v79: the downloaded song carries its timed lyrics (credit lines removed)."""
+
+    class Api:
+        def __init__(self, text=None, error=None):
+            self.text, self.error, self.calls = text, error, []
+
+        def lyric(self, source, lyric_id, low=True):
+            self.calls.append((source, lyric_id))
+            if self.error:
+                raise self.error
+            return self.text
+
+    def run_fetch(self, api, link, payload):
+        from types import SimpleNamespace
+        return Galaxy.fetch_lyrics(SimpleNamespace(api=api), link, payload)
+
+    def test_credit_lines_are_removed_and_the_lyric_id_is_used(self):
+        api = self.Api("[00:00.00] 作词 : A\n[00:36.1]前尘往事成云烟\n[00:39.0]消散在彼此眼前\n[04:57.09] 吉他 : B")
+        text = self.run_fetch(api, {"source": "netease", "id": "5"}, {"source": "netease", "id": "5", "lyric_id": "77"})
+        self.assertEqual(text, "[00:36.1]前尘往事成云烟\n[00:39.0]消散在彼此眼前\n")
+        self.assertEqual(api.calls, [("netease", "77")])
+
+    def test_another_source_uses_its_own_id_and_failures_or_empty_text_give_nothing(self):
+        api = self.Api("[00:01.0]a\n[00:02.0]b")
+        self.run_fetch(api, {"source": "joox", "id": "9"}, {"source": "netease", "id": "5", "lyric_id": "77"})
+        self.assertEqual(api.calls, [("joox", "9")])
+        self.assertEqual(self.run_fetch(self.Api(""), {"source": "netease", "id": "1"}, {"source": "netease", "id": "1"}), "")
+        self.assertEqual(self.run_fetch(self.Api("[00:01.0]one line"), {"source": "netease", "id": "1"}, {"source": "netease", "id": "1"}), "")
+        self.assertEqual(self.run_fetch(self.Api(error=RuntimeError("down")), {"source": "netease", "id": "1"}, {"source": "netease", "id": "1"}), "")
+
+    def test_lyrics_go_into_the_tags_of_every_format(self):
+        try:
+            from mutagen.id3 import ID3
+        except ImportError:
+            self.skipTest("mutagen is not installed")
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "a.mp3"
+            path.write_bytes(b"\xff\xfb\x90\x00" + b"\x00" * 400)
+            gx.write_tags(path, "mp3", title="T", artists=["A"], album_artist="A", album="B", track_no=1, track_total=1,
+                          lyrics="[00:01.0]hello\n")
+            self.assertIn("hello", ID3(str(path)).getall("USLT")[0].text)
