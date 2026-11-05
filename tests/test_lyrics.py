@@ -541,7 +541,7 @@ class LRCLIBTests(unittest.TestCase):
         hit = self.record(trackName='Song', artistName='Prince The Revolution', duration=200)
         self.assertEqual(self.fetch([(200, []), (200, [hit])], track)['status'], 'ready')
         self.assertEqual(self.session.get.call_args.kwargs['params'], {'track_name': 'Song', 'artist_name': 'Prince'})
-        for fields in ({'trackName': 'Song'}, {'artistName': 'Another'}, {'duration': 204}, {'duration': True}):
+        for fields in ({'trackName': 'Song'}, {'artistName': 'Another'}, {'duration': 209}, {'duration': True}):
             self.assertEqual(self.fetch([(200, [self.record(**fields)]), (404, {})])['status'], 'missing')
         unknown = {'title': 'Song (Live)', 'artist': 'Artist', 'length': 0}
         self.assertEqual(self.fetch([(200, [self.record(), self.record(duration=200)])], unknown)['status'], 'missing')

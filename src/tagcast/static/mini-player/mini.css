@@ -36,3 +36,12 @@
 
 .mini-device{position:absolute;inset:0;display:grid;place-items:center}.mini-device .pd{width:100%;height:100%}
 .mini-cover:has(.mini-device:not([hidden])){background:transparent;overflow:visible}.mini-cover:has(.mini-device:not([hidden])) .mini-cover-placeholder{display:none}
+
+/* Fork v78: visualizer behind the Mini Player */
+.mini-viz{display:none}
+.mini-viz-on .mini-viz{display:block;position:fixed;inset:0;width:100%;height:100%;z-index:-1}
+.mini-viz-on.mini-page{background:transparent}:root:has(.mini-viz-on){background:#05080a}
+.mini-viz-on .mini-shell{background:color-mix(in srgb,var(--paper) 42%,transparent);backdrop-filter:blur(6px)}
+.mini-actions #viz[aria-pressed=true]{color:var(--green);background:var(--palette-tint,var(--white));box-shadow:inset 0 0 0 1px var(--green)}
+.mini-record{grid-template-columns:76px minmax(0,1fr) auto}
+.mini-actions{grid-template-columns:repeat(2,32px)}.mini-actions button{width:32px;height:32px}

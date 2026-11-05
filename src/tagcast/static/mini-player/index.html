@@ -11,9 +11,11 @@
   <link rel="stylesheet" href="../player-devices.css">
   <link rel="stylesheet" href="mini.css">
   <script src="../player-devices.js" defer></script>
+  <script src="../visualizer-core.js" defer></script>
   <script src="view.js" defer></script>
 </head>
 <body class="mini-page">
+  <canvas id="viz-canvas" class="mini-viz" aria-hidden="true"></canvas>
   <main class="mini-shell" aria-label="Mini Player">
     <div class="mini-record">
       <div class="mini-cover">
@@ -27,6 +29,9 @@
         <p id="album"></p>
       </div>
       <div class="mini-actions" role="group" aria-label="Window controls">
+        <button id="viz" type="button" aria-label="Visualizer" aria-pressed="false" title="Visualizer behind the Mini Player">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18v-5M9 18V6M13 18V9M17 18v-8M21 18v-3"/></svg>
+        </button>
         <button id="pin" type="button" aria-label="Keep Mini Player on top" aria-pressed="false" title="Keep Mini Player on top">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 4 4v2H6v-2l4-4-1-6ZM12 15v6"/></svg>
         </button>

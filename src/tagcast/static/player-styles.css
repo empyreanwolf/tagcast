@@ -2,7 +2,11 @@
 :root[data-ps="on"] .player-stage .visual-player-cover{display:none}
 :root[data-ps="on"] #player-art{display:none}
 .ps-stage{flex:none;width:min(78vw,calc(100dvh - 360px),600px);aspect-ratio:4/3;position:relative}
-.ps-stage .ps-name{position:absolute;left:0;right:0;bottom:-26px;text-align:center;font-size:calc(12px*var(--ts));letter-spacing:.14em;text-transform:uppercase;opacity:.65}
+/* Beside the lyrics the device keeps to the left column (it used to spill over the lyrics), centred above the title. */
+.ps-stage{margin-inline:auto}
+.player-stage .lyrics-visible .ps-stage,.player-stage .lyrics-visible .bv-stage{grid-column:1;grid-row:1;width:100%;max-width:100%;justify-self:center}
+.player-stage .visual-player-info{text-align:center}
+.player-stage .lyrics-visible .visual-player-info{text-align:center}
 .ps-mini{display:none}
 :root[data-ps="on"] .ps-mini{display:block;width:62px;height:46px}
 :root[data-ps="on"] .player-cover-button{width:auto;height:auto;padding:0;border:0;background:none;overflow:visible}

@@ -4,7 +4,7 @@
 const playbackLyricsView = {mode: storedPlaybackLyricsMode(), open: storedPlaybackLyricsOpen(), key: "", request: 0,
   details: null, controller: null, timeout: null, cache: new Map(), data: null, active: -1,
   following: true, loading: false, frame: 0, lineNodes: [], wordNodes: [], highlighted: new Set(),
-  hasWords: false, coverBackground: storedCoverLyricsBackground()};
+  hasWords: false, coverBackground: storedCoverLyricsBackground(), manual: null};
 
 function storedCoverLyricsBackground() {
   try { return localStorage.getItem("tagcast-now-playing-cover-background") === "true"; }
@@ -77,8 +77,15 @@ function playbackLyricsCurrent(selection, request, details) {
     && lyricsKey(lyricsSelection(player.queue[player.index])) === lyricsKey(selection);
 }
 
+// Fork v78: "Search lyrics…" can look for other words than the tags; it only counts for the song it was typed for.
+function playbackLyricsManual(selection) {
+  const manual = playbackLyricsView.manual;
+  return manual && manual.key === lyricsKey(selection) ? manual : null;
+}
+
 function playbackLyricsPublicKey(selection) {
-  return lyricsKey([selection, lookup.sources.find(source => source.name === "lrclib")?.enabled !== false]);
+  const manual = playbackLyricsManual(selection);
+  return lyricsKey([selection, lookup.sources.find(source => source.name === "lrclib")?.enabled !== false, ...(manual ? [manual.title, manual.artist] : [])]);
 }
 
 async function readUnisonDisplay(selection, request, details) {
@@ -90,7 +97,8 @@ async function readUnisonDisplay(selection, request, details) {
     const response = await fetch("/api/lyrics/display", {method: "POST", signal: controller.signal,
       headers: {"Content-Type": "application/json", "X-Tagcast": "1"},
       body: JSON.stringify({...selection, enabled: true,
-        fallback_lrclib: lookup.sources.find(source => source.name === "lrclib")?.enabled !== false})});
+        fallback_lrclib: lookup.sources.find(source => source.name === "lrclib")?.enabled !== false,
+        ...(playbackLyricsManual(selection) ? {search_title: playbackLyricsManual(selection).title, search_artist: playbackLyricsManual(selection).artist} : {})})});
     const data = await response.json();
     if (!response.ok) throw Error(data.error || "Online lyrics could not be checked.");
     if (!playbackLyricsCurrent(selection, request, details)) return null;
@@ -121,7 +129,7 @@ async function readNativeDisplay(selection, entry) {
 
 async function loadPlaybackLyrics(selection, entry, request, details) {
   const mode = playbackLyricsView.mode, errors = [];
-  const order = mode === "unison-first" ? ["unison", "ibroadcast"]
+  const order = playbackLyricsManual(selection) ? ["unison"] : mode === "unison-first" ? ["unison", "ibroadcast"]
     : mode === "native-first" ? ["ibroadcast", "unison"] : ["ibroadcast"];
   let result = null, instrumental = false;
   for (const source of order) {
@@ -190,7 +198,7 @@ function paintPlaybackLyrics() {
   }).join("") : "";
   view.lineNodes = Array.from(region.querySelectorAll("[data-lyric-line]"));
   view.wordNodes = view.lineNodes.map(line => Array.from(line.querySelectorAll("[data-lyric-word]")));
-  const publicSources = {unison: ["Unison", "https://unison.boidu.dev/"], lrclib: ["LRCLIB", "https://lrclib.net/"]};
+  const publicSources = {unison: ["Unison", "https://unison.boidu.dev/"], lrclib: ["LRCLIB", "https://lrclib.net/"], gdstudio: ["GD Studio", "https://music.gdstudio.xyz/"]};
   const source = publicSources[data?.source];
   $("#visual-lyrics-source").innerHTML = source
     ? `<a href="${source[1]}" target="_blank" rel="noopener noreferrer">Lyrics from ${source[0]} ↗</a> · Temporary display`

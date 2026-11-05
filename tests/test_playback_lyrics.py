@@ -250,7 +250,7 @@ class LyricsIdentityTests(unittest.TestCase):
         for title, artist, returned in cases:
             with self.subTest(title=title):
                 self.assertTrue(self.match(title, artist, returned, artist))
-                self.assertFalse(self.match(title, artist, returned, artist, returned_duration=202.01))
+                self.assertFalse(self.match(title, artist, returned, artist, returned_duration=208.01))
                 if title != returned:
                     self.assertFalse(self.match(title, artist, returned, artist, duration=0))
         self.assertTrue(self.match("Don't Stop Me Now - Remastered 2011", "Queen",
@@ -467,7 +467,7 @@ class LRCLIBDisplayTests(unittest.TestCase):
             self.assertEqual(self.fetch([(200, hits), (404, {})])['status'], 'missing')
 
     def test_invalid_or_far_duration_does_not_win_and_unknown_duration_remains_ambiguous(self):
-        for duration in (None, True, float('nan'), float('inf'), '200', -1, 203):
+        for duration in (None, True, float('nan'), float('inf'), '200', -1, 209):
             with self.subTest(duration=duration):
                 self.assertEqual(self.fetch([(200, [{**self.record, 'duration': duration}]),
                                              (404, {})])['status'], 'missing')
@@ -705,3 +705,68 @@ class PlaybackLyricsIntegrationTests(unittest.TestCase):
             with self.assertRaises(ConflictError):
                 self.service.view({**self.body, 'fallback_lrclib': True})
         self.assertFalse(self.service.cache)
+
+
+class ForkV78LyricsTests(unittest.TestCase):
+    """Fork v78: friendlier matching, and the GD Studio fallback for Chinese songs."""
+
+    def match(self, title, artist, returned_title, returned_artist, duration=200, returned_duration=200):
+        return _lrclib_match({"trackName": returned_title, "artistName": returned_artist,
+                              "albumName": "Album", "duration": returned_duration},
+                             {"title": title, "artist": artist, "length": duration}, "Album")
+
+    def test_artist_prefix_clean_dirty_slang_and_a_few_seconds_still_match(self):
+        from tagcast.playback_lyrics import lyrics_strip_artist
+        self.assertEqual(lyrics_strip_artist("50 Cent - In Da Club", "50 Cent"), "In Da Club")
+        self.assertEqual(lyrics_strip_artist("Intro - Outro", "50 Cent"), "Intro - Outro")
+        self.assertTrue(self.match("50 Cent - In Da Club (Dirty)", "50 Cent", "In Da Club", "50 Cent"))
+        self.assertTrue(self.match("In Da Club", "50 Cent", "In The Club", "50 Cent"))
+        self.assertTrue(self.match("Candy Shop [Explicit]", "50 Cent", "Candy Shop", "50 Cent", returned_duration=205))
+        self.assertFalse(self.match("In Da Club", "50 Cent", "In Da Club", "Someone Else"))
+        self.assertFalse(self.match("In Da Club", "50 Cent", "Wanksta", "50 Cent"))
+        self.assertFalse(self.match("In Da Club", "50 Cent", "In Da Club", "50 Cent", returned_duration=215))
+        self.assertFalse(self.match("In Da Club (Live)", "50 Cent", "In Da Club", "50 Cent"))
+
+    def test_credit_lines_are_removed_from_chinese_lrc(self):
+        from tagcast.playback_lyrics import gdstudio_clean_lrc
+        text = "[00:00.00] 作词 : 何启弘\n[00:01.00] 作曲 : 殷文琦\n[00:04.00]\n[00:36.125]前尘往事成云烟\n[04:15.303]\n[04:57.09] 吉他 : 江建民\n[05:01.63] SP : PolyGram"
+        self.assertEqual(gdstudio_clean_lrc(text), "[00:36.125]前尘往事成云烟")
+
+    def fetch(self, replies, track):
+        from tagcast.playback_lyrics import fetch_gdstudio_lyrics
+        session = Mock(headers={})
+        calls = []
+
+        def get(url, params=None, **kwargs):
+            reply = replies(params)
+            response = Mock(status_code=200, headers={"Content-Type": "text/html; charset=utf-8"})
+            response.iter_content.return_value = [json.dumps(reply).encode()]
+            context = Mock()
+            context.__enter__ = Mock(return_value=response)
+            context.__exit__ = Mock(return_value=False)
+            calls.append(params)
+            return context
+        session.get.side_effect = get
+        with patch("tagcast.playback_lyrics.requests.Session") as create:
+            create.return_value.__enter__.return_value = session
+            result = fetch_gdstudio_lyrics(track, "Album")
+        return result, calls
+
+    def test_gdstudio_needs_the_same_title_and_artist_and_a_length_that_fits(self):
+        lrc = "[00:00.00] 作词 : A\n[00:36.1]前尘往事成云烟\n[02:10.5]消散在彼此眼前\n[04:57.09] 吉他 : B"
+        hits = [{"id": "1", "name": "别的歌", "artist": ["张学友"], "lyric_id": "1"},
+                {"id": "2", "name": "吻别", "artist": ["别人"], "lyric_id": "2"},
+                {"id": "3", "name": "吻别", "artist": ["张学友"], "lyric_id": "3"}]
+
+        def replies(params):
+            return hits if params["types"] == "search" else {"lyric": lrc, "tlyric": ""}
+        result, calls = self.fetch(replies, {"title": "吻別", "artist": "張學友", "length": 260})
+        self.assertEqual((result["status"], result["source"], len(result["lines"])), ("ready", "gdstudio", 2))
+        self.assertEqual([c["id"] for c in calls if c["types"] == "lyric"], ["3"])
+        # A recording far shorter than the lyric's own timing is a different cut: no match.
+        result, _ = self.fetch(replies, {"title": "吻别", "artist": "张学友", "length": 100})
+        self.assertEqual(result["status"], "missing")
+        # Nothing with the right artist: missing, and no lyric is requested.
+        result, calls = self.fetch(lambda params: hits[:2], {"title": "吻别", "artist": "张学友", "length": 260})
+        self.assertEqual(result["status"], "missing")
+        self.assertFalse([c for c in calls if c["types"] == "lyric"])

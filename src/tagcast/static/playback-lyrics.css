@@ -33,3 +33,7 @@
 }
 @media(prefers-reduced-motion:reduce){.visual-lyrics-lines{scroll-behavior:auto}}
 .visual-lyrics-lines[data-timed] .visual-lyric-line{cursor:pointer}
+.lyrics-search-form{display:grid;gap:8px;margin:8px 0;max-width:420px}
+.lyrics-search-form label{display:grid;gap:3px;font-size:calc(12px*var(--ts))}
+.lyrics-search-form input{padding:7px 9px;border-radius:8px;border:1px solid var(--line);background:var(--palette-surface,#fff);color:var(--ink)}
+.lyrics-search-actions{display:flex;gap:8px;flex-wrap:wrap}

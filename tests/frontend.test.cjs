@@ -11389,13 +11389,61 @@ test("fork v77: the device follows the album year, a forced choice wins, and no 
   assert.equal(pick(1975), "carradio");
   assert.equal(pick(1985), "walkman");
   assert.equal(pick(2000), "cd");
-  assert.equal(pick(2025), "earbuds");
+  assert.equal(pick(2005), "ipod");
+  assert.equal(pick(2010), "headphones");
+  assert.equal(pick(2015), "dj");
+  assert.equal(pick(2025), "stage");
   assert.equal(pick(1985, "a", "vinyl"), "vinyl", "a forced choice wins");
   assert.equal(pick(1985, "a", "off"), "", "off means the plain cover");
   const ids = p.json("pdDevices.map(d => d.id)");
   assert.equal(ids.length, 20);
   assert.ok(ids.includes(pick(0, "album 7")) && ids.includes(pick("", "album 8")));
   assert.equal(pick(0, "album 7"), pick(0, "album 7"), "the same album always gets the same random device");
+});
+
+// -- fork v78: rapper for hip hop, removed devices, visualizer, lyrics search ------------------
+test("fork v78: hip hop albums get the rapper, the computer, phone, speaker and earbuds are gone, and no year never picks the rapper", async () => {
+  const p = page({storage: {"tagcast-look": "classic"}}); await settle();
+  const pick = (year, genres, choice = "auto", seed = "a") => p.run(`pdPick(${JSON.stringify(year)}, ${JSON.stringify(seed)}, ${JSON.stringify(choice)}, ${JSON.stringify(genres)})`);
+  assert.equal(pick(2003, "Hip-Hop/Rap"), "rapper");
+  assert.equal(pick(1995, "Hip Hop"), "rapper");
+  assert.equal(pick(2019, "Trap, Pop"), "rapper");
+  assert.equal(pick(2003, "Rock"), "mp3");
+  assert.equal(pick(2003, "Hip Hop", "off"), "", "off still means the plain cover");
+  assert.equal(pick(2003, "Hip Hop", "vinyl"), "vinyl", "a forced choice beats the genre");
+  assert.equal(pick(2003, "Therapy"), "mp3", "words that merely contain 'rap' do not count");
+  const ids = p.json("pdDevices.map(d => d.id)");
+  for (const gone of ["computer", "phone", "speaker", "earbuds"]) assert.ok(!ids.includes(gone), gone);
+  for (let i = 0; i < 60; i += 1) assert.notEqual(pick(0, "", "auto", "album " + i), "rapper");
+  p.run('player.queue = [{id: "1", title: "Song", artist: "A", genres: ["Hip-Hop"], album: {id: "9", name: "Album", artist: "A", artwork: ""}, year: 2003}]; player.index = 0');
+  assert.equal(p.run("psCurrentDevice()"), "rapper");
+});
+
+test("fork v78: the device stays in the left column beside the lyrics and has no caption over the title", async () => {
+  const css = require("node:fs").readFileSync(require("node:path").join(__dirname, "../src/tagcast/static/player-styles.css"), "utf8");
+  assert.doesNotMatch(css, /\.ps-name\{position:absolute/);
+  assert.match(css, /lyrics-visible \.ps-stage[^{]*\{grid-column:1;grid-row:1;width:100%/);
+});
+
+test("fork v78: the visualizer picks where it shows, saves it and the engine can pretend to hear music", async () => {
+  const storage = {"tagcast-look": "classic"};
+  const p = page({storage}); await settle();
+  assert.equal(p.run("bvState.where"), "off");
+  assert.deepEqual(p.json("bvPlaces.map(x => x[0])"), ["off", "stage", "page", "site"]);
+  p.run('bvSave("where", "site")');
+  assert.equal(storage["tagcast-viz"], "site");
+  const levels = p.json('(() => { const l = bvFakeLevels(1234); return [l.timeByteArray.length, Math.min(...l.timeByteArray), Math.max(...l.timeByteArray), l.timeByteArrayL.length, l.timeByteArrayR.length]; })()');
+  assert.equal(levels[0], 1024); assert.equal(levels[3], 1024); assert.equal(levels[4], 1024);
+  assert.ok(levels[1] >= 0 && levels[2] <= 255 && levels[2] > levels[1]);
+  assert.match(p.run("bvCdn.lib"), /^https:\/\/cdn\.jsdelivr\.net\/npm\/butterchurn@/);
+});
+
+test("fork v78: lyrics search keeps typed words to their own song", async () => {
+  const p = page({storage: {"tagcast-look": "classic"}}); await settle();
+  p.run('playbackLyricsView.manual = {key: JSON.stringify({id: 5}), title: "Real Title", artist: "Real Artist"}');
+  assert.equal(p.run('playbackLyricsManual({id: 5})?.title'), "Real Title");
+  assert.equal(p.run('playbackLyricsManual({id: 6})'), null);
+  assert.notEqual(p.run('playbackLyricsPublicKey({id: 5})'), p.run('playbackLyricsPublicKey({id: 6})'));
 });
 
 test("fork v77: every device draws with the cover, keeps its ids apart and shows the name", async () => {
@@ -11426,6 +11474,7 @@ test("fork v77: Player style is saved, forces a device for the playing song and 
   p.run('psChoose("bad value")');
   assert.equal(p.run("psState.choice"), "auto");
   assert.equal(p.run('psYearsText("walkman")'), "1985–1989");
-  assert.equal(p.run('psYearsText("earbuds")'), "2021 on");
+  assert.equal(p.run('psYearsText("stage")'), "2018 on");
+  assert.equal(p.run('psYearsText("rapper")'), "hip hop albums");
   assert.equal(p.run('psYearsText("phonograph")'), "before 1910");
 });

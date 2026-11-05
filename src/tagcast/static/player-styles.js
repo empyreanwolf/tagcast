@@ -14,9 +14,18 @@ function psYear(track) {
   return Number(track.year || detail?.year || track.album?.year || 0) || 0;
 }
 
+// The song's genres as text: the queue's own, else the album's (so older queues still find hip hop).
+function psGenres(track) {
+  const own = track.genres ?? (track.genre ? [track.genre] : null);
+  if (own?.length) return own.join(", ");
+  const detail = typeof state !== "undefined" ? state.details?.get?.(String(track.album?.id)) : null;
+  const found = detail?.tracks?.find?.(t => String(t.id) === String(track.id));
+  return (found?.genres ?? detail?.genres ?? []).join(", ");
+}
+
 function psCurrentDevice() {
   const track = psTrack();
-  return track ? pdPick(psYear(track), String(track.album?.id || track.id || track.title), psState.choice) : "";
+  return track ? pdPick(psYear(track), String(track.album?.id || track.id || track.title), psState.choice, psGenres(track)) : "";
 }
 
 function psPlaying() {
@@ -50,7 +59,7 @@ function psRenderNow() {
     const key = device + "|" + art;
     if (psState.big !== key) {
       psState.big = key;
-      big.innerHTML = device ? pdSvg(device, art, "pb") + `<div class="ps-name">${pdEsc(pdDevices.find(d => d.id === device).name)}</div>` : "";
+      big.innerHTML = device ? pdSvg(device, art, "pb") : "";
     }
     big.hidden = !device;
   }
@@ -77,7 +86,7 @@ function psChoose(choice) {
 
 function psYearsText(id) {
   const i = pdYears.ranges.findIndex(r => r[1] === id);
-  if (i < 0) return "";
+  if (i < 0) return pdDevices.find(d => d.id === id)?.genre ? "hip hop albums" : "";
   const from = i ? pdYears.ranges[i - 1][0] + 1 : 0, to = pdYears.ranges[i][0];
   return !from ? `before ${to + 1}` : to > 3000 ? `${from} on` : from === to ? String(from) : `${from}–${to}`;
 }

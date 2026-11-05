@@ -254,7 +254,7 @@ function performerLinks(track, additionalOnly = false) {
 function queueTracks(album, tracks = album.tracks) {
   const source = {id: album.id, name: album.name, artist: album.artist, artist_id: album.artist_id || 0, album_artists: albumArtistEntries(album), artwork: album.artwork, color: album.color || "#839e8d"};
   return tracks.map(t => ({id: String(t.id), title: t.title, artist: t.artist, artistId: t.artist_id, performers: t.performers || [],
-    format: t.format || "", rating: t.rating || 0, length: t.length || 0, album: source}));
+    format: t.format || "", rating: t.rating || 0, length: t.length || 0, genres: t.genres || (t.genre ? [t.genre] : []), album: source}));
 }
 
 // Shuffle that keeps songs by the same artist apart (fork v51): a normal shuffle, then any song that

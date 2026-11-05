@@ -1,12 +1,12 @@
 "use strict";
 
 // Player devices (fork v77): twenty small drawings of how people have listened to music, from the horn
-// phonograph to earbuds. Each one shows the album cover somewhere (a label, a screen, a tape pack) and moves
+// phonograph to a festival stage (hip hop albums get a rapper). Each one shows the album cover somewhere (a label, a screen, a tape pack) and moves
 // while a song plays. This file has no DOM or player code, so the Mini Player window loads it too.
 const pdYears = {  // which device an album's year gets, in order: [last year of the range, device]
   ranges: [[1909, "phonograph"], [1929, "gramophone"], [1939, "radio"], [1949, "jukebox"], [1959, "transistor"], [1964, "reel"],
     [1974, "vinyl"], [1979, "carradio"], [1984, "boombox"], [1989, "walkman"], [1993, "cassette"], [1996, "minidisc"],
-    [1999, "portablecd"], [2001, "cd"], [2003, "mp3"], [2007, "ipod"], [2011, "computer"], [2016, "phone"], [2020, "speaker"], [9999, "earbuds"]],
+    [1999, "portablecd"], [2001, "cd"], [2003, "mp3"], [2007, "ipod"], [2012, "headphones"], [2017, "dj"], [9999, "stage"]],
 };
 
 function pdEsc(text) { return String(text ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;"); }
@@ -153,41 +153,72 @@ const pdDevices = [
     <circle cx="200" cy="206" r="62" fill="#e9edef" stroke="#b6c0c4" stroke-width="2"/>
     <g class="a-spin slow" style="transform-origin:200px 206px">${Array.from({length: 12}, (_, i) => `<circle cx="${(200 + 50 * Math.cos(i * Math.PI / 6)).toFixed(1)}" cy="${(206 + 50 * Math.sin(i * Math.PI / 6)).toFixed(1)}" r="2" fill="#aeb8bc"/>`).join("")}</g>
     <circle cx="200" cy="206" r="24" fill="#cfd8dc" stroke="#aeb8bc" stroke-width="2"/>`},
-  {id: "computer", name: "Computer", era: "1999–2000s", body: (A) => `
-    <rect x="50" y="26" width="300" height="196" rx="12" fill="#161c20" stroke="#5c6b72" stroke-width="4"/><rect x="64" y="40" width="272" height="168" rx="4" fill="#0b0f12"/>
-    ${A.rect(78, 56, 118, 118, 6)}<rect x="212" y="62" width="104" height="9" rx="4" fill="#e8eef0" opacity="0.85"/><rect x="212" y="80" width="70" height="7" rx="3" fill="#9aa6ab"/>${pdEq(214, 110, 9, 8, 60, 4, "#86d7ee")}
-    <rect x="78" y="186" width="238" height="5" rx="2.5" fill="#33444c"/><rect x="78" y="186" width="96" height="5" rx="2.5" fill="#86d7ee"/>
-    <path d="M170 222 H230 L240 262 H160 Z" fill="#232c32"/><rect x="130" y="262" width="140" height="10" rx="5" fill="#3a4a52"/>`},
-  {id: "phone", name: "Smartphone", era: "2007", body: (A) => `
-    <rect x="120" y="10" width="160" height="280" rx="28" fill="#0f1519" stroke="#5c6b72" stroke-width="4"/><rect x="132" y="28" width="136" height="244" rx="16" fill="#080c0f"/>
-    <rect x="178" y="17" width="44" height="6" rx="3" fill="#232c32"/>${A.rect(146, 46, 108, 108, 12)}
-    <rect x="146" y="168" width="84" height="9" rx="4" fill="#e8eef0" opacity="0.9"/><rect x="146" y="184" width="56" height="7" rx="3" fill="#9aa6ab"/>
-    <rect x="146" y="208" width="108" height="5" rx="2.5" fill="#33444c"/><rect class="a-grow" x="146" y="208" width="108" height="5" rx="2.5" fill="#86d7ee" style="transform-box:fill-box;transform-origin:0 50%"/>
-    <polygon points="190,232 190,254 210,243" fill="#e8eef0"/><polygon points="156,236 156,250 144,243" fill="#9aa6ab"/><polygon points="244,236 244,250 256,243" fill="#9aa6ab"/>`},
-  {id: "speaker", name: "Smart speaker", era: "2014", body: (A) => `
-    <g class="a-bob"><g>${A.rect(166, 14, 68, 68, 16)}<rect x="166" y="14" width="68" height="68" rx="16" fill="none" stroke="#86d7ee" stroke-opacity="0.6" stroke-width="2"/></g></g>
-    <rect x="120" y="104" width="160" height="172" rx="34" fill="url(#F)" stroke="#33444c" stroke-width="3"/>
-    <ellipse cx="200" cy="108" rx="80" ry="12" fill="#11181c" stroke="#33444c" stroke-width="2"/>
-    <ellipse class="a-pulse" cx="200" cy="108" rx="78" ry="10" fill="none" stroke="#86d7ee" stroke-width="4"/>
-    ${Array.from({length: 7}, (_, r) => Array.from({length: 7}, (_, c) => `<circle cx="${148 + c * 17}" cy="${140 + r * 17}" r="2" fill="#2a363d"/>`).join("")).join("")}`},
-  {id: "earbuds", name: "Wireless earbuds", era: "Today", body: (A) => `
-    <g class="a-bob"><g>${A.rect(160, 22, 80, 80, 20)}</g></g>
-    <path class="a-pulse" d="M130 60 q-20 20 0 44 M108 46 q-36 34 0 72" fill="none" stroke="#86d7ee" stroke-width="4" stroke-linecap="round"/>
-    <path class="a-pulse" style="animation-delay:.5s" d="M270 60 q20 20 0 44 M292 46 q36 34 0 72" fill="none" stroke="#86d7ee" stroke-width="4" stroke-linecap="round"/>
-    <rect x="96" y="176" width="208" height="100" rx="46" fill="url(#M)" stroke="#aeb8bc" stroke-width="2"/><path d="M96 220 H304" stroke="#6c7b82" stroke-width="2"/><circle cx="200" cy="248" r="5" fill="#86d7ee"/>
-    <g><ellipse cx="146" cy="150" rx="22" ry="26" fill="#f4f7f8" stroke="#aeb8bc" stroke-width="2"/><rect x="138" y="168" width="14" height="42" rx="7" fill="#f4f7f8" stroke="#aeb8bc" stroke-width="2"/></g>
-    <g><ellipse cx="254" cy="150" rx="22" ry="26" fill="#f4f7f8" stroke="#aeb8bc" stroke-width="2"/><rect x="248" y="168" width="14" height="42" rx="7" fill="#f4f7f8" stroke="#aeb8bc" stroke-width="2"/></g>`},
+  {id: "headphones", name: "Headphones", era: "2004–2012", body: (A) => `
+    <path d="M86 178 V138 A114 114 0 0 1 314 138 V178" fill="none" stroke="url(#M)" stroke-width="18" stroke-linecap="round"/>
+    <path d="M86 178 V138 A114 114 0 0 1 314 138 V178" fill="none" stroke="#11181c" stroke-width="5" stroke-linecap="round" opacity="0.5"/>
+    <g class="a-throb" style="transform-origin:78px 200px"><rect x="48" y="150" width="62" height="104" rx="28" fill="#232c32" stroke="#aeb8bc" stroke-width="3"/><rect x="62" y="172" width="34" height="60" rx="16" fill="#11181c"/></g>
+    <g class="a-throb" style="transform-origin:322px 200px"><rect x="290" y="150" width="62" height="104" rx="28" fill="#232c32" stroke="#aeb8bc" stroke-width="3"/><rect x="304" y="172" width="34" height="60" rx="16" fill="#11181c"/></g>
+    <g class="a-bob">${A.rect(140, 96, 120, 120, 14)}<rect x="140" y="96" width="120" height="120" rx="14" fill="none" stroke="#86d7ee" stroke-opacity="0.55" stroke-width="2"/></g>
+    <path class="a-pulse" d="M26 170 q-16 30 0 62 M10 152 q-30 48 0 98" fill="none" stroke="#f0879e" stroke-width="4" stroke-linecap="round"/>
+    <path class="a-pulse" style="animation-delay:.5s" d="M374 170 q16 30 0 62 M390 152 q30 48 0 98" fill="none" stroke="#86d7ee" stroke-width="4" stroke-linecap="round"/>
+    ${pdEq(146, 238, 10, 8, 34, 4, "#86d7ee")}`},
+  {id: "dj", name: "DJ decks", era: "2013–2017", body: (A) => `
+    <rect x="6" y="40" width="160" height="236" rx="14" fill="#161c20" stroke="#33444c" stroke-width="3"/>
+    <rect x="234" y="40" width="160" height="236" rx="14" fill="#161c20" stroke="#33444c" stroke-width="3"/>
+    <rect x="170" y="40" width="60" height="236" rx="10" fill="#1d262b" stroke="#33444c" stroke-width="2"/>
+    <circle cx="86" cy="150" r="68" fill="#0b0f12" stroke="#5c6b72" stroke-width="3"/>
+    <g class="a-spin" style="transform-origin:86px 150px"><circle cx="86" cy="150" r="64" fill="#101417"/>${[56, 48, 40].map(r => `<circle cx="86" cy="150" r="${r}" fill="none" stroke="#1f272c"/>`).join("")}${A.circle(86, 150, 28)}<circle cx="86" cy="150" r="4" fill="#080c0f"/><path d="M86 150 L86 90 A60 60 0 0 1 120 100 Z" fill="#fff" opacity="0.07"/></g>
+    <circle cx="314" cy="150" r="68" fill="#0b0f12" stroke="#5c6b72" stroke-width="3"/>
+    <g class="a-spin" style="transform-origin:314px 150px"><circle cx="314" cy="150" r="64" fill="#101417"/>${[56, 48, 40].map(r => `<circle cx="314" cy="150" r="${r}" fill="none" stroke="#1f272c"/>`).join("")}<circle cx="314" cy="150" r="28" fill="#e0489a"/><circle cx="314" cy="150" r="4" fill="#080c0f"/><path d="M314 150 L314 90 A60 60 0 0 1 348 100 Z" fill="#fff" opacity="0.07"/></g>
+    <line x1="150" y1="62" x2="124" y2="116" stroke="#b6c0c4" stroke-width="5" stroke-linecap="round"/><line x1="250" y1="62" x2="276" y2="116" stroke="#b6c0c4" stroke-width="5" stroke-linecap="round"/>
+    ${pdEq(180, 70, 4, 8, 90, 4, "#86d7ee")}
+    <circle cx="186" cy="190" r="9" fill="#2b383f" stroke="#aeb8bc"/><circle cx="214" cy="190" r="9" fill="#2b383f" stroke="#aeb8bc"/>
+    <rect x="178" y="236" width="44" height="8" rx="4" fill="#080c0f"/><rect class="a-pulse" x="192" y="230" width="16" height="20" rx="3" fill="#f0879e"/>`},
+  {id: "stage", name: "Festival stage", era: "2018 on", body: (A) => `
+    <polygon class="a-pulse" points="70,6 6,214 130,214" fill="#f0879e" opacity="0.28"/>
+    <polygon class="a-pulse" style="animation-delay:.55s" points="330,6 270,214 394,214" fill="#86d7ee" opacity="0.28"/>
+    <polygon class="a-pulse" style="animation-delay:1.1s" points="200,4 140,214 260,214" fill="#f5d36b" opacity="0.18"/>
+    <rect x="92" y="46" width="216" height="140" rx="8" fill="#0b0f12" stroke="#5c6b72" stroke-width="3"/>${A.rect(98, 52, 204, 128, 4)}
+    <rect x="8" y="104" width="64" height="112" rx="6" fill="#161c20" stroke="#33444c" stroke-width="2"/><rect x="328" y="104" width="64" height="112" rx="6" fill="#161c20" stroke="#33444c" stroke-width="2"/>
+    <g class="a-throb" style="transform-origin:40px 134px"><circle cx="40" cy="134" r="20" fill="#0b0f12" stroke="#aeb8bc" stroke-width="2"/><circle cx="40" cy="134" r="7" fill="#232c32"/></g>
+    <g class="a-throb" style="transform-origin:40px 184px"><circle cx="40" cy="184" r="20" fill="#0b0f12" stroke="#aeb8bc" stroke-width="2"/><circle cx="40" cy="184" r="7" fill="#232c32"/></g>
+    <g class="a-throb" style="transform-origin:360px 134px"><circle cx="360" cy="134" r="20" fill="#0b0f12" stroke="#aeb8bc" stroke-width="2"/><circle cx="360" cy="134" r="7" fill="#232c32"/></g>
+    <g class="a-throb" style="transform-origin:360px 184px"><circle cx="360" cy="184" r="20" fill="#0b0f12" stroke="#aeb8bc" stroke-width="2"/><circle cx="360" cy="184" r="7" fill="#232c32"/></g>
+    <rect x="0" y="214" width="400" height="14" fill="#1d262b"/>
+    ${Array.from({length: 11}, (_, i) => `<g class="a-bob" style="animation-delay:${((i * 0.23) % 1.4).toFixed(2)}s"><circle cx="${20 + i * 36}" cy="${262 - (i % 3) * 6}" r="13" fill="#05080a"/><rect x="${12 + i * 36}" y="${272 - (i % 3) * 6}" width="16" height="40" rx="8" fill="#05080a"/>${i % 2 ? `<line x1="${20 + i * 36}" y1="${274 - (i % 3) * 6}" x2="${28 + i * 36}" y2="${244 - (i % 3) * 6}" stroke="#05080a" stroke-width="5" stroke-linecap="round"/>` : ""}</g>`).join("")}`},
+  {id: "rapper", name: "Rapper", era: "Hip hop albums", genre: true, body: (A) => `
+    <rect x="14" y="30" width="162" height="190" rx="8" fill="#1a2227" stroke="#33444c" stroke-width="2"/>${A.rect(24, 40, 142, 142, 6)}
+    <rect x="24" y="190" width="70" height="8" rx="4" fill="#e8eef0" opacity="0.8"/><rect x="24" y="204" width="46" height="6" rx="3" fill="#9aa6ab"/>
+    <text class="a-bob" x="196" y="96" font-size="30" fill="#f0879e" font-family="sans-serif">♪</text><text class="a-bob" style="animation-delay:.7s" x="178" y="62" font-size="24" fill="#86d7ee" font-family="sans-serif">♫</text>
+    <path d="M200 300 V236 Q200 192 270 192 Q340 192 340 236 V300 Z" fill="url(#F)" stroke="#33444c" stroke-width="2"/>
+    <path d="M238 196 Q270 246 302 196" fill="none" stroke="#e2bb5e" stroke-width="5" stroke-linecap="round"/><circle cx="270" cy="236" r="9" fill="#e2bb5e" stroke="#8a6a22" stroke-width="2"/>
+    <rect x="258" y="168" width="24" height="28" fill="#b97f58"/>
+    <g class="a-bob" style="animation-duration:.8s"><path d="M322 220 Q352 206 362 168" fill="none" stroke="#2c3a41" stroke-width="22" stroke-linecap="round"/><circle cx="363" cy="160" r="12" fill="#b97f58"/></g>
+    <g class="a-nod" style="transform-origin:270px 182px">
+      <ellipse cx="270" cy="140" rx="34" ry="40" fill="#c58f66"/>
+      <path d="M230 130 Q230 90 270 90 Q310 90 310 130 Z" fill="#b3261e"/><rect x="268" y="122" width="58" height="9" rx="4" fill="#8f1b16"/>
+      <rect x="241" y="130" width="26" height="13" rx="5" fill="#080c0f"/><rect x="273" y="130" width="26" height="13" rx="5" fill="#080c0f"/><line x1="267" y1="136" x2="273" y2="136" stroke="#080c0f" stroke-width="3"/>
+      <ellipse class="a-talk" cx="268" cy="160" rx="11" ry="7" fill="#3b1010"/>
+    </g>
+    <path d="M226 226 Q186 214 200 176 Q208 160 236 160" fill="none" stroke="#2c3a41" stroke-width="22" stroke-linecap="round"/>
+    <circle cx="238" cy="160" r="11" fill="#b97f58"/>
+    <rect x="228" y="134" width="14" height="30" rx="7" fill="#cfd8dc" stroke="#6c7b82" stroke-width="2" transform="rotate(-18 235 150)"/><circle cx="244" cy="128" r="10" fill="#4a5a62" stroke="#cfd8dc" stroke-width="2"/>
+    <path class="a-pulse" d="M214 138 q-16 6 -4 22 M200 130 q-26 12 -8 40" fill="none" stroke="#f0879e" stroke-width="3" stroke-linecap="round"/>`},
 ];
 
-// The device an album gets: your forced choice, else by year, else (no year) a steady random one per album.
-function pdPick(year, seed = "", choice = "auto") {
+// The device an album gets: your forced choice, else a rapper for hip hop, else by year, else (no year) a steady
+// random one per album. genres is a text such as "Hip Hop, Rap".
+const pdRapGenre = /hip[\s-]?hop|\brap\b|\brapper\b|\btrap\b|\bdrill\b|grime|boom[\s-]?bap/i;
+function pdPick(year, seed = "", choice = "auto", genres = "") {
   if (choice === "off") return "";
   if (pdDevices.some(d => d.id === choice)) return choice;
+  if (pdRapGenre.test(String(genres || ""))) return "rapper";
   const y = Number(year);
   if (Number.isFinite(y) && y >= 1500 && y <= 2100) return pdYears.ranges.find(([last]) => y <= last)[1];
   let hash = 0;
   for (const ch of String(seed)) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  return pdDevices[hash % pdDevices.length].id;
+  const byYear = pdDevices.filter(d => !d.genre);
+  return byYear[hash % byYear.length].id;
 }
 
 // The whole SVG for one device. uid keeps gradient and clip ids apart when several are on a page.

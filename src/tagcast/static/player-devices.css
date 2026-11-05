@@ -26,3 +26,7 @@
 .pd [class^="a-"],.pd [class*=" a-"]{animation-play-state:paused}
 .ps-playing .pd [class^="a-"],.ps-playing .pd [class*=" a-"]{animation-play-state:running}
 @media (prefers-reduced-motion:reduce){.pd [class^="a-"],.pd [class*=" a-"]{animation:none!important}.pd .pd-arm{transition:none}}
+@keyframes pd-talk{0%,100%{transform:scaleY(.22)}50%{transform:scaleY(1.25)}}
+@keyframes pd-nod{0%,100%{transform:rotate(-4deg)}50%{transform:rotate(4deg)}}
+.pd .a-talk{transform-box:fill-box;transform-origin:50% 50%;animation:pd-talk .32s ease-in-out infinite}
+.pd .a-nod{animation:pd-nod .7s ease-in-out infinite}

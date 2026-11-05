@@ -20,6 +20,7 @@ try:  # fork v69: the app still starts if pyyaml is not installed yet; Lyricsfil
 except ImportError:
     yaml = None
 
+from .artist_match import simplified
 from .library import ConflictError, LibraryError
 from .sources import USER_AGENT, SourceError, artist_name_key
 
@@ -28,8 +29,11 @@ MAX_TEXT = 50000
 MAX_LINES = 2000
 MAX_TIME = 86400
 MAX_WORDS = 12000
+MATCH_SECONDS = 8
 UNISON_URL = "https://unison.boidu.dev/lyrics"
 LRCLIB_URL = "https://lrclib.net/api/"
+GDSTUDIO_URL = "https://music-api.gdstudio.xyz/api.php"  # fork v78: Chinese lyrics fallback
+SOURCE_LABELS = {"unison": "Unison", "lrclib": "LRCLIB", "gdstudio": "GD Studio"}
 
 
 def lyric_time(value):
@@ -50,7 +54,7 @@ def lyric_time(value):
 
 
 def _finish(lines, duration, source="unison"):
-    label = "LRCLIB" if source == "lrclib" else "Unison"
+    label = SOURCE_LABELS.get(source, "Unison")
     if len(lines) > MAX_LINES or sum(len(line["text"]) for line in lines) > MAX_TEXT:
         raise SourceError(f"{label} returned too much lyrics text.")
     timed = bool(lines) and all(line["start"] is not None for line in lines)
@@ -130,8 +134,7 @@ def parse_lrc(value, duration, source="unison"):
             stamp = re.sub(r"^(\d+:\d+):", r"\1.", stamp)
             start = lyric_time(stamp)
             if start is None:
-                label = "LRCLIB" if source == "lrclib" else "Unison"
-                raise SourceError(f"{label} returned invalid LRC timing.")
+                raise SourceError(f"{SOURCE_LABELS.get(source, 'Unison')} returned invalid LRC timing.")
             if first_start is None:
                 first_start = start
             line = {"start": max(0, start - offset), "end": None, "text": text}
@@ -300,7 +303,7 @@ class _ProviderReader:
         self.deadline, self.previous, self.retry_until = time.monotonic() + 12, 0, 0
 
     def read(self, session, url, params):
-        label = "Unison" if self.source == "unison" else "LRCLIB"
+        label = SOURCE_LABELS.get(self.source, "Unison")
         for attempt in range(2):
             self.check_current()
             delay = max(0, self.previous + .25 - time.monotonic(), self.retry_until - time.monotonic())
@@ -336,7 +339,7 @@ class _ProviderReader:
                         # Exit/close the response context before waiting and retrying.
                         continue
                     raise error
-                if response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+                if self.source != "gdstudio" and response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
                     raise SourceError(f"{label} returned an invalid response.")
                 chunks, size = [], 0
                 for chunk in response.iter_content(16384):
@@ -416,7 +419,8 @@ def lyrics_title(value):
         words = re.findall(r"\w+", key)
         allowed = {"remaster", "remastered", "version", "edition", "single", "album",
                    "mono", "stereo", "radio", "edit", "deluxe", "expanded", "anniversary",
-                   "bonus", "track", "explicit", "clean"}
+                   "bonus", "track", "explicit", "clean", "dirty", "uncensored", "censored", "album",
+                   "lp", "original", "main", "audio"}
         return bool(words) and all(word in allowed or re.fullmatch(r"\d{4}|\d{1,3}(?:st|nd|rd|th)", word)
                                    for word in words)
 
@@ -428,6 +432,23 @@ def lyrics_title(value):
             break
         value = " - ".join(parts[:-1])
     return " ".join(value.split())
+
+
+def lyrics_strip_artist(title, artist):
+    """'50 Cent - In Da Club' -> 'In Da Club' when the part before the dash is one of the track's artists."""
+    parts = re.split(r"\s+[-–—]\s+", str(title), maxsplit=1)
+    if len(parts) == 2 and parts[1].strip() and _lyrics_artists(parts[0], str(artist)):
+        return parts[1].strip()
+    return title
+
+
+_LOOSE_WORDS = {"da": "the", "tha": "the", "dis": "this", "wit": "with", "n": "and", "ft": "feat", "pt": "part"}
+
+
+def _lyrics_loose(value):
+    """Title key that forgives slang and small words: 'In Da Club' == 'In The Club'; Chinese script folded."""
+    words = [_LOOSE_WORDS.get(word, word) for word in _lyrics_letters(simplified(str(value))).split()]
+    return " ".join(word for word in words if word not in ("the", "a", "an", "and"))
 
 
 def _lyrics_letters(value):
@@ -462,9 +483,12 @@ def _lyrics_identity(title, artist, track, album, returned_album):
     if not isinstance(title, str) or not isinstance(artist, str) or len(title) > 1000 or len(artist) > 1000:
         return False
     if track["length"] > 0:
-        key = _lyrics_letters(lyrics_title(title))
-        return bool(key) and key == _lyrics_letters(lyrics_title(track["title"])) \
-            and _lyrics_artists(artist, track["artist"])
+        wanted = lyrics_title(lyrics_strip_artist(track["title"], track["artist"]))
+        found = lyrics_title(lyrics_strip_artist(title, artist))
+        same = bool(_lyrics_letters(found)) and (_lyrics_letters(found) == _lyrics_letters(wanted)
+                                                  or bool(_lyrics_loose(found)) and _lyrics_loose(found) == _lyrics_loose(wanted))
+        return same and (_lyrics_artists(artist, track["artist"])
+                         or _lyrics_artists(simplified(artist), simplified(track["artist"])))
     return lyrics_name_key(title) == lyrics_name_key(track["title"]) \
         and lyrics_name_key(artist) == lyrics_name_key(track["artist"]) \
         and bool(album.strip()) and lyrics_name_key(returned_album) == lyrics_name_key(album)
@@ -480,7 +504,8 @@ def _lrclib_match(data, track, album):
     if type(length) not in (int, float) or not math.isfinite(length) or not 0 < length <= MAX_TIME:
         return False
     if track["length"] > 0:
-        return abs(length - track["length"]) <= 2
+        # Fork v78: a re-release or edit often differs by a few seconds; the title and artist already match.
+        return abs(length - track["length"]) <= MATCH_SECONDS
     # Without a known duration, require a unique full album identity instead.
     return bool(album.strip()) and lyrics_name_key(data.get("albumName")) == lyrics_name_key(album)
 
@@ -619,7 +644,7 @@ def fetch_lrclib_display(track, album, check_current, policy=None, *, plain_text
         # One bounded extra query; local identity/duration checks still decide the hit.
         primary = re.split(r"\s*[,;&/×]\s*|\s+(?:and|x|feat\.?|ft\.?|featuring|with)\s+",
                            track["artist"], maxsplit=1, flags=re.I)[0].strip()
-        variants.append((lyrics_title(track["title"]) or track["title"], primary))
+        variants.append((lyrics_title(lyrics_strip_artist(track["title"], track["artist"])) or track["title"], primary))
     seen, candidates, errors = set(), [], []
 
     def candidate_result():
@@ -692,6 +717,83 @@ def fetch_lrclib_display(track, album, check_current, policy=None, *, plain_text
     return _finish([], track["length"], "lrclib")
 
 
+_CREDIT_LINE = re.compile(r"^\s*(?:作词|作詞|作曲|编曲|編曲|制作人|製作人|制作|製作|监制|監製|词|詞|曲|演唱|吉他|贝斯|貝斯|鼓|钢琴|鋼琴|弦乐|弦樂|二胡|和声|和聲|合声|合聲|录音师|錄音師|录音|錄音|混音师|混音師|混音|母带|母帶|企划|企劃|策划|出品|发行|發行|OP|SP|ISRC|Lyrics?|Words?|Music|Composer|Arranger|Producer|Mix(?:ed)?|Master(?:ed)?|Recorded)[^:：\]\n]{0,14}\s*[:：]", re.I)
+
+
+def gdstudio_clean_lrc(value):
+    """Drop the credit lines (作词 : …, 录音师 : …) that Chinese LRC files carry at the start and end."""
+    rows = [row for row in value.splitlines()]
+    def credit(row):
+        return bool(_CREDIT_LINE.match(re.sub(r"^(?:\[[^\]]*\])+", "", row).strip()))
+    def blank(row):
+        return not re.sub(r"^(?:\[[^\]]*\])+", "", row).strip()
+    while rows and (credit(rows[0]) or blank(rows[0])):
+        rows.pop(0)
+    while rows and (credit(rows[-1]) or blank(rows[-1])):
+        rows.pop()
+    return "\n".join(rows)
+
+
+def _gdstudio_match(hit, track):
+    if not isinstance(hit, dict) or not isinstance(hit.get("name"), str):
+        return False
+    artists = hit.get("artist")
+    artists = ", ".join(artists) if isinstance(artists, list) and all(isinstance(a, str) for a in artists) \
+        else artists if isinstance(artists, str) else ""
+    wanted = lyrics_title(lyrics_strip_artist(track["title"], track["artist"]))
+    found = lyrics_title(lyrics_strip_artist(hit["name"], artists))
+    if not _lyrics_loose(found) or _lyrics_loose(found) != _lyrics_loose(wanted):
+        return False
+    return _lyrics_artists(simplified(artists), simplified(track["artist"])) \
+        or _lyrics_artists(artists, track["artist"])
+
+
+def fetch_gdstudio_lyrics(track, album, check_current=lambda: None, policy=None):
+    """Chinese lyrics from the GD Studio music API, used only after LRCLIB found nothing. Title and artist must
+    match the song, and the lyric's last timestamp must fit the recording's length."""
+    reader = _ProviderReader("gdstudio", check_current, policy)
+    title = lyrics_title(lyrics_strip_artist(track["title"], track["artist"])) or track["title"]
+    primary = re.split(r"\s*[,;&/×、，]\s*|\s+(?:and|x|feat\.?|ft\.?|featuring|with)\s+", track["artist"], maxsplit=1, flags=re.I)[0].strip()
+    queries, hits = [], []
+    for name in (f"{title} {primary}".strip(), title):
+        if name and name not in queries:
+            queries.append(name)
+    try:
+        with requests.Session() as session:
+            session.trust_env = False
+            session.headers.update({"User-Agent": USER_AGENT, "Accept": "application/json"})
+            for name in queries:
+                found = reader.read(session, GDSTUDIO_URL, {"types": "search", "source": "netease", "name": name, "count": 8, "pages": 1})
+                if isinstance(found, list) and len(found) <= 50:
+                    hits.extend(hit for hit in found if _gdstudio_match(hit, track) and hit not in hits)
+                if hits:
+                    break
+            for hit in hits[:3]:
+                check_current()
+                lyric_id = str(hit.get("lyric_id") or hit.get("id") or "")
+                if not re.fullmatch(r"\d{1,20}", lyric_id):
+                    continue
+                data = reader.read(session, GDSTUDIO_URL, {"types": "lyric", "source": "netease", "id": lyric_id})
+                text = data.get("lyric") if isinstance(data, dict) else None
+                if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT or "\x00" in text:
+                    continue
+                try:
+                    result = parse_lrc(gdstudio_clean_lrc(text), track["length"], "gdstudio")
+                except SourceError:
+                    continue
+                if result["status"] != "ready":
+                    continue
+                starts = [line["start"] for line in result["lines"] if line["start"] is not None]
+                if track["length"] > 0 and starts and max(starts) < track["length"] * .4:
+                    continue  # A much shorter song (or a different cut): the timing could not follow this recording.
+                return result
+    except LibraryError:
+        raise
+    except (requests.RequestException, ValueError):
+        raise SourceError("GD Studio could not be read. Try again later.") from None
+    return _finish([], track["length"], "gdstudio")
+
+
 class PlaybackLyrics:
     """Bounded RAM results, newest-selection wins; network work never holds a lock."""
 
@@ -702,8 +804,8 @@ class PlaybackLyrics:
         self.context = None
         self.revision = 0
         self.active = None
-        self.backoff = {"unison": 0, "lrclib": 0}
-        self.spacing = {"unison": 0, "lrclib": 0}
+        self.backoff = {"unison": 0, "lrclib": 0, "gdstudio": 0}
+        self.spacing = {"unison": 0, "lrclib": 0, "gdstudio": 0}
 
     def defer(self, source, delay):
         with self.lock:
@@ -740,6 +842,12 @@ class PlaybackLyrics:
                 self.context = context
                 self.revision += 1
             track = selection[3]
+            # Fork v78: "Search lyrics…" looks for other words than the tags (e.g. the song's real title).
+            manual = (body.get("search_title"), body.get("search_artist"))
+            if manual != (None, None):
+                if not all(isinstance(value, str) and 0 < len(value.strip()) <= 200 for value in manual):
+                    raise LibraryError("Enter both a title and an artist to search for lyrics.")
+                track = {**track, "title": manual[0].strip(), "artist": manual[1].strip()}
             if not track["title"].strip() or not track["artist"].strip() \
                     or len(track["title"]) > 200 or len(track["artist"]) > 200:
                 self.revision += 1
@@ -747,7 +855,7 @@ class PlaybackLyrics:
                     self.active["event"].set()
                     self.active = None
                 return _finish([], track["length"])
-            key = json.dumps([selection[4], fallback])
+            key = json.dumps([selection[4], fallback, track["title"], track["artist"]])
             pending = self.active
             owner = not pending or pending["key"] != key or pending["context"] != context
             if owner:
@@ -788,7 +896,7 @@ class PlaybackLyrics:
 
         try:
             result, unavailable = _finish([], track["length"]), []
-            for source in (["unison", "lrclib"] if fallback else ["unison"]):
+            for source in (["unison", "lrclib", "gdstudio"] if fallback else ["unison"]):
                 check_current(source)
                 with self.lock:
                     blocked = time.monotonic() < self.backoff[source]
@@ -798,8 +906,8 @@ class PlaybackLyrics:
                 try:
                     def current(source=source):
                         check_current(source)
-                    result = (fetch_unison(track, selection[4][-1], current, self) if source == "unison"
-                              else fetch_lrclib_display(track, selection[4][-1], current, self))
+                    fetch = {"unison": fetch_unison, "lrclib": fetch_lrclib_display, "gdstudio": fetch_gdstudio_lyrics}[source]
+                    result = fetch(track, selection[4][-1], current, self)
                     check_current(source)
                     if result["status"] in ("ready", "instrumental"):
                         break

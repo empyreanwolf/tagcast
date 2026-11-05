@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="sonora.css">
   <link rel="stylesheet" href="player-devices.css">
   <link rel="stylesheet" href="player-styles.css">
+  <link rel="stylesheet" href="visualizer.css">
   <link rel="stylesheet" href="gapless-controls.css">
   <link rel="stylesheet" href="playback-lyrics.css">
   <script>try { const theme = localStorage.getItem("tagcast-theme"); if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme; const palette = localStorage.getItem("tagcast-palette"); if (["ocean", "warm", "ibroadcast"].includes(palette)) document.documentElement.dataset.palette = palette; if (localStorage.getItem("tagcast-look") !== "classic") { document.documentElement.dataset.look = "sonora"; document.documentElement.dataset.theme = "dark"; } const size = localStorage.getItem("tagcast-text-size"); if (["small", "large", "xlarge"].includes(size)) document.documentElement.dataset.textSize = size; } catch { /* private window */ }</script>
@@ -33,6 +34,7 @@
   <script src="gapless-diagnostics.js" defer></script>
   <script src="lyrics.js" defer></script>
   <script src="playback-lyrics.js" defer></script>
+  <script src="lyrics-search.js" defer></script>
   <script src="lyrics-import.js" defer></script>
   <script src="playback.js" defer></script>
   <script src="album.js" defer></script>
@@ -83,6 +85,8 @@
   <script src="sonora.js" defer></script>
   <script src="player-devices.js" defer></script>
   <script src="player-styles.js" defer></script>
+  <script src="visualizer-core.js" defer></script>
+  <script src="visualizer.js" defer></script>
   <script src="uploader.js" defer></script>
   <script src="sync-notify.js" defer></script>
   <script src="range-select.js" defer></script>

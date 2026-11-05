@@ -1,0 +1,19 @@
+/* Visualizer layout (fork v78). */
+.bv-canvas{display:block}
+.bv-canvas.bv-site{position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}
+.bv-canvas.bv-page{position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}
+.bv-stage{flex:none;width:min(78vw,calc(100dvh - 360px),600px);aspect-ratio:4/3;margin-inline:auto;position:relative;border-radius:18px;overflow:hidden;background:#05080a;box-shadow:0 20px 60px #000a}
+.bv-stage .bv-canvas{width:100%;height:100%}
+:root[data-bv-stage="on"] .ps-stage,:root[data-bv-stage="on"] .player-stage .visual-player-cover{display:none!important}
+.visual-player-header>div{row-gap:6px}
+#bv-lock[aria-pressed="true"]{border-color:var(--palette-link,#7d8f61)}
+
+/* Whole site: the picture sits behind everything and the panels turn to frosted glass. */
+:root[data-bv="site"] body{background:transparent}
+:root[data-bv="site"] main{background:color-mix(in srgb,var(--paper) 58%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+:root[data-bv="site"] .sidebar,:root[data-bv="site"] .player{background:color-mix(in srgb,var(--sidebar) 66%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+:root[data-bv="site"] .player-stage .visual-player,:root[data-bv="site"] .player-stage .visual-player.cover-atmosphere{background:transparent}
+:root[data-bv="site"] .cover-atmosphere::before{display:none}
+:root[data-bv="page"] .player-stage .visual-player{background:transparent}
+:root[data-bv="page"] .player-stage .visual-player,:root[data-bv="site"] .player-stage .visual-player{isolation:isolate}
+:root[data-bv="site"] body.visual-player-open main,:root[data-bv="site"] body.visual-player-open .sidebar{visibility:hidden}

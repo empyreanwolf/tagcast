@@ -3,8 +3,35 @@
 // Fork v69: in a browser the bridge comes from Tagcast's tab (mini-bridge.js): set on a
 // Picture-in-Picture window, or handed to a popup window through its opener.
 const bridge = window.tagcastMini || window.opener?.tagcastMiniBridge?.(window);
-const nodes = Object.fromEntries(["cover", "device", "title", "artist", "album", "previous", "play", "next", "elapsed", "duration", "position", "status", "pin", "open"].map(id => [id, document.getElementById(id)]));
+const nodes = Object.fromEntries(["cover", "device", "title", "artist", "album", "previous", "play", "next", "elapsed", "duration", "position", "status", "pin", "open", "viz"].map(id => [id, document.getElementById(id)]));
 const miniColourRoles = ["brand-background", "brand-ink", "brand-paper", "sidebar", "accent", "shell-ink", "shell-muted", "shell-active", "shell-line", "ink", "muted", "paper", "line", "link", "surface", "soft", "tint", "focus", "primary", "primary-hover", "chart", "primary-ink"];
+// Fork v78: a visualizer behind the Mini Player. This window has no audio, so it moves to a pretend beat.
+const vizState = {on: false, engine: null};
+try { vizState.on = localStorage.getItem("tagcast-viz-mini") === "1"; } catch { /* private window */ }
+function vizRun() {
+  const engine = vizState.engine;
+  if (!engine?.viz) return;
+  if (vizState.on && playback?.paused === false && !document.hidden) engine.run(); else engine.stop();
+}
+function vizApply() {
+  document.body.classList.toggle("mini-viz-on", vizState.on);
+  nodes.viz?.setAttribute("aria-pressed", String(vizState.on));
+  if (!vizState.on) { vizState.engine?.stop(); return; }
+  if (!vizState.engine && typeof bvEngine === "function") {
+    const engine = vizState.engine = bvEngine(document.getElementById("viz-canvas"));
+    engine.fps = 30;
+    engine.ready.then(() => { engine.size(innerWidth * 0.6, innerHeight * 0.6); engine.next(); vizRun(); })
+      .catch(error => { vizState.on = false; vizState.engine = null; failure = error.message; vizApply(); render(); });
+  }
+  vizRun();
+}
+nodes.viz?.addEventListener("click", () => {
+  vizState.on = !vizState.on;
+  try { localStorage.setItem("tagcast-viz-mini", vizState.on ? "1" : "0"); } catch { /* private window */ }
+  vizApply();
+});
+window.addEventListener("resize", () => vizState.engine?.size(innerWidth * 0.6, innerHeight * 0.6));
+document.addEventListener("visibilitychange", vizRun);
 let playback = null, draft = null, busy = false, cover = "", failure = "", deviceKey = "";
 function clock(value) {
   const n = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
@@ -41,6 +68,7 @@ function render() {
   if (deviceKey !== `${device}|${cover}`) { deviceKey = `${device}|${cover}`; nodes.device.innerHTML = device ? pdSvg(device, cover, "pm") : ""; }
   nodes.device.hidden = !device; nodes.cover.hidden = Boolean(device) || !cover;
   nodes.device.classList.toggle("ps-playing", Boolean(device) && s?.paused === false);
+  vizRun();
 }
 async function send(action, value = playback, position) {
   if (!bridge || !value || busy) return;
@@ -76,3 +104,4 @@ if (bridge) {
   });
   bridge.ready();
 } else { failure = "Open Mini Player from the Tagcast desktop app"; render(); }
+vizApply();
