@@ -1336,3 +1336,5 @@ th.sortable-th .sort-arrow{font-size:calc(10px*var(--ts));color:var(--accent,cur
 .upl-fields label{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted)}
 .upl-genres{margin:6px 0;padding-left:22px}
 .upl-bar,.upl-filters{margin-top:8px}
+
+.fav-play-actions{display:flex;gap:8px;margin-left:auto}

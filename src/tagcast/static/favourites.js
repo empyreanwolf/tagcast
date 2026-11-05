@@ -5,7 +5,7 @@
 const storedFavouritesSize = storedPageSize("tagcast-favourites-per-page");
 const favourites = {rows: [], total: 0, count: null, query: "", page: 0,
   pageSize: [50, 100, 200].includes(storedFavouritesSize) ? storedFavouritesSize : DEFAULT_PAGE_SIZE, request: 0,
-  epoch: 0, details: null, loading: false, busy: false, error: "", pending: null};
+  epoch: 0, details: null, loading: false, busy: false, error: "", pending: null, playing: ""};
 let favouritesTimer;
 const dislikeIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 14V3h4v11h-4ZM17 4H7a2 2 0 0 0-2 1.6l-2 7A2 2 0 0 0 5 15h5l-1 4a2 2 0 0 0 2 2l6-7"/></svg>';
 const heartIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></svg>';
@@ -219,9 +219,54 @@ function renderFavourites() {
     : `<div class="empty">${favourites.query ? "No favourites match your search." : "No favourites yet. Use a heart on an album, a track search result or the player."}</div>`;
   const max = Math.max(0, Math.ceil(favourites.total / favourites.pageSize) - 1);
   $("#favourites-pagination").innerHTML = live() && !favourites.loading && max > 0 ? `<button class="button small" data-favourite-page="-1" ${favourites.page === 0 ? "disabled" : ""}>← Previous</button><span>Page ${favourites.page + 1} of ${(max + 1).toLocaleString("en")}</span><button class="button small" data-favourite-page="1" ${favourites.page === max ? "disabled" : ""}>Next →</button>` : "";
+  updateFavouritePlayButtons();
   markPlaying();
   if (typeof syncHistory === "function") syncHistory();
 }
+
+// Play / Shuffle play (fork v76): every favourite that matches the search, across all pages, in one queue.
+function updateFavouritePlayButtons() {
+  const off = !live() || state.loading || favourites.loading || favourites.playing || !favourites.total || Boolean(favourites.error);
+  for (const id of ["#favourites-play", "#favourites-shuffle"]) $(id).disabled = off;
+  $("#favourites-play").textContent = favourites.playing === "play" ? "Loading…" : "▶ Play";
+  $("#favourites-shuffle").textContent = favourites.playing === "shuffle" ? "Shuffling…" : "🔀 Shuffle play";
+}
+
+async function playFavourites(shuffle) {
+  if (!live() || state.loading || favourites.playing || !favourites.total) return;
+  if (typeof localPlaybackAllowed === "function" && !localPlaybackAllowed()) { toast("Use Devices to control the connected queue."); return; }
+  cancelRandomPlay();
+  const request = ++player.randomRequest, epoch = ++player.epoch, details = state.details, query = favourites.query;
+  favourites.playing = shuffle ? "shuffle" : "play"; updateFavouritePlayButtons();
+  try {
+    const rows = [];
+    for (let offset = 0; ; offset += 200) {
+      const data = await api(`/api/favourites?q=${encodeURIComponent(query)}&offset=${offset}&limit=200`);
+      rows.push(...(data.tracks || []));
+      if (!(data.tracks || []).length || rows.length >= (data.total || 0)) break;
+    }
+    const discs = await albumDetails([...new Set(rows.map(r => String(r.album_id)))]);
+    if (request !== player.randomRequest || epoch !== player.epoch || details !== state.details || !live()) return;
+    const byAlbum = new Map(discs.map(d => [String(d.id), d]));
+    const tracks = rows.flatMap(row => {
+      const disc = byAlbum.get(String(row.album_id)), track = disc?.tracks.find(t => String(t.id) === String(row.id));
+      return track ? queueTracks(disc, [track]) : [];
+    });
+    if (!tracks.length) throw Error("None of your favourites can be played.");
+    if (shuffle) smartShuffle(tracks);
+    player.shuffle = shuffle; player.queue = tracks;
+    if (typeof gaplessAlbumQueue === "function") gaplessAlbumQueue(player.queue, false);
+    player.index = 0;
+    playCurrent();
+    toast(`${shuffle ? "Shuffling" : "Playing"} ${tracks.length} favourite ${tracks.length === 1 ? "song" : "songs"}`);
+  } catch (error) {
+    if (request === player.randomRequest) toast(`Could not play your favourites: ${error.message}`);
+  } finally {
+    favourites.playing = ""; updateFavouritePlayButtons();
+  }
+}
+$("#favourites-play").addEventListener("click", () => playFavourites(false));
+$("#favourites-shuffle").addEventListener("click", () => playFavourites(true));
 
 function showFavourites(page = favourites.page) {
   clearTimeout(favouritesTimer);

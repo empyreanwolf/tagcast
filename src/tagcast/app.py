@@ -55,7 +55,7 @@ class Handler(SimpleHTTPRequestHandler):
     # the browser would then refuse to run the page's scripts.
     extensions_map = {**SimpleHTTPRequestHandler.extensions_map, ".js": "text/javascript",
                       ".css": "text/css", ".html": "text/html", ".svg": "image/svg+xml",
-                      ".png": "image/png", ".json": "application/json"}
+                      ".png": "image/png", ".json": "application/json", ".woff": "font/woff"}
 
     def log_message(self, fmt, *args):
         if os.environ.get("TAGCAST_DEBUG"):

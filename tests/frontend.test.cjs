@@ -15,6 +15,7 @@ const LEGACY_PAGE_SIZES = {"tagcast-artists-per-page": "24", "tagcast-favourite-
   "tagcast-browse-per-page": "24", "tagcast-favourites-per-page": "50", "tagcast-tracks-per-page": "50",
   "tagcast-recently-played-per-page": "50", "tagcast-guide-per-page": "24"};
 function page({hash = "", storage = {}, server = true, browserNavigator = {}, metadataClass, setupAudio, deferReady = false, freshPageSizes = false} = {}) {
+  if (!("tagcast-look" in storage)) storage["tagcast-look"] = "classic";   // fork v76 tests turn Sonora on
   if (!("tagcast-heart-playlist" in storage)) storage["tagcast-heart-playlist"] = "off";   // fork v53 tests turn it on
   if (!("tagcast-preload" in storage)) storage["tagcast-preload"] = "off";   // fork v50 tests turn it on
   if (!freshPageSizes && !("tagcast-page-size-v33" in storage)) {
@@ -4621,7 +4622,7 @@ test("appearance restores before scripts load and invalid or unavailable storage
   const source = readFileSync(path.join(staticDir, "index.html"), "utf8").match(/<script>([\s\S]*?)<\/script>/)[1];
   for (const palette of ["ocean", "warm", "ibroadcast"]) {
     const document = {documentElement: {dataset: {}}};
-    vm.runInNewContext(source, {document, localStorage: {getItem: key => key === "tagcast-palette" ? palette : "light"}});
+    vm.runInNewContext(source, {document, localStorage: {getItem: key => key === "tagcast-palette" ? palette : key === "tagcast-look" ? "classic" : "light"}});
     assert.deepEqual(document.documentElement.dataset, {theme:"light",palette});
     const p = page({storage:{"tagcast-palette":palette}});
     assert.equal(p.nodes.get("#palette-" + palette).checked, true);
@@ -10258,16 +10259,12 @@ function quickAddPage(storage = {}, listed = [1, 2, 3]) {
 }
 const toastText = p => p.nodes.get("#toast").textContent;
 
-test('fork v49: tracks and albums carry a one-click quick-add button next to the queue button', async () => {
+test('fork v76: the quick-add ♫＋ button is hidden everywhere, queue buttons stay', async () => {
   const {p} = quickAddPage(); await settle();
-  const track = p.json("state.details.get(state.albums[0].id).tracks[0]");
-  const html = p.run(`quickAddButton(state.albums[0].id, state.details.get(state.albums[0].id).tracks[0])`);
-  assert.match(html, new RegExp(`data-quick-add-album="${p.run("state.albums[0].id")}" data-quick-add-track="${track.id}"`));
-  assert.match(html, /a playlist you choose once/);
-  assert.match(p.run("albumCardActions(state.albums[0])"), /quick-add[\s\S]*queue-add queue-compact queue-menu-trigger/);
+  assert.equal(p.run(`quickAddButton(state.albums[0].id, state.details.get(state.albums[0].id).tracks[0])`), "");
+  assert.equal(p.run(`quickAddButton(state.albums[0].id, null, true)`), "");
+  assert.doesNotMatch(p.run("albumCardActions(state.albums[0])"), /quick-add/);
   assert.match(p.run("queueButton(state.albums[0].id, state.details.get(state.albums[0].id).tracks[0])"), /row-act/);
-  p.run("rememberQuickPlaylist({id: '77', name: 'Road trip'})");
-  assert.match(p.run(`quickAddButton(state.albums[0].id, null, true)`), /Add this album to “Road trip”/);
 });
 
 test('fork v49: with a quick playlist chosen, one click adds the track with no dialog and one write', async () => {
@@ -10389,7 +10386,7 @@ test('fork v49: Now Playing labels track, artist and album separately', async ()
   p.run('playTracks(state.details.get("1")); setNowPlaying(true)');
   const html = p.nodes.get("#now-playing-current").innerHTML;
   assert.match(html, /role-label">Track<[\s\S]*role-label">Artist<[\s\S]*role-artist[\s\S]*role-label">Album<[\s\S]*role-album/);
-  assert.match(html, /quick-add/);
+  assert.doesNotMatch(html, /quick-add/, "fork v76 hides the quick-add button");
 });
 
 function preloadPage(streams, storage = {}) {
@@ -11333,4 +11330,52 @@ test("v74: Swap artist/album builds one swapped change per selected album", asyn
   assert.equal(changes.length, 1);
   assert.deepEqual(changes[0].fields.artist, {before: "Blood On The Chessboard", after: "Hell Razah"});
   assert.deepEqual(changes[0].fields.name, {before: "Hell Razah", after: "Blood On The Chessboard"});
+});
+
+// -- fork v76: Play / Shuffle play on the Favourites list ----------------------------------
+test("fork v76: Favourites Play and Shuffle play queue every favourite from all pages", async () => {
+  const p = livePage(); await settle();
+  const ids = p.json("[...state.details.values()].flatMap(a => a.tracks.map(t => ({id: String(t.id), album_id: String(a.id), title: t.title})))").slice(0, 5);
+  p.setFetch(async url => {
+    assert.match(url, /^\/api\/favourites\?/);
+    const offset = Number(new URL(url, "http://test").searchParams.get("offset"));
+    return {ok: true, json: async () => ({tracks: ids.slice(offset, offset + 200), count: ids.length, total: ids.length, offset})};
+  });
+  p.run("showFavourites(0)"); await settle();
+  assert.equal(p.nodes.get("#favourites-play").disabled, false);
+  await p.run("playFavourites(false)"); await settle();
+  assert.deepEqual(p.json("player.queue.map(t => t.id)"), ids.map(r => r.id));
+  assert.equal(p.run("player.shuffle"), false);
+  await p.run("playFavourites(true)"); await settle();
+  assert.equal(p.json("player.queue.length"), ids.length);
+  assert.equal(p.run("player.shuffle"), true);
+  assert.equal(p.run("favourites.playing"), "");
+});
+
+// -- fork v76: Sonora look ------------------------------------------------------------------
+test("fork v76: Sonora is the default look, is always dark, and Classic brings back the old appearance", async () => {
+  const storage = {"tagcast-theme": "light", "tagcast-look": "sonora"};
+  const p = page({storage}); await settle();
+  assert.equal(p.run("document.documentElement.dataset.look"), "sonora");
+  assert.equal(p.run("document.documentElement.dataset.theme"), "dark");
+  assert.equal(storage["tagcast-theme"], "light", "Sonora never overwrites the saved light/dark choice");
+  p.run('sonoraApplyLook("classic")');
+  assert.equal(p.run("document.documentElement.dataset.look"), undefined);
+  assert.equal(p.run("document.documentElement.dataset.theme"), "light");
+  assert.equal(storage["tagcast-look"], "classic");
+  const source = readFileSync(path.join(staticDir, "index.html"), "utf8").match(/<script>([\s\S]*?)<\/script>/)[1];
+  const document = {documentElement: {dataset: {}}};
+  vm.runInNewContext(source, {document, localStorage: {getItem: () => null}});
+  assert.equal(document.documentElement.dataset.look, "sonora", "no saved choice: Sonora");
+});
+
+test("fork v76: accent colours are fixed or follow the cover, and unreadable covers get a steady colour", async () => {
+  const p = page({storage: {"tagcast-look": "sonora"}}); await settle();
+  p.run('sonoraSetAccent("pink")');
+  assert.equal(p.run("sonoraState.accent"), "pink");
+  p.run('sonoraSetAccent("nonsense")');
+  assert.equal(p.run("sonoraState.accent"), "auto");
+  assert.match(p.run('sonoraNormalize(200, 30, 90)'), /^#[0-9a-f]{6}$/);
+  assert.equal(p.run('sonoraHashColor("Abbey Road")'), p.run('sonoraHashColor("Abbey Road")'));
+  assert.notEqual(p.run('sonoraHashColor("Abbey Road")'), p.run('sonoraHashColor("Dark Side")'));
 });

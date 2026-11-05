@@ -44,7 +44,11 @@ function quickAddLabel(what) {
 }
 
 // albumId is required; trackId is empty for a whole album.
+// The ♫＋ buttons are hidden since fork v76 (the "Playlist…" button does the same job). The code stays so one switch
+// can bring them back.
+const quickAddShown = false;
 function quickAddButton(albumId, track = null, wide = false) {
+  if (!quickAddShown) return "";
   const what = track ? track.title : "this album";
   const label = quickAddLabel(what);
   return `<button type="button" class="quick-add ${wide ? "button small quick-add-wide" : ""}" data-quick-add-album="${escapeHtml(albumId)}" ${track ? `data-quick-add-track="${escapeHtml(track.id)}"` : ""} data-quick-add-what="${escapeHtml(what)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" ${!live() ? "disabled" : ""}>${wide ? "♫＋ Quick add" : "♫＋"}</button>`;

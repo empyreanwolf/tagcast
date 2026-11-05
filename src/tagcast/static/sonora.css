@@ -1,0 +1,131 @@
+/* Sonora look (fork v76). Off unless <html data-look="sonora">. Always dark. The accent colour is
+   --sn-accent, set by sonora.js (Auto follows the playing album's cover). Inter is bundled in fonts/. */
+
+@font-face{font-family:"Inter";font-weight:400;font-display:swap;src:url(fonts/Inter-Regular.woff) format("woff")}
+@font-face{font-family:"Inter";font-weight:500;font-display:swap;src:url(fonts/Inter-Medium.woff) format("woff")}
+@font-face{font-family:"Inter";font-weight:600 700;font-display:swap;src:url(fonts/Inter-SemiBold.woff) format("woff")}
+
+/* The :not(#sn) keeps these ahead of the palette and dark rules whatever the palette is. */
+:root[data-look="sonora"]:not(#sn){
+  --sn-accent:#86d7ee;--sn-ink:#06222b;--sn-glow:#86d7ee;
+  --sn-bg:#070b0d;--sn-panel:#0c1215;--sn-raise:#121a1e;--sn-edge:#1a2328;
+  --sn-hi:color-mix(in srgb,var(--sn-accent) 15%,transparent);
+  color-scheme:dark;
+  font-family:"Inter","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  --palette-ink:#e8eef0;--palette-muted:#8a979c;--palette-paper:var(--sn-bg);--palette-line:var(--sn-edge);
+  --palette-link:var(--sn-accent);--palette-surface:var(--sn-panel);--palette-soft:var(--sn-panel);
+  --palette-tint:var(--sn-hi);--palette-focus:var(--sn-accent);--palette-primary:var(--sn-accent);
+  --palette-primary-hover:color-mix(in srgb,var(--sn-accent) 82%,#fff);--palette-chart:var(--sn-accent);
+  --palette-sidebar:var(--sn-bg);--palette-accent:var(--sn-accent);--palette-shell-ink:#e8eef0;
+  --palette-shell-muted:#9aa6ab;--palette-shell-active:var(--sn-hi);--palette-shell-line:var(--sn-edge);
+  --ink:#e8eef0;--muted:#8a979c;--paper:var(--sn-bg);--line:var(--sn-edge);--green:var(--sn-accent);
+  --accent:var(--sn-accent);--sidebar:var(--sn-bg);--white:var(--sn-panel);
+}
+:root[data-look="sonora"] body{
+  background:
+    radial-gradient(900px 520px at 78% -8%,color-mix(in srgb,var(--sn-accent) 16%,transparent),transparent 70%),
+    radial-gradient(700px 480px at 8% 108%,color-mix(in srgb,var(--sn-accent) 9%,transparent),transparent 70%),
+    var(--sn-bg);
+  background-attachment:fixed;color:var(--ink);letter-spacing:-.005em;
+}
+/* the soft coloured edge round the window */
+:root[data-look="sonora"]::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--sn-glow) 30%,transparent),inset 0 0 70px 4px color-mix(in srgb,var(--sn-glow) 22%,transparent);
+  transition:box-shadow .8s}
+:root[data-look="sonora"] ::selection{background:color-mix(in srgb,var(--sn-accent) 40%,transparent)}
+:root[data-look="sonora"] *{scrollbar-width:thin;scrollbar-color:#27333a transparent}
+:root[data-look="sonora"] input[type=range],:root[data-look="sonora"] input[type=checkbox],:root[data-look="sonora"] input[type=radio]{accent-color:var(--sn-accent)}
+
+/* sidebar */
+:root[data-look="sonora"] .sidebar{background:transparent;border-right:1px solid var(--sn-edge);backdrop-filter:blur(14px)}
+:root[data-look="sonora"] .nav{border-radius:10px;padding:10px 12px;font-weight:500;transition:background .15s,color .15s}
+:root[data-look="sonora"] .nav:hover{background:rgba(255,255,255,.05)}
+:root[data-look="sonora"] .nav.active{background:var(--sn-hi);color:#fff;box-shadow:inset 3px 0 0 var(--sn-accent)}
+:root[data-look="sonora"] .nav.active .nav-icon{color:var(--sn-accent)}
+:root[data-look="sonora"] .status-dot{background:var(--sn-accent)}
+:root[data-look="sonora"] .text-button{color:var(--sn-accent)}
+
+/* top bar and headings */
+:root[data-look="sonora"] .topbar{border-bottom:1px solid var(--sn-edge);backdrop-filter:blur(10px)}
+:root[data-look="sonora"] h1{font-weight:700;letter-spacing:-.04em}
+:root[data-look="sonora"] h1 span{color:var(--sn-accent)}
+:root[data-look="sonora"] .eyebrow{color:var(--sn-accent);letter-spacing:.14em;font-weight:600}
+:root[data-look="sonora"] .library-total strong{font-weight:600}
+
+/* buttons, fields */
+:root[data-look="sonora"] .button{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:var(--ink);transition:background .15s,transform .1s,border-color .15s}
+:root[data-look="sonora"] .button:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.18)}
+:root[data-look="sonora"] .button:active{transform:scale(.98)}
+:root[data-look="sonora"] .button.primary{background:var(--sn-accent);border-color:var(--sn-accent);color:var(--sn-ink);font-weight:600}
+:root[data-look="sonora"] .button.primary:hover{background:color-mix(in srgb,var(--sn-accent) 82%,#fff);border-color:transparent}
+:root[data-look="sonora"] .button.danger{color:#ff8d8d;border-color:rgba(255,120,120,.35)}
+:root[data-look="sonora"] .button.danger.primary{background:#d9534f;border-color:#d9534f;color:#fff}
+:root[data-look="sonora"] .mode-badge.live{background:var(--sn-hi);border-color:color-mix(in srgb,var(--sn-accent) 40%,transparent);color:var(--sn-accent)}
+:root[data-look="sonora"] .mode-badge.live:before{background:var(--sn-accent)}
+:root[data-look="sonora"] .search,:root[data-look="sonora"] .toolbar select,:root[data-look="sonora"] .field input,:root[data-look="sonora"] .field select,
+:root[data-look="sonora"] .view-toggle{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.09);border-radius:12px;color:var(--ink)}
+:root[data-look="sonora"] .search:focus-within{border-color:var(--sn-accent);box-shadow:0 0 0 3px var(--sn-hi)}
+:root[data-look="sonora"] .view-toggle button[aria-pressed="true"]{background:var(--sn-hi);color:var(--sn-accent)}
+:root[data-look="sonora"] .pill{background:rgba(255,255,255,.06);border-color:transparent;border-radius:99px;color:var(--muted);padding:3px 9px}
+:root[data-look="sonora"] .pill.missing{background:rgba(240,180,80,.14);color:#f0b450}
+:root[data-look="sonora"] .notice,:root[data-look="sonora"] .selection-bar{background:var(--sn-hi);border:1px solid color-mix(in srgb,var(--sn-accent) 25%,transparent);color:var(--ink);border-radius:12px}
+
+/* album cards: big art, rounded, glow on hover */
+:root[data-look="sonora"] .album-grid{gap:30px 24px}
+:root[data-look="sonora"] .cover{border-radius:16px;box-shadow:0 10px 26px #0008;transition:transform .25s cubic-bezier(.2,.8,.2,1),box-shadow .25s}
+:root[data-look="sonora"] .album-open:hover .cover{transform:translateY(-5px) scale(1.015);box-shadow:0 16px 40px #000a,0 0 0 1px color-mix(in srgb,var(--sn-accent) 45%,transparent),0 10px 44px color-mix(in srgb,var(--sn-accent) 28%,transparent)}
+:root[data-look="sonora"] .album-name{font-weight:600;color:#f4f8f9}
+:root[data-look="sonora"] .album-artist{color:var(--muted)}
+:root[data-look="sonora"] .selected .cover{outline:3px solid var(--sn-accent);outline-offset:3px}
+:root[data-look="sonora"] .album-select{background:#0b1114e6;border-radius:8px}
+
+/* tables */
+:root[data-look="sonora"] .album-table,:root[data-look="sonora"] .track-table{background:transparent;border-color:var(--sn-edge);border-radius:14px}
+:root[data-look="sonora"] .album-table th,:root[data-look="sonora"] .track-table th{background:transparent;color:var(--muted);letter-spacing:.1em}
+:root[data-look="sonora"] .album-table td,:root[data-look="sonora"] .track-table td{border-bottom-color:rgba(255,255,255,.05)}
+:root[data-look="sonora"] .album-table tbody tr,:root[data-look="sonora"] .track-table tbody tr{transition:background .12s}
+:root[data-look="sonora"] .album-table tbody tr:hover,:root[data-look="sonora"] .track-table tbody tr:hover{background:rgba(255,255,255,.05)}
+:root[data-look="sonora"] .track-edit{color:var(--sn-accent)}
+
+/* dialogs and menus */
+:root[data-look="sonora"] dialog{background:color-mix(in srgb,var(--sn-panel) 92%,transparent);backdrop-filter:blur(26px);border:1px solid rgba(255,255,255,.09);border-radius:20px;box-shadow:0 30px 120px #000c,0 0 80px color-mix(in srgb,var(--sn-accent) 10%,transparent)}
+:root[data-look="sonora"] dialog::backdrop{background:#02060880;backdrop-filter:blur(8px)}
+:root[data-look="sonora"] .close{background:rgba(255,255,255,.06);border-color:transparent;color:var(--muted)}
+:root[data-look="sonora"] .close:hover{color:#fff;background:rgba(255,255,255,.12)}
+:root[data-look="sonora"] .diff-group,:root[data-look="sonora"] .source-link,:root[data-look="sonora"] .track-inline{background:rgba(255,255,255,.035);border-color:rgba(255,255,255,.08);border-radius:12px}
+:root[data-look="sonora"] .toast{background:#141d22;border:1px solid color-mix(in srgb,var(--sn-accent) 35%,transparent);border-radius:12px}
+:root[data-look="sonora"] fieldset:has(#palette-forest){display:none}
+:root[data-look="sonora"] .theme-menu{background:#0d1418fa;backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.1);border-radius:14px}
+
+/* player bar: glass, accent progress */
+:root[data-look="sonora"] .player{background:color-mix(in srgb,#060a0c 86%,transparent);backdrop-filter:blur(22px) saturate(1.3);border-top:1px solid var(--sn-edge);box-shadow:0 -10px 40px #0009}
+:root[data-look="sonora"] .player img{border-radius:10px;box-shadow:0 4px 14px #0009}
+:root[data-look="sonora"] .player-button{border-radius:50%;transition:background .15s,color .15s,transform .1s}
+:root[data-look="sonora"] .player-button:hover{background:rgba(255,255,255,.1)}
+:root[data-look="sonora"] .player-button[aria-pressed="true"]{color:var(--sn-accent);background:var(--sn-hi)}
+:root[data-look="sonora"] #gapless-play{background:var(--sn-accent);color:var(--sn-ink)}
+:root[data-look="sonora"] #gapless-play:hover{background:color-mix(in srgb,var(--sn-accent) 82%,#fff)}
+:root[data-look="sonora"] .player-text strong{font-weight:600;color:#fff}
+:root[data-look="sonora"] #player-artist,:root[data-look="sonora"] #player-album{color:var(--muted)}
+
+/* Now playing: the cover's colour glows behind it */
+:root[data-look="sonora"] .player-stage .visual-player{background:
+    radial-gradient(1100px 760px at 28% 45%,color-mix(in srgb,var(--sn-accent) 34%,transparent),transparent 70%),
+    radial-gradient(900px 700px at 85% 90%,color-mix(in srgb,var(--sn-accent) 18%,transparent),transparent 70%),#05080a}
+:root[data-look="sonora"] .player-stage .visual-player-cover{border-radius:22px;box-shadow:0 30px 80px #000c,0 0 90px color-mix(in srgb,var(--sn-accent) 30%,transparent)}
+:root[data-look="sonora"] .visual-player-info h2{font-weight:700;letter-spacing:-.03em}
+:root[data-look="sonora"] .now-playing-panel{background:rgba(8,12,14,.9);backdrop-filter:blur(22px);border-left:1px solid var(--sn-edge)}
+
+/* settings card for the look and accent */
+.sn-menu-colours{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 6px;margin-top:8px}.sn-menu-colours label:first-child{grid-column:1/-1}
+.sn-menu-colours label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.sn-swatch{width:22px;height:22px;border-radius:50%;border:2px solid transparent;box-shadow:0 0 0 1px #0006 inset;display:inline-block;background:var(--c)}
+.sn-menu-colours input{position:absolute;opacity:0;pointer-events:none}
+.sn-menu-colours input:checked+.sn-swatch{border-color:#fff;box-shadow:0 0 0 2px var(--c)}
+.sn-menu-colours input:focus-visible+.sn-swatch{outline:3px solid #fff;outline-offset:2px}
+.sn-swatch.auto{background:conic-gradient(#86d7ee,#a78bfa,#f0879e,#f5a25d,#6fd6a0,#86d7ee)}
+.sn-menu-colours small{grid-column:1/-1;opacity:.7}
+html:not([data-look="sonora"]) .sn-only{display:none}
+:root[data-look="sonora"] fieldset:has(#appearance-auto){display:none}
+
+@media (prefers-reduced-motion:reduce){:root[data-look="sonora"] *{transition:none!important}}

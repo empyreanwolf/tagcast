@@ -15,7 +15,7 @@ const artistCleanupTabs = [["merge", "Duplicates"], ["split", "Combined names"],
 const artistCleanupModes = {merge: "Merge duplicates", split: "Split combined names", feat: "Link featured artists"};
 const artistCleanupPage = 25;
 // Shown beside the dialog title; raise it with every update of this fork.
-const artistCleanupVersion = "fork v75";
+const artistCleanupVersion = "fork v76";
 // v67: the sidebar shows the fork version on every page (the original Tagcast number is in its tooltip).
 document.addEventListener("DOMContentLoaded", () => { const pill = document.getElementById("brand-fork-version"); if (pill) pill.textContent = artistCleanupVersion; });
 { const pill = typeof document !== "undefined" && document.getElementById?.("brand-fork-version"); if (pill) pill.textContent = artistCleanupVersion; }
