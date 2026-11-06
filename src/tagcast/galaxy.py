@@ -56,6 +56,7 @@ MB_BASE = "https://musicbrainz.org/ws/2"
 SHORT_SECONDS = 35  # under this, a file is checked against MusicBrainz before it is kept
 SETTING_LIMITS = {"track_delay": (0, 600), "api_delay": (0, 60), "api_quota": (5, 50)}
 STATE_FILE = "galaxy.json"
+QUOTA_FILE = "galaxy_quota.json"  # fork v84: the API calls of the last 5 minutes survive a restart
 
 
 class GalaxyError(LibraryError):
@@ -280,6 +281,34 @@ class QuotaLimiter:
         self._calls = collections.deque()
         self._next = 0.0
         self.blocked_until = 0.0
+        self.on_change = None  # fork v84: called (outside the lock) after each call or penalty, to save the quota
+
+    def export(self, wall=time.time):
+        """Calls and block as wall-clock times (monotonic time restarts with the program)."""
+        with self._lock:
+            now, w = self.clock(), wall()
+            self._prune(now)
+            return {"calls": [round(w - (now - c), 2) for c in self._calls],
+                    "blocked_until": round(w + max(0.0, self.blocked_until - now), 2)}
+
+    def load(self, data, wall=time.time):
+        if not isinstance(data, dict):
+            return
+        with self._lock:
+            now, w = self.clock(), wall()
+            calls = sorted(now - (w - to_float(c)) for c in data.get("calls") or [] if isinstance(c, (int, float)))
+            self._calls = collections.deque(c for c in calls if now - self.period < c <= now)
+            block = to_float(data.get("blocked_until")) - w
+            if 0 < block <= 600:
+                self.blocked_until = max(self.blocked_until, now + block)
+                self._next = max(self._next, now + block)
+
+    def _changed(self):
+        if self.on_change:
+            try:
+                self.on_change()
+            except Exception as e:
+                log.info("Could not save the Galaxy API quota: %s", e)
 
     def penalize(self, secs):
         """The server pushed back (503 / reset): hold every API call for `secs`."""
@@ -287,6 +316,7 @@ class QuotaLimiter:
             until = self.clock() + secs
             self._next = max(self._next, until)
             self.blocked_until = max(self.blocked_until, until)
+        self._changed()
 
     def _prune(self, now):
         while self._calls and self._calls[0] <= now - self.period:
@@ -318,6 +348,7 @@ class QuotaLimiter:
             if hook:
                 hook(wait_for)
             _sleep(min(wait_for, 1.0))
+        self._changed()
         delay = slot - self.clock()
         if delay > 0:
             _sleep(delay)
@@ -777,6 +808,8 @@ class MusicBrainz:
             from .sources import PACING, Http
             http = Http(PACING)  # musicbrainz.org is paced at 1.1 s per request
         self.http = http
+        self._albums = {}  # fork v83+: (artist, album) -> one release's track list, so an album asks MusicBrainz once
+        self._albums_lock = threading.Lock()
 
     def _get(self, path, params):
         return self.http.json(f"{MB_BASE}/{path}", {**params, "fmt": "json"}, ttl=86400)
@@ -807,8 +840,64 @@ class MusicBrainz:
                     best = {"score": score, "date_key": date_key, "rec": rec, "rel": rel, "album_sim": a_sim}
         return best
 
+    def _album_key(self, artists, album):
+        return (norm((artists or [""])[0]), norm(album)) if album else None
+
+    def _from_album(self, key, title):
+        """Fork v84: the song from an album already looked up (no MusicBrainz call), or None."""
+        with self._albums_lock:
+            info = self._albums.get(key)
+        if not info:
+            return None
+        best, best_sim = None, 0.0
+        for tr in info["tracks"]:
+            s = max(sim(tr["title"], title), sim(tr["title"], plain_title(title)))
+            if s > best_sim:
+                best, best_sim = tr, s
+        if not best or best_sim < 0.85:
+            return None
+        return {"year": info["year"], "track_no": best["number"], "track_total": best["total"], "genre": info["genre"],
+                "recording_id": best["recording_id"], "release_id": info["release_id"],
+                "release_title": info["release_title"], "length_s": best["length_s"]}
+
+    def _remember_album(self, key, result):
+        """After the first song of an album matched it well, read that release's whole track list once."""
+        try:
+            rel = self._get(f"release/{result['release_id']}", {"inc": "recordings"}) or {}
+        except Exception as e:
+            log.info("MusicBrainz release lookup failed: %s", e)
+            return
+        tracks = []
+        for medium in rel.get("media") or []:
+            total = to_int(medium.get("track-count"), 0)
+            for tr in medium.get("tracks") or []:
+                rec = tr.get("recording") or {}
+                tracks.append({"title": tr.get("title") or rec.get("title") or "", "number": to_int(tr.get("number"), 0) or to_int(tr.get("position"), 0),
+                               "total": total, "recording_id": rec.get("id", ""),
+                               "length_s": to_int(tr.get("length") or rec.get("length"), 0) / 1000.0})
+        if tracks:
+            with self._albums_lock:
+                if len(self._albums) > 200:
+                    self._albums.clear()
+                self._albums[key] = {"tracks": tracks, "year": result["year"], "genre": result["genre"],
+                                     "release_id": result["release_id"], "release_title": result["release_title"]}
+
     def lookup(self, artists, title, album):
-        """{year, track_no, track_total, genre, recording_id, release_id, release_title, length_s} or None."""
+        """{year, track_no, track_total, genre, recording_id, release_id, release_title, length_s} or None.
+        Fork v84: songs of an album already matched come from its saved track list (no call)."""
+        key = self._album_key(artists, album)
+        if key:
+            hit = self._from_album(key, title)
+            if hit:
+                return hit
+        result = self._lookup(artists, title, album)
+        if key and result and result.get("album_sim", 0) >= 0.85 and result.get("release_id"):
+            self._remember_album(key, result)
+        if result:
+            result.pop("album_sim", None)
+        return result
+
+    def _lookup(self, artists, title, album):
         base = f"recording:{_phrase(title)}" + (f" AND artist:{_phrase(artists[0])}" if artists else "")
         best = None
         for q in ([base + f" AND release:{_phrase(album)}"] if album else []) + [base]:
@@ -842,7 +931,7 @@ class MusicBrainz:
             log.info("MusicBrainz genre lookup failed: %s", e)
         return {"year": year, "track_no": track_no, "track_total": track_total, "genre": genre,
                 "recording_id": rec.get("id", ""), "release_id": rel.get("id", ""), "release_title": rel.get("title", ""),
-                "length_s": to_int(rec.get("length"), 0) / 1000.0}
+                "length_s": to_int(rec.get("length"), 0) / 1000.0, "album_sim": best["album_sim"]}
 
     def album_year(self, artist, album):
         q = f"release:{_phrase(album)}" + (f" AND artist:{_phrase(artist)}" if artist else "")
@@ -864,6 +953,12 @@ class Galaxy:
         self.studio = studio
         self.mb = mb or MusicBrainz()
         self.limiter = QuotaLimiter()
+        self._quota_saved = 0.0
+        try:
+            self.limiter.load(studio._read(QUOTA_FILE))
+        except Exception as e:
+            log.info("Could not read the saved Galaxy API quota: %s", e)
+        self.limiter.on_change = self._save_quota
         self.api = api or GDApi(self.limiter)
         self.fetch = fetch or (lambda url, **kw: _session().get(url, **kw))  # file and cover downloads
         data = studio._read(STATE_FILE)
@@ -904,6 +999,12 @@ class Galaxy:
 
     def _persist(self):
         self.studio._write(STATE_FILE, self.state)
+
+    def _save_quota(self, force=False):
+        now = time.monotonic()
+        if force or now - self._quota_saved >= 3.0:  # at most every 3 s
+            self._quota_saved = now
+            self.studio._write(QUOTA_FILE, self.limiter.export())
 
     @property
     def manager(self):
@@ -1062,6 +1163,10 @@ class Galaxy:
     def shutdown(self):
         self.stopping = True
         self.wake.set()
+        try:
+            self._save_quota(force=True)
+        except Exception as e:
+            log.info("Could not save the Galaxy API quota: %s", e)
 
     def _sleep(self, secs):
         end = time.monotonic() + secs
@@ -1084,7 +1189,9 @@ class Galaxy:
     def _fail(self, job_id, e):
         if isinstance(e, (JobFailed, GalaxyError)):
             self.manager.update_item(job_id, persist=True, state="failed", note=str(e), speed=0, eta=0)
-            if ("No download link" in str(e) or "Preview only" in str(e)) and self.on_failed:  # v65/v70: try the other sources
+            if self.on_failed and (isinstance(e, GalaxyBlocked) or any(  # v65/v70/v84: try the other sources
+                    w in str(e) for w in ("No download link", "Preview only", "Download failed", "Download HTTP",
+                                          "Empty download", "gave up after"))):
                 failed = self.manager.item(job_id)
                 threading.Thread(target=self.on_failed, args=(failed,), daemon=True, name="galaxy-fallback").start()
         else:  # never let one song stop the queue

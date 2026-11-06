@@ -598,3 +598,51 @@ class LyricsDownloadTests(unittest.TestCase):
             gx.write_tags(path, "mp3", title="T", artists=["A"], album_artist="A", album="B", track_no=1, track_total=1,
                           lyrics="[00:01.0]hello\n")
             self.assertIn("hello", ID3(str(path)).getall("USLT")[0].text)
+
+
+class V84Tests(unittest.TestCase):
+    """Fork v84: one MusicBrainz lookup per album; the API quota survives a restart."""
+
+    def test_second_song_of_an_album_needs_no_musicbrainz_call(self):
+        calls = []
+        rec = {"id": "r1", "title": "One", "score": 100, "length": 200000,
+               "artist-credit": [{"name": "Band"}],
+               "releases": [{"id": "rel1", "title": "Album", "status": "Official", "date": "2001-05-01",
+                             "media": [{"track-count": 2, "track": [{"number": "1"}]}]}]}
+        release = {"media": [{"track-count": 2, "tracks": [
+            {"number": "1", "title": "One", "length": 200000, "recording": {"id": "r1"}},
+            {"number": "2", "title": "Two", "length": 180000, "recording": {"id": "r2"}}]}]}
+
+        class Http:
+            def json(self, url, params=None, ttl=None):
+                calls.append(url.rsplit("/ws/2/", 1)[-1])
+                if url.endswith("/recording"):
+                    return {"recordings": [rec]}
+                if "/release/" in url:
+                    return release
+                return {}
+
+        mb = gx.MusicBrainz(Http())
+        first = mb.lookup(["Band"], "One", "Album")
+        self.assertEqual((first["track_no"], first["year"]), (1, "2001"))
+        self.assertNotIn("album_sim", first)
+        before = len(calls)
+        second = mb.lookup(["Band"], "Two (feat. Guest)", "Album")
+        self.assertEqual(len(calls), before)  # no call at all
+        self.assertEqual((second["track_no"], second["track_total"], second["recording_id"], second["year"]), (2, 2, "r2", "2001"))
+
+    def test_quota_is_saved_and_loaded_with_wall_clock_times(self):
+        mono, wall = [1000.0], [5000.0]
+        a = QuotaLimiter(interval=0, clock=lambda: mono[0])
+        for _ in range(3):
+            a.wait()
+        a.penalize(60)
+        data = a.export(wall=lambda: wall[0])
+        mono2 = [10.0]  # the program restarted: monotonic time starts again
+        b = QuotaLimiter(interval=0, clock=lambda: mono2[0])
+        b.load(data, wall=lambda: wall[0] + 20)  # 20 s later
+        status = b.status()
+        self.assertEqual(status["used"], 3)
+        self.assertTrue(35 <= status["wait"] <= 41)  # the 60 s block has ~40 s left
+        b.load({"calls": [wall[0] - 400]}, wall=lambda: wall[0])  # older than 5 minutes: forgotten
+        self.assertEqual(b.status()["used"], 0)

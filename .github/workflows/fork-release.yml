@@ -1,0 +1,33 @@
+# Fork v84: a GitHub release with the zip for every new "fork vN" pushed to main
+# (creating releases from the Claude sandbox returns 403; GitHub's own token can).
+name: Fork release
+
+on:
+  push:
+    branches: [main]
+    paths: ["src/tagcast/static/artist-cleanup.js"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the fork version
+        id: v
+        run: |
+          n=$(grep -oP 'artistCleanupVersion = "fork v\K[0-9]+' src/tagcast/static/artist-cleanup.js)
+          echo "n=$n" >> "$GITHUB_OUTPUT"
+      - name: Build the zip and publish the release (once per version)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ steps.v.outputs.n }}
+        run: |
+          if gh release view "fork-v$N" >/dev/null 2>&1; then echo "fork-v$N already released"; exit 0; fi
+          git archive --format=zip --prefix=tagcast-fork/ -o "tagcast-fork-v$N.zip" HEAD -- . \
+            ':(exclude)docs/screenshots' ':(exclude)media/screenshots' ':(exclude)tools/gapless_lab'
+          notes=$(grep -m1 "^- \*\*v$N\*\*" FORK.md || echo "Fork v$N")
+          gh release create "fork-v$N" "tagcast-fork-v$N.zip" --title "Tagcast fork v$N" --notes "$notes" --target "$GITHUB_SHA"
