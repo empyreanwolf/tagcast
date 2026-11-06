@@ -79,7 +79,7 @@ def lrc_plain_preview(value, lines=8):
 def gd_queries(track):
     """Search words for GD Studio, best first: title with artist, title alone, then the same in simplified Chinese."""
     title = lyrics_title(lyrics_strip_artist(track["title"], track["artist"])) or track["title"]
-    primary = re.split(r"\s*[,;&/×、，]\s*|\s+(?:and|x|feat\.?|ft\.?|featuring|with)\s+", track["artist"],
+    primary = re.split(r"\s*[,;&/×·、，]\s*|\s+(?:and|x|feat\.?|ft\.?|featuring|with)\s+", track["artist"],
                        maxsplit=1, flags=re.I)[0].strip()
     queries = []
     for name in (f"{title} {primary}", title, f"{simplified(title)} {simplified(primary)}", simplified(title)):

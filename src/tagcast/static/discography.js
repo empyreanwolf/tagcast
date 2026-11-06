@@ -43,12 +43,16 @@ function discographyResultsHtml() {
       <button type="button" class="text-action" data-discography="pick-missing">Select missing &amp; partly</button>
       <button type="button" class="text-action" data-discography="pick-none">Select none</button>
       <span class="muted">Order: ${d.chinese ? "Galaxy → YouTube" : "YouTube → Galaxy"} → Bandcamp → Soulseek.</span></div>
-    <ul class="discography-list">${shown.map(r => `<li class="${r.status}">
+    <ul class="discography-list">${shown.map(r => {
+      const isAppearance = r.type === "compile" && r.sources?.some(s => /discogs/i.test(s));
+      const fullAlbumBtn = isAppearance ? ` <button type="button" class="text-action" data-discography="get-full-album" data-discography-title="${escapeHtml(r.title)}" title="Download the full album (not just your songs)">Get full album</button>` : "";
+      return `<li class="${r.status}">
       <input type="checkbox" data-discography-pick="${escapeHtml(r.title)}" aria-label="Select ${escapeHtml(r.title)}" ${view.picked.has(r.title) ? "checked" : ""}>
       ${bandcampThumb(r.cover, "galaxy-album-art")}
-      <div><b>${escapeHtml(r.title)}</b>${discographyIsInstrumental(r) ? ' <span class="pill">Instrumental</span>' : ""}<div class="muted">${[r.year, ({album: "Album", ep: "EP", single: "Single", compile: "Compilation"})[r.type], r.tracks ? `${r.tracks} tracks` : "", r.genre].filter(Boolean).map(escapeHtml).join(" · ")}</div>
+      <div><b>${escapeHtml(r.title)}</b>${discographyIsInstrumental(r) ? ' <span class="pill">Instrumental</span>' : ""}${isAppearance ? ' <span class="pill">Appearance</span>' : ""}<div class="muted">${[r.year, ({album: "Album", ep: "EP", single: "Single", compile: "Compilation"})[r.type], r.tracks ? `${r.tracks} tracks` : "", r.genre].filter(Boolean).map(escapeHtml).join(" · ")}</div>
         <div class="muted discography-sources">${escapeHtml(r.sources.join(", "))}</div></div>
-      <div>${discographyBadge(r.status)}<div class="dl-have">${downloadsYouHave(r.you_have)}</div></div></li>`).join("") || '<li class="muted">No releases of these types.</li>'}</ul>
+      <div>${discographyBadge(r.status)}<div class="dl-have">${downloadsYouHave(r.you_have)}</div>${fullAlbumBtn}</div></li>`;
+    }).join("") || '<li class="muted">No releases of these types.</li>'}</ul>
     ${discographyTopHtml()}`;
 }
 
@@ -160,8 +164,13 @@ document.addEventListener("click", event => {
   else if (action === "close-job") { view.job = null; renderDownloads(); }
   else if (action === "get-albums") {
     const albums = view.data.releases.filter(r => view.types.has(r.type) && view.picked.has(r.title))
-      .map(r => ({title: r.title, status: r.status, deezer_id: r.deezer_id, tracks: r.tracks}));
+      .map(r => ({title: r.title, status: r.status, deezer_id: r.deezer_id, tracks: r.tracks,
+                  appearance: r.type === "compile" && r.sources?.some(s => /discogs/i.test(s))}));
     downloadsRun(() => discographyGet(albums, []));
+  } else if (action === "get-full-album") {
+    const title = button.dataset.discographyTitle;
+    const r = view.data.releases.find(rel => rel.title === title);
+    if (r) downloadsRun(() => discographyGet([{title: r.title, status: r.status, deezer_id: r.deezer_id, tracks: r.tracks, appearance: true, full_album: true}], []));
   } else if (action === "get-songs") {
     const songs = view.top.songs.filter(s => view.pickedSongs.has(s.title)).map(s => ({title: s.title, album: s.album}));
     downloadsRun(() => discographyGet([], songs));

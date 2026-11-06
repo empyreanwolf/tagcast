@@ -409,7 +409,27 @@ def lyrics_name_key(value):
 
 
 def lyrics_title(value):
-    """Remove recognized release labels only; recording qualifiers remain identity."""
+    """Remove recognized release labels only; recording qualifiers remain identity.
+    Also strips unbracketed trailing 'feat. …' lists (e.g. 'Title feat. X, Y & Z)') and stray closing brackets."""
+    # Strip unbracketed trailing feat. list: "Title feat. X, Y & Z" or "Title feat. X)" where the ) is unmatched.
+    # Only remove if feat. is NOT preceded by an open bracket on the same stretch (i.e. it is truly unbracketed).
+    def _strip_unbracketed_feat(s):
+        m = re.search(r"(?<![(\[])\s+(?:feat\.?|ft\.?|featuring)\s+[^\n]+$", s, flags=re.I)
+        if not m:
+            return s
+        candidate = s[:m.start()]
+        tail = m.group(0)
+        # Allow if tail ends with a balanced bracket pair that was opened before the feat keyword
+        # Count open/close brackets in the full string up to cut point; if closing bracket is unmatched, strip it too
+        stripped = candidate.rstrip()
+        # Also strip a stray unmatched closing bracket at the end of the remaining string
+        opens = stripped.count("(") + stripped.count("[")
+        closes = stripped.count(")") + stripped.count("]")
+        if closes > opens and stripped and stripped[-1] in ")]":
+            stripped = stripped[:-1].rstrip()
+        return stripped
+    value = _strip_unbracketed_feat(str(value))
+
     def release_label(label):
         key = lyrics_name_key(label).strip()
         if re.search(r"\b(?:live|acoustic|remix|demo|instrumental)\b", key):
@@ -642,7 +662,7 @@ def fetch_lrclib_display(track, album, check_current, policy=None, *, plain_text
                 (lyrics_name_key(track["title"]), lyrics_name_key(track["artist"]))]
     if track["length"] > 0:
         # One bounded extra query; local identity/duration checks still decide the hit.
-        primary = re.split(r"\s*[,;&/×]\s*|\s+(?:and|x|feat\.?|ft\.?|featuring|with)\s+",
+        primary = re.split(r"\s*[,;&/×·]\s*|\s+(?:and|x|feat\.?|ft\.?|featuring|with)\s+",
                            track["artist"], maxsplit=1, flags=re.I)[0].strip()
         variants.append((lyrics_title(lyrics_strip_artist(track["title"], track["artist"])) or track["title"], primary))
     seen, candidates, errors = set(), [], []
@@ -753,7 +773,7 @@ def fetch_gdstudio_lyrics(track, album, check_current=lambda: None, policy=None)
     match the song, and the lyric's last timestamp must fit the recording's length."""
     reader = _ProviderReader("gdstudio", check_current, policy)
     title = lyrics_title(lyrics_strip_artist(track["title"], track["artist"])) or track["title"]
-    primary = re.split(r"\s*[,;&/×、，]\s*|\s+(?:and|x|feat\.?|ft\.?|featuring|with)\s+", track["artist"], maxsplit=1, flags=re.I)[0].strip()
+    primary = re.split(r"\s*[,;&/×·、，]\s*|\s+(?:and|x|feat\.?|ft\.?|featuring|with)\s+", track["artist"], maxsplit=1, flags=re.I)[0].strip()
     queries, hits = [], []
     for name in (f"{title} {primary}".strip(), title):
         if name and name not in queries:

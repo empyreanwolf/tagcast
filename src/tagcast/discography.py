@@ -529,13 +529,29 @@ class Discography:
         for a in albums:
             title = match.clean((a or {}).get("title"))
             self._step(ctx, f"{title}: searching Galaxy…")
+            appearance = a.get("appearance")  # True = artist appears on this album; get their songs, not the whole album
+            full_album = a.get("full_album")  # True = override: download the whole album (from album title search)
             try:
-                source, note = self._album(job["name"], title, a.get("status"), a.get("deezer_id"), ctx)
+                if appearance and not full_album:
+                    # Featured-artist case: search for the artist's own songs by using the album title as a song query.
+                    # Galaxy song search for "artist albumTitle" reliably finds their tracks on that album.
+                    source, note = self._song(job["name"], title, "", ctx)
+                    log_note = f"appearance on '{title}' — searched for {job['name']}'s songs"
+                    if not source:
+                        note = self._wish("song", job["name"], title, note=note)
+                    job["log"].append({"kind": "song", "title": title, "source": source,
+                                       "note": f"{log_note}: {note}" if note else log_note})
+                    job["done"] += 1
+                    continue
+                # full_album on an appearance: search by album title alone (we don't know the main artist)
+                dl_name = "" if full_album and appearance else job["name"]
+                source, note = self._album(dl_name, title, a.get("status"), a.get("deezer_id"), ctx)
             except Exception as error:  # one album never stops the rest
                 log.exception("Getting %s failed", title)
                 source, note = None, str(error)
             if not source:
-                note = self._wish("album", job["name"], title, status=a.get("status"), note=note)
+                dl_name = "" if full_album and appearance else job["name"]
+                note = self._wish("album", dl_name, title, status=a.get("status"), note=note)
             job["log"].append({"kind": "album", "title": title, "source": source, "note": note})
             job["done"] += 1
         for s in songs:

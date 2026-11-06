@@ -187,10 +187,15 @@ const pdDevices = [
     <rect x="0" y="214" width="400" height="14" fill="#1d262b"/>
     ${Array.from({length: 11}, (_, i) => `<g class="a-bob" style="animation-delay:${((i * 0.23) % 1.4).toFixed(2)}s"><circle cx="${20 + i * 36}" cy="${262 - (i % 3) * 6}" r="13" fill="#05080a"/><rect x="${12 + i * 36}" y="${272 - (i % 3) * 6}" width="16" height="40" rx="8" fill="#05080a"/>${i % 2 ? `<line x1="${20 + i * 36}" y1="${274 - (i % 3) * 6}" x2="${28 + i * 36}" y2="${244 - (i % 3) * 6}" stroke="#05080a" stroke-width="5" stroke-linecap="round"/>` : ""}</g>`).join("")}`},
   {id: "rapper", name: "Rapper", era: "Hip hop albums", genre: true, body: (A) => `
-    <g class="a-spin slow" style="transform-origin:112px 165px"><circle cx="112" cy="165" r="102" fill="#101417"/>
-    ${[94, 84, 74, 64, 54].map(r => `<circle cx="112" cy="165" r="${r}" fill="none" stroke="#1f272c"/>`).join("")}
-    <path d="M112 165 L112 63 A102 102 0 0 1 157 73 Z" fill="#fff" opacity="0.07"/><path d="M112 165 L112 267 A102 102 0 0 1 67 257 Z" fill="#fff" opacity="0.07"/>
-    ${A.circle(112, 165, 38)}<circle cx="112" cy="165" r="25" fill="none" stroke="#fff" stroke-opacity="0.35"/><circle cx="112" cy="165" r="4" fill="#080c0f"/></g>
+    <defs><radialGradient id="cdRap" cx="40%" cy="35%" r="65%"><stop offset="0%" stop-color="#e8f0f4"/><stop offset="40%" stop-color="#b0c4cc"/><stop offset="70%" stop-color="#7a9baa"/><stop offset="100%" stop-color="#4a6878"/></radialGradient></defs>
+    <g class="a-spin slow" style="transform-origin:112px 165px">
+      <circle cx="112" cy="165" r="102" fill="url(#cdRap)"/>
+      <circle cx="80" cy="133" r="42" fill="#fff" opacity="0.1"/>
+      ${A.circle(112, 165, 86)}
+      <circle cx="112" cy="165" r="34" fill="none" stroke="#fff" stroke-opacity="0.3"/>
+      <circle cx="112" cy="165" r="22" fill="#cdd6da" fill-opacity="0.9"/>
+      <circle cx="112" cy="165" r="7" fill="#080c0f"/>
+    </g>
     <g transform="translate(48 45) scale(0.85)">
     <text class="a-bob" x="196" y="96" font-size="30" fill="#f0879e" font-family="sans-serif">♪</text><text class="a-bob" style="animation-delay:.7s" x="178" y="62" font-size="24" fill="#86d7ee" font-family="sans-serif">♫</text>
     <path d="M200 300 V236 Q200 192 270 192 Q340 192 340 236 V300 Z" fill="url(#F)" stroke="#33444c" stroke-width="2"/>
