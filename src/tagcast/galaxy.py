@@ -20,6 +20,7 @@ import html
 import json
 import logging
 import os
+import queue
 import random
 import re
 import threading
@@ -47,7 +48,8 @@ BITRATE = 320
 API_QUOTA = 45     # the API allows 50 per 5 minutes; keep a little headroom
 API_PERIOD = 300.0
 API_DELAY = 1.5
-TRACK_DELAY = 6.0
+TRACK_DELAY = 1.0   # fork v83: was 6 s; the QuotaLimiter already paces the API calls
+LRCLIB_BASE = "https://lrclib.net/api"
 AUDIO_EXTS = ("mp3", "flac", "m4a")
 STEP_NAMES = ["Got link", "Downloading", "MusicBrainz lookup", "Tagging", "Saved"]
 MB_BASE = "https://musicbrainz.org/ws/2"
@@ -319,6 +321,51 @@ class QuotaLimiter:
         delay = slot - self.clock()
         if delay > 0:
             _sleep(delay)
+
+
+def lrclib_synced(fetch, artist, title, album="", duration=0.0):
+    """Fork v83: timed lyrics from LRCLIB (free, outside the GD Studio quota).
+    Returns (text, instrumental). ("", False) when LRCLIB has nothing or doesn't answer."""
+    from .playback_lyrics import lyrics_title
+    title = lyrics_title(title) or title
+    if not (fetch and artist and title):
+        return "", False
+
+    def ok_len(d):
+        return not duration or not d or abs(to_float(d) - duration) <= 3
+
+    def pick(hit):
+        if not isinstance(hit, dict) or not ok_len(hit.get("duration")):
+            return None
+        if hit.get("instrumental"):
+            return "", True
+        text = hit.get("syncedLyrics") or ""
+        return (text, False) if isinstance(text, str) and text.strip() else None
+
+    params = {"artist_name": artist, "track_name": title}
+    if album:
+        params["album_name"] = album
+    if duration:
+        params["duration"] = int(round(duration))
+    try:
+        r = fetch(f"{LRCLIB_BASE}/get", params=params, timeout=8)
+        if r.status_code == 200:
+            got = pick(r.json())
+            if got:
+                return got
+        r = fetch(f"{LRCLIB_BASE}/search", params={"artist_name": artist, "track_name": title}, timeout=8)
+        if r.status_code == 200:
+            hits = r.json()
+            for hit in (hits if isinstance(hits, list) else [])[:10]:
+                if sim(str((hit or {}).get("trackName", "")), title) >= 0.8:
+                    got = pick(hit)
+                    if got:
+                        return got
+    except (StopRequested, JobCancelled):
+        raise
+    except Exception as e:
+        log.info("LRCLIB lookup failed for %s - %s: %s", artist, title, e)
+    return "", False
 
 
 def _session():
@@ -837,6 +884,12 @@ class Galaxy:
         self.stopping = False
         self.waiting_until = 0.0
         self.active = None  # id of the song downloading now
+        # fork v83: a second thread finishes (MusicBrainz, cover, lyrics, tags) while the next song downloads
+        self.finishing = None
+        self.finish_cancel_id = None
+        self._finish_q = queue.Queue(maxsize=1)
+        self.finisher = None
+        self._last_done = 0.0
         self._t0 = 0.0
         self._cover_gate = threading.Semaphore(2)
         self._cover_memory, self._cover_misses = {}, {}
@@ -978,11 +1031,16 @@ class Galaxy:
         return self.status()
 
     def active_ids(self):
-        return [self.active] if self.active else []
+        return [i for i in (self.active, self.finishing) if i]
 
     def cancel(self, item_id):
         if item_id == self.active:
             self.cancel_id = item_id
+        if item_id == self.finishing:
+            self.finish_cancel_id = item_id
+
+    def _finish_idle(self):
+        return self.finishing is None and self._finish_q.empty()
 
     def status(self):
         api = self.limiter.status()
@@ -1023,11 +1081,22 @@ class Galaxy:
     def _step(self, item_id, idx, detail="", **extra):
         self.manager.update_item(item_id, step=idx, step_detail=detail, **extra)
 
+    def _fail(self, job_id, e):
+        if isinstance(e, (JobFailed, GalaxyError)):
+            self.manager.update_item(job_id, persist=True, state="failed", note=str(e), speed=0, eta=0)
+            if ("No download link" in str(e) or "Preview only" in str(e)) and self.on_failed:  # v65/v70: try the other sources
+                failed = self.manager.item(job_id)
+                threading.Thread(target=self.on_failed, args=(failed,), daemon=True, name="galaxy-fallback").start()
+        else:  # never let one song stop the queue
+            log.error("Galaxy download failed", exc_info=(type(e), e, e.__traceback__))
+            self.manager.update_item(job_id, persist=True, state="failed", note=f"{type(e).__name__}: {e}")
+
     def _loop(self):
         _tls.sleep = self._sleep
         _tls.on_quota_wait = lambda secs: self.active and self._step(
             self.active, self.manager.item(self.active).get("step", 0) if self.manager.item(self.active) else 0,
             f"API limit reached (45 per 5 min) - waiting {secs:.0f} s")
+        self._start_finisher()
         while not self.stopping:
             # Everything in here used to run unguarded ahead of each song's own try/except
             # below (is_paused/next_queued, both of which can hit the shared queue's _persist);
@@ -1039,27 +1108,30 @@ class Galaxy:
                 if job is None:
                     self.wake.wait(0.5)
                     self.wake.clear()
-                    if not self.manager.has_queued("galaxy") and not self.manager.is_paused():
+                    # v83: stay alive while the finisher still works on the last song, so the
+                    # watchdog never sees an "active" song with a dead thread.
+                    if not self.manager.has_queued("galaxy") and not self.manager.is_paused() and self._finish_idle():
                         return  # nothing left; add() starts a new thread
                     continue
                 self.active, self.cancel_id = job["id"], None
+                handed = False
                 try:
-                    self.process(job)
+                    ctx = self._fetch_stage(job)
+                    self._finish_q.put((job, ctx))  # waits while the finisher is still on the song before
+                    handed = True
+                    if self.cancel_id == job["id"]:  # cancelled while waiting for the finisher
+                        ctx["cancel"] = True
+                        self.cancel(job["id"])
                 except StopRequested:
                     self.manager.update_item(job["id"], persist=True, state="queued", step=-1, step_detail="", progress=0)
                     break
                 except JobCancelled:
                     self.manager.remove([job["id"]])
-                except (JobFailed, GalaxyError) as e:
-                    self.manager.update_item(job["id"], persist=True, state="failed", note=str(e), speed=0, eta=0)
-                    if ("No download link" in str(e) or "Preview only" in str(e)) and self.on_failed:  # v65/v70: try the other sources
-                        failed = self.manager.item(job["id"])
-                        threading.Thread(target=self.on_failed, args=(failed,), daemon=True, name="galaxy-fallback").start()
-                except Exception as e:  # never let one song stop the queue
-                    log.exception("Galaxy download failed")
-                    self.manager.update_item(job["id"], persist=True, state="failed", note=f"{type(e).__name__}: {e}")
+                except Exception as e:
+                    self._fail(job["id"], e)
                 finally:
-                    self._cleanup(job["id"])
+                    if not handed:
+                        self._cleanup(job["id"])
                     self.active = self.cancel_id = None
                 if self.manager.has_queued("galaxy") and not self.manager.is_paused() and not self.stopping:
                     self.waiting_until = time.monotonic() + self.track_delay
@@ -1073,6 +1145,53 @@ class Galaxy:
                 self.active = self.cancel_id = None
                 time.sleep(1)  # avoid a tight loop if something keeps failing the same way
 
+    # -- the finisher thread (fork v83) ---------------------------------------------------
+
+    def _start_finisher(self):
+        with self.lock:
+            if self.finisher and self.finisher.is_alive():
+                return
+            self.finisher = threading.Thread(target=self._finish_loop, name="GalaxyFinish", daemon=True)
+            self.finisher.start()
+
+    def _finish_sleep(self, secs):
+        end = time.monotonic() + secs
+        while True:
+            if self.stopping:
+                raise StopRequested()
+            self._check_finish_cancel()
+            r = end - time.monotonic()
+            if r <= 0:
+                return
+            time.sleep(min(0.2, r))
+
+    def _check_finish_cancel(self):
+        if self.finishing and self.finish_cancel_id == self.finishing:
+            raise JobCancelled()
+
+    def _finish_loop(self):
+        _tls.sleep = self._finish_sleep
+        while True:
+            try:
+                job, ctx = self._finish_q.get(timeout=1.0)
+            except queue.Empty:
+                if self.stopping or not (self.thread and self.thread.is_alive()):
+                    return
+                continue
+            self.finishing = job["id"]
+            self.finish_cancel_id = job["id"] if ctx.get("cancel") else None
+            try:
+                self._finish_stage(job, ctx)
+            except StopRequested:
+                self.manager.update_item(job["id"], persist=True, state="queued", step=-1, step_detail="", progress=0)
+            except JobCancelled:
+                self.manager.remove([job["id"]])
+            except Exception as e:
+                self._fail(job["id"], e)
+            finally:
+                self._cleanup(job["id"])
+                self.finishing = self.finish_cancel_id = None
+
     def _part_path(self, item_id):
         return Path(self.folder()) / "_incomplete" / f"{item_id}.part"
 
@@ -1085,18 +1204,34 @@ class Galaxy:
             pass
 
     def process(self, job):
-        p = job["payload"]
+        """Both stages in one go (the worker runs them on two threads, fork v83)."""
+        self._finish_stage(job, self._fetch_stage(job))
+
+    def _fetch_stage(self, job):
+        """Link, download and audio check: the part that uses the GD Studio quota and the network."""
         jid = job["id"]
+        t = [time.monotonic()]
         self.manager.update_item(jid, started=time.time(), speed=0, eta=0)
         self._step(jid, 0, "Requesting link…")
         link = self.get_link(job)
+        t.append(time.monotonic())
         self._step(jid, 0, f"{link['br'] or '?'} kbps via {link['source']}")
         part = self._part_path(jid)
         part.parent.mkdir(parents=True, exist_ok=True)
         self._step(jid, 1, "Connecting…")
         nbytes = self.download(jid, link["url"], part)
         fmt, real = self.check_audio(part, link, nbytes)
-        self._step(jid, 1, f"{nbytes / 1048576:.1f} MB · {fmt.upper()}")
+        t.append(time.monotonic())
+        self._step(jid, 1, f"{nbytes / 1048576:.1f} MB · {fmt.upper()} · finishing…")
+        return {"link": link, "part": part, "nbytes": nbytes, "fmt": fmt, "real": real,
+                "timing": {"link": t[1] - t[0], "download": t[2] - t[1]}}
+
+    def _finish_stage(self, job, ctx):
+        """MusicBrainz, cover, lyrics, tags and the move into the music folder."""
+        p = job["payload"]
+        jid = job["id"]
+        link, part, nbytes, fmt, real = ctx["link"], ctx["part"], ctx["nbytes"], ctx["fmt"], ctx["real"]
+        timing, t0 = ctx.get("timing", {}), time.monotonic()
         self._step(jid, 2, "Searching recordings…")
         try:
             mbinfo = self.mb.lookup(p["artists"], job["title"], p["album"])
@@ -1114,9 +1249,11 @@ class Galaxy:
             track_no = mbinfo.get("track_no") or track_no
             total = mbinfo.get("track_total") or total
         year, genre = (mbinfo or {}).get("year", ""), (mbinfo or {}).get("genre", "")
+        t1 = time.monotonic()
         self._step(jid, 3, "Fetching cover…")
         cover = self.fetch_cover(p)
-        lyrics = self.fetch_lyrics(link, p)
+        lyrics = self.fetch_lyrics(link, p, job["title"], real)
+        t2 = time.monotonic()
         self._step(jid, 3, {"flac": "Writing FLAC tags…", "m4a": "Writing M4A tags…"}.get(fmt, "Writing ID3v2.4…"))
         write_tags(part, fmt, title=job["title"], artists=p["artists"], album_artist=p["album_artist"],
                    album=p["album"], track_no=track_no, track_total=total, year=year, genre=genre, cover=cover,
@@ -1137,8 +1274,17 @@ class Galaxy:
                     pass
         missing = [name for name, value in (("year", year), ("genre", genre)) if not value]
         extras = ([f"{'/'.join(missing)} missing"] if missing else []) + (["no cover"] if not cover else [])
+        # fork v83: seconds per step, to compare speeds (also in the log)
+        timing = {**timing, "musicbrainz": t1 - t0, "cover_lyrics": t2 - t1, "tags": time.monotonic() - t2}
+        timing_text = " · ".join(f"{k.replace('_', '+')} {v:.1f}s" for k, v in timing.items())
+        now = time.monotonic()
+        gap = now - self._last_done if self._last_done and now - self._last_done < 600 else 0.0
+        self._last_done = now
+        log.info("Galaxy timing %s: %s%s", job["title"], timing_text, f" · {gap:.1f}s after the previous song" if gap else "")
+        extras.append((f"{gap:.0f}s after previous" if gap else "first song") + f" ({timing_text})")
         self.manager.update_item(jid, persist=True, state="done", step=4, step_detail=str(final),
                                  note="Saved" + (f" · {', '.join(extras)}" if extras else ""), path=str(final),
+                                 timing=timing_text, took=round(sum(timing.values()), 1),
                                  progress=100, finished=time.time(), size_mb=round(nbytes / 1048576, 2),
                                  format=fmt, speed=0, eta=0, year=year, genre=genre, track_no=track_no)
         self.manager.record({"title": job["title"], "artists": p["artists"], "album": p["album"],
@@ -1284,9 +1430,18 @@ class Galaxy:
         self.manager.update_item(jid, short_seconds=round(real))
         raise JobFailed(f"Maybe a preview ({real:.0f}s) - if it really is a short track, press Keep it")
 
-    def fetch_lyrics(self, link, p):
-        """Fork v79: the song's timed lyrics (credit lines removed), "" when there are none. Never fails a download."""
+    def fetch_lyrics(self, link, p, title="", duration=0.0):
+        """Fork v79: the song's timed lyrics (credit lines removed), "" when there are none. Never fails a download.
+        Fork v83: LRCLIB first (no GD Studio quota); the GD Studio lyric call only when LRCLIB has nothing."""
         from .playback_lyrics import MAX_TEXT, gdstudio_clean_lrc
+        artist = re.split(r"\s*(?:·|;|,|&|/| feat\.? | ft\.? | x )\s*", str((p.get("artists") or [""])[0]))[0].strip()
+        text, instrumental = lrclib_synced(getattr(self, "fetch", None), artist, title, p.get("album", ""), duration)
+        if instrumental:
+            return ""
+        if text:
+            text = gdstudio_clean_lrc(text).strip()
+            if text and len(text) <= MAX_TEXT and "\x00" not in text and len(text.splitlines()) >= 2:
+                return text + "\n"
         lyric_id = p.get("lyric_id") if link.get("source") == p.get("source") else ""
         lyric_id = str(lyric_id or link.get("id") or p.get("id") or "")
         try:
@@ -1330,6 +1485,11 @@ class Galaxy:
                 "api_quota": int(saved.get("api_quota", API_QUOTA))}
 
     def apply_settings(self):
+        saved = self.state["settings"]
+        if not saved.get("v83") :  # the old 6 s default was saved with the other settings; move it to the new default
+            if float(saved.get("track_delay", TRACK_DELAY)) == 6.0:
+                saved["track_delay"] = TRACK_DELAY
+            saved["v83"] = True
         s = self.settings()
         self.track_delay = s["track_delay"]
         self.limiter.interval, self.limiter.max_calls = s["api_delay"], s["api_quota"]

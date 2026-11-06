@@ -555,6 +555,37 @@ class LyricsDownloadTests(unittest.TestCase):
         self.assertEqual(self.run_fetch(self.Api("[00:01.0]one line"), {"source": "netease", "id": "1"}, {"source": "netease", "id": "1"}), "")
         self.assertEqual(self.run_fetch(self.Api(error=RuntimeError("down")), {"source": "netease", "id": "1"}, {"source": "netease", "id": "1"}), "")
 
+    def test_lrclib_comes_first_and_saves_the_gd_studio_call(self):
+        # Fork v83: LRCLIB is outside the GD Studio quota; GD Studio only when LRCLIB has nothing.
+        from types import SimpleNamespace
+
+        def answer(body, status=200):
+            r = FakeResponse(status)
+            r.json = lambda: body
+            return r
+
+        seen = []
+
+        def fetch(url, params=None, **kw):
+            seen.append((url.rsplit("/", 1)[-1], dict(params or {})))
+            return answer(lrclib_body)
+
+        payload = {"source": "netease", "id": "5", "artists": ["Army of the Pharaohs · Jedi Mind Tricks"], "album": "X"}
+        link = {"source": "netease", "id": "5"}
+        lrclib_body = {"syncedLyrics": "[00:01.0]a\n[00:02.0]b", "duration": 200}
+        api = self.Api("[00:01.0]gd\n[00:02.0]gd")
+        text = Galaxy.fetch_lyrics(SimpleNamespace(api=api, fetch=fetch), link, payload, "Song feat. Someone", 201)
+        self.assertEqual((text, api.calls), ("[00:01.0]a\n[00:02.0]b\n", []))
+        self.assertEqual(seen[0][1]["artist_name"], "Army of the Pharaohs")
+        self.assertEqual(seen[0][1]["track_name"], "Song")
+        lrclib_body = {"instrumental": True, "duration": 200}  # instrumental: no lyrics, no GD call either
+        self.assertEqual(Galaxy.fetch_lyrics(SimpleNamespace(api=api, fetch=fetch), link, payload, "Song", 200), "")
+        self.assertEqual(api.calls, [])
+        lrclib_body = {"syncedLyrics": "[00:01.0]a\n[00:02.0]b", "duration": 120}  # wrong length: GD Studio decides
+        self.assertEqual(Galaxy.fetch_lyrics(SimpleNamespace(api=api, fetch=fetch), link, payload, "Song", 200),
+                         "[00:01.0]gd\n[00:02.0]gd\n")
+        self.assertEqual(api.calls, [("netease", "5")])
+
     def test_lyrics_go_into_the_tags_of_every_format(self):
         try:
             from mutagen.id3 import ID3

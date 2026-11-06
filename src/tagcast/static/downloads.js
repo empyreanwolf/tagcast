@@ -305,7 +305,7 @@ function downloadsQueueHtml() {
 function downloadsSettingsHtml() {
   const info = downloadsView.info, imports = info?.imports || {};
   const done = kind => imports[kind] ? `<p class="muted">Last import ${escapeHtml(downloadsDate(imports[kind].when))}: ${imports[kind].added} new of ${imports[kind].found} (${escapeHtml(imports[kind].path)}).</p>` : "";
-  const gs = downloadsView.galaxy?.settings || {track_delay: 6, api_delay: 1.5, api_quota: 45};
+  const gs = downloadsView.galaxy?.settings || {track_delay: 1, api_delay: 1.5, api_quota: 45};
   return `<section class="dl-card"><h3>Galaxy</h3>
       <p class="muted">GD Studio allows 50 API calls per 5 minutes; a download uses 2–3. Year, genre and track numbers come from MusicBrainz for every download.</p>
       <div class="dl-settings">
