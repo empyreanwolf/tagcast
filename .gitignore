@@ -11,3 +11,6 @@ electron/out/
 .DS_Store
 # local settings, tokens and library cache live in ~/.tagcast, never here
 .tagcast/
+
+docs/screenshots/
+media/screenshots/
