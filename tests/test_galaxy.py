@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -403,7 +404,7 @@ class MusicBrainzTests(unittest.TestCase):
         self.assertEqual(str(magic["TXXX:MusicBrainz Album Id"]), "rel-1")
         self.assertTrue(items["Magic"]["path"].replace("\\", "/").endswith("Ghost Stories/02 - Magic.mp3"))
         self.assertEqual(str(ID3(items["Midnight"]["path"])["TRCK"]), "7/9")
-        self.assertEqual(items["Midnight"]["note"], "Saved · no cover")
+        self.assertTrue(items["Midnight"]["note"].startswith("Saved · no cover"))
 
     def test_no_match_still_saves(self):
         studio = LocalStudio()
@@ -646,3 +647,37 @@ class V84Tests(unittest.TestCase):
         self.assertTrue(35 <= status["wait"] <= 41)  # the 60 s block has ~40 s left
         b.load({"calls": [wall[0] - 400]}, wall=lambda: wall[0])  # older than 5 minutes: forgotten
         self.assertEqual(b.status()["used"], 0)
+
+
+class V90PrefetchTests(unittest.TestCase):
+    """Fork v90: the next song's MusicBrainz match and cover are looked up while the current one downloads."""
+
+    def test_next_song_is_looked_up_during_the_current_download(self):
+        studio = LocalStudio()
+        for i in (1, 2):
+            studio.gd.urls[("netease", str(i), 320)] = f"https://cdn.example/{i}.mp3"
+        galaxy = studio.galaxy
+        real_lookup, real_download = galaxy.mb.lookup, galaxy.download
+        second_looked_up, waited, order = threading.Event(), [], []
+
+        def lookup(artists, title, album):
+            order.append(title)
+            if title == "Midnight":
+                second_looked_up.set()
+            return real_lookup(artists, title, album)
+
+        def download(jid, url, part):
+            if url.endswith("/1.mp3"):  # the first song is held until the second one has been looked up
+                waited.append(second_looked_up.wait(5))
+            return real_download(jid, url, part)
+        galaxy.mb.lookup, galaxy.download = lookup, download
+        galaxy.add([{"id": "1", "title": "Magic", "artists": ["Coldplay"], "album": "Ghost Stories", "pic_id": "109951",
+                     "source": "netease", "track_no": 1},
+                    {"id": "2", "title": "Midnight", "artists": ["Coldplay"], "album": "Ghost Stories", "pic_id": "109951",
+                     "source": "netease", "track_no": 2}], album_artist="Coldplay", total=9)
+        wait_idle(studio)
+        self.assertEqual(waited, [True])
+        self.assertEqual(sorted(order), ["Magic", "Midnight"])  # each song is looked up once, not twice
+        states = {i["title"]: i["state"] for i in studio.download_manager.state["queue"]}
+        self.assertEqual(states, {"Magic": "done", "Midnight": "done"})
+        self.assertEqual(galaxy._pre, {})  # nothing is left behind

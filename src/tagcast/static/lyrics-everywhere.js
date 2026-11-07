@@ -5,7 +5,8 @@
 // Uses the same lyrics, sources and track clock as playback-lyrics.js.
 const lyricsEverywhere = {bar: lyricsEverywhereStored("bar", true), float: lyricsEverywhereStored("float", false),
   mini: lyricsEverywhereStored("mini", true), card: lyricsEverywhereStored("card", true),
-  autosave: lyricsEverywhereStored("autosave", true), translate: lyricsEverywhereStored("translate", true), autotranslate: lyricsEverywhereStored("autotranslate", true), last: "", box: null,
+  autosave: lyricsEverywhereStored("autosave", true), translate: lyricsEverywhereStored("translate", true), autotranslate: lyricsEverywhereStored("autotranslate", true), karaoke: lyricsEverywhereStored("karaoke", true),
+  karaokereal: lyricsEverywhereStored("karaokereal", false), cardSize: lyricsEverywhereCardSize(), last: "", box: null,
   cardNode: null, cardKey: "", cardActive: -2, cardFollow: true, cardTimer: 0, saved: new Set(), savedKeys: new Set()};
 
 function lyricsEverywhereStored(name, fallback) {
@@ -17,7 +18,8 @@ function lyricsEverywhereSet(name, value) {
   lyricsEverywhere[name] = Boolean(value);
   try { localStorage.setItem(`tagcast-lyrics-${name}`, String(lyricsEverywhere[name])); } catch { /* private window */ }
   lyricsEverywhere.last = "";
-  if (name === "translate" && playbackLyricsView.data && typeof paintPlaybackLyrics === "function") paintPlaybackLyrics();
+  if (name === "karaoke" || name === "karaokereal") lyricsKaraokeApply(playbackLyricsView.data);
+  if (["translate", "karaoke", "karaokereal"].includes(name) && playbackLyricsView.data && typeof paintPlaybackLyrics === "function") paintPlaybackLyrics();
   renderPlaybackLyrics(); renderLyricsEverywhere();
 }
 
@@ -135,12 +137,13 @@ function renderLyricsEverywhere(position) {
     box.hidden = false;
     const html = !lines ? `<p class="floating-lyric muted">${loading ? "Checking lyrics…" : playbackLyricsView.data ? "Text lyrics · no timing" : "No timed lyrics for this song"}</p>`
       : (lines.around || [{i: -1, text: ""}, {i: -1, text: ""}, {i: -1, text: "…"}, {i: lines.upcoming ?? -1, text: lines.next}, {i: -1, text: ""}])
-        .map((row, n) => `<p class="floating-lyric${n === 2 ? " now" : ""}"${row.i >= 0 ? ` data-line="${row.i}"` : ""}>${escapeHtml(row.text || " ")}${row.tr ? `<small class="floating-lyric-tr">${escapeHtml(row.tr)}</small>` : ""}</p>`).join("");
+        .map((row, n) => `<p class="floating-lyric${n === 2 ? " now" : ""}"${row.i >= 0 ? ` data-line="${row.i}"` : ""}>${(n === 2 && lyricsKaraokeHtml(playbackLyricsView.data?.lines[row.i])) || escapeHtml(row.text || " ")}${row.tr ? `<small class="floating-lyric-tr">${escapeHtml(row.tr)}</small>` : ""}</p>`).join("");
     if (region.dataset.html !== html) { region.innerHTML = html; region.dataset.html = html; }
   } else if (lyricsEverywhere.box) {
     lyricsEverywhere.box.hidden = true;
   }
   renderHeaderLyrics(on, position);
+  if (on) lyricsKaraokeSync(position ?? playerTrackPosition());
 }  // the Mini Player reads lyricsEverywhereMini() in its own 4x-per-second snapshot
 
 function lyricsEverywhereSettings() {
@@ -150,6 +153,8 @@ function lyricsEverywhereSettings() {
     ${check("float", "Floating lyrics box (drag it anywhere, stays across pages)")}
     ${check("mini", "Lyrics in the Mini Player")}
     ${check("card", "Lyrics card in page headers (right of the cover and title)")}
+    ${check("karaoke", "Karaoke glow: words light up as they are sung (estimated when the lyrics only have line timing)")}
+    ${check("karaokereal", "Karaoke glow only with real word timing (no estimates)")}
     ${check("translate", "Show translations under the lyrics")}
     ${check("autotranslate", "Translate Chinese, Japanese and Korean lyrics to English (free web translator, saved on this PC)")}
     ${check("autosave", "Save found timed lyrics to iBroadcast (only songs without lyrics, never overwrites)")}
@@ -193,10 +198,27 @@ function headerLyricsNode() {
   card.id = "header-lyrics"; card.className = "header-lyrics";
   card.setAttribute("aria-label", "Lyrics");
   card.innerHTML = `<header class="header-lyrics-head"><span>Lyrics</span>
-    <label class="header-lyrics-follow" title="Keep the current line in view"><span>Follow</span><input type="checkbox" role="switch" checked></label></header>
+    <span class="header-lyrics-tools"><button type="button" class="header-lyrics-size" data-step="-1" aria-label="Smaller text" title="Smaller">A−</button>
+    <button type="button" class="header-lyrics-size" data-step="1" aria-label="Bigger text" title="Bigger">A+</button>
+    <label class="header-lyrics-follow" title="Keep the current line in view"><span>Follow</span><input type="checkbox" role="switch" checked></label></span></header>
     <div class="header-lyrics-lines" tabindex="0" role="region" aria-label="Lyrics; scroll to read other lines"></div>
     <footer class="header-lyrics-source"></footer>`;
   const region = card.querySelector(".header-lyrics-lines"), follow = card.querySelector(".header-lyrics-follow input");
+  const paintSize = () => {
+    card.dataset.size = String(lyricsEverywhere.cardSize);
+    for (const button of card.querySelectorAll(".header-lyrics-size")) {
+      const next = lyricsEverywhere.cardSize + Number(button.dataset.step);
+      button.disabled = next < 0 || next > 2;
+    }
+  };
+  paintSize();
+  card.addEventListener("click", event => {
+    const button = event.target.closest(".header-lyrics-size");
+    if (!button || button.disabled) return;
+    lyricsEverywhere.cardSize = Math.max(0, Math.min(2, lyricsEverywhere.cardSize + Number(button.dataset.step)));
+    try { localStorage.setItem("tagcast-lyrics-cardsize", String(lyricsEverywhere.cardSize)); } catch { /* private window */ }
+    paintSize(); lyricsEverywhere.cardActive = -2; renderLyricsEverywhere();
+  });
   follow.addEventListener("change", () => { lyricsEverywhere.cardFollow = follow.checked; lyricsEverywhere.cardActive = -2; renderLyricsEverywhere(); });
   const stopFollowing = () => { if (playbackLyricsView.data?.timed) { lyricsEverywhere.cardFollow = false; follow.checked = false; } };
   for (const name of ["wheel", "touchstart"]) region.addEventListener(name, stopFollowing, {passive: true});
@@ -232,12 +254,12 @@ function renderHeaderLyrics(on, position = playerTrackPosition()) {
   if (card.parentNode !== target) { target.append(card); view.cardActive = -2; }
   const data = playbackLyricsView.data, region = card.querySelector(".header-lyrics-lines");
   const track = player.queue[player.index];
-  const key = `${track?.id}|${playbackLyricsView.key}|${data ? data.lines.length : playbackLyricsView.loading ? "loading" : "none"}|${data?.source}|${view.saved.has(String(track?.id))}|${view.translate}`;
+  const key = `${track?.id}|${playbackLyricsView.key}|${data ? data.lines.length : playbackLyricsView.loading ? "loading" : "none"}|${data?.source}|${view.saved.has(String(track?.id))}|${view.translate}|${view.karaoke}|${view.karaokereal}`;
   if (key !== view.cardKey) {
     view.cardKey = key; view.cardActive = -2;
     if (!view.cardFollow && data?.timed) { view.cardFollow = true; card.querySelector(".header-lyrics-follow input").checked = true; }
     region.toggleAttribute("data-timed", Boolean(data?.timed));
-    region.innerHTML = data ? data.lines.map((line, i) => `<p class="header-lyric"${data.timed ? ` data-line="${i}"` : ""}>${escapeHtml(line.text || (data.timed ? "♪" : " "))}${lyricsTranslation(line) ? `<small class="header-lyric-tr">${escapeHtml(lyricsTranslation(line))}</small>` : ""}</p>`).join("")
+    region.innerHTML = data ? data.lines.map((line, i) => `<p class="header-lyric"${data.timed ? ` data-line="${i}"` : ""}>${headerLyricInner(line, data.timed, false)}</p>`).join("")
       : `<p class="header-lyric muted">${playbackLyricsView.loading ? "Checking lyrics…" : "No lyrics found for this song."}</p>`;
     card.querySelector(".header-lyrics-follow").hidden = !data?.timed;
     card.querySelector(".header-lyrics-source").innerHTML = headerLyricsSource(data);
@@ -246,11 +268,13 @@ function renderHeaderLyrics(on, position = playerTrackPosition()) {
   const active = playbackLyricIndex(data.lines, position);
   if (active === view.cardActive) return;
   const nodes = region.querySelectorAll("[data-line]");
-  nodes[view.cardActive]?.classList.remove("now"); nodes[view.cardActive]?.removeAttribute("aria-current");
+  const old = nodes[view.cardActive];
+  if (old) { old.classList.remove("now"); old.removeAttribute("aria-current"); old.innerHTML = headerLyricInner(data.lines[view.cardActive], true, false); }
   const node = nodes[active];
   view.cardActive = active;
   if (!node) return;
   node.classList.add("now"); node.setAttribute("aria-current", "true");
+  node.innerHTML = headerLyricInner(data.lines[active], true, true);
   if (view.cardFollow) region.scrollTop = Math.max(0, node.offsetTop - region.offsetTop - region.clientHeight / 3);
 }
 
@@ -308,4 +332,89 @@ async function lyricsTranslateEnglish(data) {
     }
   } catch { /* the translator is busy or offline: the lyrics stay as they are and it is tried again next time */ }
   finally { data.trBusy = false; }
+}
+
+// Fork v90: the header card comes in three sizes (A−/A+), remembered; 1 (medium) is the default.
+function lyricsEverywhereCardSize() {
+  try {
+    const stored = localStorage.getItem("tagcast-lyrics-cardsize");
+    const v = stored === null || stored === "" ? NaN : Number(stored);
+    return Number.isInteger(v) && v >= 0 && v <= 2 ? v : 1;
+  }
+  catch { return 1; }
+}
+
+function headerLyricInner(line, timed, current) {
+  const tr = lyricsTranslation(line);
+  const text = (current && lyricsKaraokeHtml(line)) || escapeHtml(line.text || (timed ? "♪" : " "));
+  return `${text}${tr ? `<small class="header-lyric-tr">${escapeHtml(tr)}</small>` : ""}`;
+}
+
+// Fork v90: karaoke glow. Words light up as they are sung: with the real word timing when the lyrics have it,
+// otherwise estimated by spreading each line's time over its words (every character for Chinese, Japanese, Korean).
+// CSS animations do the work (negative delays join a line in the middle), so there is no per-frame script.
+const lyricsToken = /[぀-ヿ㐀-䶿一-鿿가-힯]|\s+|[^\s぀-ヿ㐀-䶿一-鿿가-힯]+/g;
+
+function lyricsKaraokeEstimate(line) {
+  const text = String(line.text || "");
+  if (!text.trim() || !Number.isFinite(line.start) || !Number.isFinite(line.end) || line.end <= line.start) return null;
+  const parts = text.match(lyricsToken) || [];
+  const weight = part => (/^\s+$/.test(part) ? 0 : lyricsCjk.test(part) ? 1 : Math.min(8, Math.max(1, [...part].length * 0.6)));
+  const total = parts.reduce((sum, part) => sum + weight(part), 0);
+  if (!total) return null;
+  // The sung part: at most 92% of the line, and not slower than about half a second per word or character.
+  const span = Math.min((line.end - line.start) * 0.92, total * 0.5);
+  let at = line.start;
+  const words = parts.map(part => {
+    const start = at;
+    at += span * weight(part) / total;
+    return {text: part, start, end: Math.min(at, line.end)};
+  });
+  words.est = true;
+  return words;
+}
+
+function lyricsKaraokeApply(data) {
+  if (!data?.timed) return;
+  const estimate = lyricsEverywhere.karaoke && !lyricsEverywhere.karaokereal;
+  for (const line of data.lines) {
+    if (line.words?.est) { if (!estimate) delete line.words; continue; }
+    if (estimate && !(Array.isArray(line.words) && line.words.length)) {
+      const words = lyricsKaraokeEstimate(line);
+      if (words) line.words = words;
+    }
+  }
+}
+
+function lyricsKaraokeHtml(line) {
+  if (!lyricsEverywhere.karaoke || !line) return "";
+  const words = typeof playbackLyricWords === "function" ? playbackLyricWords(line) : [];
+  if (!words.length) return "";
+  return `<span class="kar-line">${words.map(word => (/^\s*$/.test(word.text) ? escapeHtml(word.text)
+    : `<span class="kar-word" data-s="${word.start}" data-e="${word.end}">${escapeHtml(word.text)}</span>`)).join("")}</span>`;
+}
+
+function lyricsKaraokeStart(line, position, paused) {
+  line.classList.remove("kar-run");
+  for (const word of line.querySelectorAll(".kar-word")) {
+    const start = Number(word.dataset.s), end = Number(word.dataset.e);
+    word.style.setProperty("--kd", `${(start - position).toFixed(3)}s`);
+    word.style.setProperty("--kt", `${Math.max(0.05, end - start).toFixed(3)}s`);
+  }
+  void line.offsetWidth;  // restart the animations
+  line.classList.add("kar-run");
+  line.classList.toggle("kar-paused", paused);
+  line.karaoke = {position, at: performance.now(), paused};
+}
+
+// Called on every lyrics render (about four times a second): starts new lines, and starts a line again
+// after a seek, a pause or a resume, so the glow always matches the song.
+function lyricsKaraokeSync(position) {
+  if (!lyricsEverywhere.karaoke || !Number.isFinite(position)) return;
+  const paused = Boolean(audio.paused);
+  for (const line of document.querySelectorAll(".floating-lyrics .kar-line, .header-lyrics .kar-line")) {
+    const known = line.karaoke;
+    const expected = known ? known.position + (known.paused ? 0 : (performance.now() - known.at) / 1000) : NaN;
+    if (!known || known.paused !== paused || Math.abs(position - expected) > 0.6) lyricsKaraokeStart(line, position, paused);
+  }
 }

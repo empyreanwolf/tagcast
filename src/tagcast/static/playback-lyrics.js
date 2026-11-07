@@ -185,6 +185,7 @@ async function loadPlaybackLyrics(selection, entry, request, details) {
   if (!playbackLyricsCurrent(selection, request, details)) return;
   playbackLyricsView.loading = false;
   playbackLyricsView.data = result?.status === "ready" ? result : null;
+  if (playbackLyricsView.data && typeof lyricsKaraokeApply === "function") lyricsKaraokeApply(playbackLyricsView.data);
   $("#visual-lyrics-message").textContent = result?.status === "ready"
     ? [result.timed ? result.lines.some(line => playbackLyricWords(line).length)
       ? "Word-timed lyrics follow the current track." : "Lyrics follow the current track."

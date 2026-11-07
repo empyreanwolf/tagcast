@@ -76,3 +76,24 @@
 /* Fork v87: translations under lyric lines */
 .floating-lyric-tr,.header-lyric-tr,.visual-lyric-tr{display:block;margin-top:2px;font-size:.78em;font-weight:400;font-style:italic;opacity:.8}
 .floating-lyric:not(.now) .floating-lyric-tr{display:none}
+
+/* Fork v90: header card sizes (A−/A+): 0 small (v86 size), 1 medium (default), 2 large */
+.header-lyrics-tools{display:flex;align-items:center;gap:6px}
+.header-lyrics-size{border:0;background:transparent;color:var(--muted);font:inherit;font-size:12px;letter-spacing:0;cursor:pointer;padding:2px 6px;border-radius:6px}
+.header-lyrics-size:hover:not(:disabled){color:var(--ink);background:var(--palette-tint,var(--white))}
+.header-lyrics-size:disabled{opacity:.3;cursor:default}
+.header-lyrics[data-size="1"]{flex-basis:480px;max-width:520px;height:330px;max-height:none;align-self:flex-start}
+.header-lyrics[data-size="1"] .header-lyric{font-size:20px;line-height:1.35}
+.header-lyrics[data-size="1"] .header-lyric.now{font-size:26px}
+.header-lyrics[data-size="2"]{flex-basis:620px;max-width:680px;height:440px;max-height:none;align-self:flex-start}
+.header-lyrics[data-size="2"] .header-lyric{font-size:24px;line-height:1.35}
+.header-lyrics[data-size="2"] .header-lyric.now{font-size:32px}
+.header-lyrics[data-size="1"] .header-lyrics-lines,.header-lyrics[data-size="2"] .header-lyrics-lines{min-height:0}
+.header-lyrics[data-size="1"] .header-lyrics-source,.header-lyrics[data-size="2"] .header-lyrics-source{font-size:12px}
+
+/* Fork v90: karaoke glow, words light up as they are sung (timing set by script, motion by CSS) */
+.kar-word{opacity:.5}
+.kar-line.kar-run .kar-word{animation:kar-glow var(--kt,.3s) linear var(--kd,0s) both}
+.kar-line.kar-paused .kar-word{animation-play-state:paused}
+@keyframes kar-glow{from{opacity:.5;text-shadow:0 0 0 transparent}to{opacity:1;text-shadow:0 0 8px currentColor,0 0 20px color-mix(in srgb,currentColor 55%,transparent)}}
+@media (prefers-reduced-motion:reduce){.kar-line.kar-run .kar-word{animation-duration:.001s}}

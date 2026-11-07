@@ -986,6 +986,8 @@ class Galaxy:
         self.finisher = None
         self._last_done = 0.0
         self._t0 = 0.0
+        self._pre, self._pre_lock = {}, threading.Lock()  # fork v90: the next song's lookups, done while this one downloads
+        self._mb_lock = threading.Lock()  # one MusicBrainz lookup at a time, so an album is asked for once
         self._cover_gate = threading.Semaphore(2)
         self._cover_memory, self._cover_misses = {}, {}
         manager = studio.download_manager
@@ -1223,6 +1225,7 @@ class Galaxy:
                 self.active, self.cancel_id = job["id"], None
                 handed = False
                 try:
+                    self._prefetch_next()
                     ctx = self._fetch_stage(job)
                     self._finish_q.put((job, ctx))  # waits while the finisher is still on the song before
                     handed = True
@@ -1302,7 +1305,50 @@ class Galaxy:
     def _part_path(self, item_id):
         return Path(self.folder()) / "_incomplete" / f"{item_id}.part"
 
+    def _prefetch_next(self):
+        """Fork v90: while this song downloads, the next one's MusicBrainz match and cover are looked up in the
+        background, so its finishing step has little left to wait for. Lyrics need the downloaded audio length
+        and still come after the download."""
+        nxt = self.manager.peek_queued("galaxy")
+        if not nxt:
+            return
+        jid, p = nxt["id"], nxt["payload"]
+        with self._pre_lock:
+            if jid in self._pre or len(self._pre) >= 6:
+                return
+            entry = self._pre[jid] = {"done": threading.Event()}
+
+        def work():
+            try:
+                try:
+                    with self._mb_lock:
+                        entry["mb"] = self.mb.lookup(p["artists"], nxt["title"], p["album"])
+                except (StopRequested, JobCancelled):
+                    raise
+                except Exception as e:  # a lookup failure never fails the download
+                    log.info("MusicBrainz lookup failed for %s: %s", nxt["title"], e)
+                    entry["mb"] = None
+                entry["mb_done"] = True
+                entry["cover"] = self.fetch_cover(p)
+                entry["cover_done"] = True
+            except (StopRequested, JobCancelled):
+                pass  # stopped or cancelled: the finishing step does what is left itself
+            except Exception:
+                log.info("Galaxy prefetch failed", exc_info=True)
+            finally:
+                entry["done"].set()
+        threading.Thread(target=work, name="GalaxyPrefetch", daemon=True).start()
+
+    def _take_prefetch(self, item_id):
+        with self._pre_lock:
+            entry = self._pre.pop(item_id, None)
+        if entry:
+            entry["done"].wait(30)
+        return entry or {}
+
     def _cleanup(self, item_id):
+        with self._pre_lock:
+            self._pre.pop(item_id, None)
         part = self._part_path(item_id)
         try:
             part.unlink(missing_ok=True)
@@ -1340,13 +1386,18 @@ class Galaxy:
         link, part, nbytes, fmt, real = ctx["link"], ctx["part"], ctx["nbytes"], ctx["fmt"], ctx["real"]
         timing, t0 = ctx.get("timing", {}), time.monotonic()
         self._step(jid, 2, "Searching recordings…")
-        try:
-            mbinfo = self.mb.lookup(p["artists"], job["title"], p["album"])
-        except (StopRequested, JobCancelled):
-            raise
-        except Exception as e:  # a lookup failure never fails the download
-            log.info("MusicBrainz lookup failed for %s: %s", job["title"], e)
-            mbinfo = None
+        pre = self._take_prefetch(jid)
+        if pre.get("mb_done"):
+            mbinfo = pre["mb"]
+        else:
+            try:
+                with self._mb_lock:
+                    mbinfo = self.mb.lookup(p["artists"], job["title"], p["album"])
+            except (StopRequested, JobCancelled):
+                raise
+            except Exception as e:  # a lookup failure never fails the download
+                log.info("MusicBrainz lookup failed for %s: %s", job["title"], e)
+                mbinfo = None
         self._step(jid, 2, f"Matched “{mbinfo['release_title']}” {mbinfo['year']}".strip() if mbinfo
                    else "No match - year/genre missing")
         if real < SHORT_SECONDS and not p.get("allow_short"):
@@ -1358,7 +1409,7 @@ class Galaxy:
         year, genre = (mbinfo or {}).get("year", ""), (mbinfo or {}).get("genre", "")
         t1 = time.monotonic()
         self._step(jid, 3, "Fetching cover…")
-        cover = self.fetch_cover(p)
+        cover = pre["cover"] if pre.get("cover_done") else self.fetch_cover(p)
         lyrics = self.fetch_lyrics(link, p, job["title"], real)
         t2 = time.monotonic()
         self._step(jid, 3, {"flac": "Writing FLAC tags…", "m4a": "Writing M4A tags…"}.get(fmt, "Writing ID3v2.4…"))

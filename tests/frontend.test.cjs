@@ -16,7 +16,7 @@ const LEGACY_PAGE_SIZES = {"tagcast-artists-per-page": "24", "tagcast-favourite-
   "tagcast-recently-played-per-page": "50", "tagcast-guide-per-page": "24"};
 function page({hash = "", storage = {}, server = true, browserNavigator = {}, metadataClass, setupAudio, deferReady = false, freshPageSizes = false} = {}) {
   // Fork v85/v86: lyrics in the bar / Mini Player / header card look songs up while playing; upstream tests expect a quiet player.
-  for (const key of ["tagcast-lyrics-bar", "tagcast-lyrics-mini", "tagcast-lyrics-card", "tagcast-lyrics-autosave", "tagcast-lyrics-autotranslate"]) if (!(key in storage)) storage[key] = "false";
+  for (const key of ["tagcast-lyrics-bar", "tagcast-lyrics-mini", "tagcast-lyrics-card", "tagcast-lyrics-autosave", "tagcast-lyrics-autotranslate", "tagcast-lyrics-karaoke"]) if (!(key in storage)) storage[key] = "false";
   if (!("tagcast-look" in storage)) storage["tagcast-look"] = "classic";   // fork v76 tests turn Sonora on
   if (!("tagcast-gapless-v80" in storage)) storage["tagcast-gapless-v80"] = "done";   // fork v80 resets gapless once
   if (!("tagcast-heart-playlist" in storage)) storage["tagcast-heart-playlist"] = "off";   // fork v53 tests turn it on
@@ -11556,7 +11556,7 @@ test('fork v87: album Find lyrics runs the server job for the album songs and re
     return {ok:true,json:async()=>({running:false,message:'',counts:started?{saved:4,none:1,review:1}:{saved:1}})};
   });
   p.run('albumLyricsTracks = () => [{id: 1}, {id: "2"}]');
-  assert.match(p.run('albumFindLyricsButton()'),/data-album-find-lyrics[^>]*>♪ Find lyrics</);
+  assert.match(p.run('albumFindLyricsButton()'),/data-find-lyrics="album"[^>]*>♪ Find lyrics</);
   await p.run('albumFindLyrics()'); await settle();
   const start=p.requests.find(r=>String(r.url).includes('/api/lyrics-job/start'));
   assert.deepEqual(JSON.parse(start.options.body),{track_ids:['1','2']});
@@ -11607,4 +11607,53 @@ test('fork v88: Chinese lyrics get English lines from the translator, once per s
   const before=posts();
   await p.run('lyricsTranslateEnglish(playbackLyricsView.data)'); await settle();
   assert.equal(posts(),before);  // once per song
+});
+
+
+test('fork v90: karaoke estimates word timing for line-timed lyrics, keeps real timing, and can be switched off', async () => {
+  const p=page({storage:{'tagcast-lyrics-karaoke':'true'}}); await settle();
+  p.run('globalThis.line={text:"你好 world",start:10,end:14}');
+  const words=p.json('lyricsKaraokeEstimate(line)');
+  assert.deepEqual(words.map(w=>w.text),['你','好',' ','world']);
+  assert.equal(p.run('lyricsKaraokeEstimate(line).est'),true);
+  assert.equal(words[0].start,10);
+  for(let i=1;i<words.length;i++) assert.equal(words[i].start,words[i-1].end);
+  assert.ok(words.at(-1).end<=14 && words.at(-1).end>words[0].start);
+  assert.equal(p.run('lyricsKaraokeEstimate({text:"x",start:5,end:5})'),null);
+  assert.equal(p.run('lyricsKaraokeEstimate({text:"  ",start:5,end:9})'),null);
+  p.run('globalThis.data={timed:true,lines:[{text:"你好",start:1,end:3},{text:"real",start:3,end:5,words:[{text:"real",start:3,end:4}]}]}');
+  p.run('lyricsKaraokeApply(data)');
+  assert.equal(p.run('data.lines[0].words.est'),true);
+  assert.equal(p.run('data.lines[1].words.length'),1);  // real timing stays
+  assert.equal(p.run('data.lines[1].words.est'),undefined);
+  assert.match(p.run('lyricsKaraokeHtml(data.lines[1])'),/^<span class="kar-line"><span class="kar-word" data-s="3" data-e="4">real<\/span><\/span>$/);
+  assert.equal(p.run('playbackLyricWords(data.lines[0]).length'),2);  // the large view takes estimated words too
+  p.run('lyricsEverywhereSet("karaokereal", true)'); p.run('lyricsKaraokeApply(data)');
+  assert.equal(p.run('data.lines[0].words'),undefined);  // real timing only: no estimates
+  assert.equal(p.run('data.lines[1].words.length'),1);
+  p.run('lyricsEverywhereSet("karaoke", false)');
+  assert.equal(p.run('lyricsKaraokeHtml(data.lines[1])'),'');
+});
+
+test('fork v90: karaoke lines join the song at its position and start again after a seek or pause', async () => {
+  const p=page({storage:{'tagcast-lyrics-karaoke':'true'}}); await settle();
+  p.run(`globalThis.vars={}; globalThis.cls=new Set(); globalThis.kline={classList:{remove:c=>cls.delete(c),add:c=>cls.add(c),toggle:(c,on)=>on?cls.add(c):cls.delete(c)},offsetWidth:0,
+    querySelectorAll:()=>[{dataset:{s:"12",e:"13"},style:{setProperty:(k,v)=>{vars[k]=v;}}}]}`);
+  p.run('lyricsKaraokeStart(kline, 12.5, false)');
+  assert.equal(p.run('vars["--kd"]'),'-0.500s');  // a negative delay joins the word half way
+  assert.equal(p.run('vars["--kt"]'),'1.000s');
+  assert.equal(p.run('cls.has("kar-run") && !cls.has("kar-paused")'),true);
+  p.run('lyricsKaraokeStart(kline, 11, true)');
+  assert.equal(p.run('vars["--kd"]'),'1.000s');
+  assert.equal(p.run('cls.has("kar-paused")'),true);
+});
+
+test('fork v90: the lyrics card size is remembered and defaults to medium', async () => {
+  assert.equal(page().run('lyricsEverywhere.cardSize'),1);
+  assert.equal(page({storage:{'tagcast-lyrics-cardsize':'2'}}).run('lyricsEverywhere.cardSize'),2);
+  assert.equal(page({storage:{'tagcast-lyrics-cardsize':'9'}}).run('lyricsEverywhere.cardSize'),1);
+  const p=page({storage:{'tagcast-lyrics-karaoke':'true'}}); await settle();
+  p.run('globalThis.ln={text:"你好",start:1,end:3,tr:"Hello"}; lyricsKaraokeApply({timed:true,lines:[ln]})');
+  assert.match(p.run('headerLyricInner(ln,true,true)'),/^<span class="kar-line">.*<\/span><small class="header-lyric-tr">Hello<\/small>$/);
+  assert.equal(p.run('headerLyricInner(ln,true,false)'),'你好<small class="header-lyric-tr">Hello</small>');
 });

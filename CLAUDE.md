@@ -5,6 +5,8 @@
 - Read `FORK.md` (versions, how the user runs it) and, for download work,
   `docs/downloads-plan.md` (agreed plan and build order). Architecture and rules:
   `AGENTS.md`.
+- One version number per batch of work, not per feature or patch: when the user approves several
+  additions together, they ship as a single version.
 - Every update: raise `artistCleanupVersion` in `static/artist-cleanup.js` (shown in
   the UI as "fork vN"), add a line to FORK.md's Versions, push to `main`, and give
   the user a zip built with

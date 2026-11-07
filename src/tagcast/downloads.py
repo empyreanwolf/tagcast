@@ -828,6 +828,14 @@ class Downloads:
                     return dict(item)
         return None
 
+    def peek_queued(self, source):
+        """The song that next_queued would take (fork v90), without starting it."""
+        with self.lock:
+            for item in self.state["queue"]:
+                if item.get("state") == "queued" and item.get("source") == source and item.get("payload"):
+                    return dict(item)
+        return None
+
     def has_queued(self, source):
         with self.lock:
             return any(i.get("state") == "queued" and i.get("source") == source and i.get("payload")

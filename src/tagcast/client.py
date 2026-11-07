@@ -543,6 +543,32 @@ class Studio:
         except (OSError, ValueError, AttributeError, EOFError, LibraryError):
             return None
 
+    def _preread_cache(self):
+        """Fork v90: start reading the saved library while the status call is on its way to iBroadcast, so a
+        start does not wait for the two one after the other. Returns (thread, box); box["library"] is the
+        parsed copy (checked against iBroadcast's answer afterwards) or None."""
+        box = {"library": None}
+
+        def read():
+            try:
+                data = json.loads(gzip.decompress((self.home / CACHE_FILE).read_bytes()))
+                box["meta"] = (data.get("user_id"), data.get("status", {}).get("lastmodified"), data.get("combine_sets"))
+                box["library"] = Library(data)
+            except (OSError, ValueError, AttributeError, EOFError, LibraryError):
+                box["library"] = None
+        thread = threading.Thread(target=read, name="library-cache-read", daemon=True)
+        thread.start()
+        return thread, box
+
+    @staticmethod
+    def _take_preread(pre, user_id, lastmodified, combine_sets):
+        thread, box = pre
+        thread.join()
+        meta = box.get("meta")
+        if box["library"] is not None and meta == (user_id, lastmodified, combine_sets):
+            return box["library"]
+        return None
+
     def _write_cache(self, library, user_id, client):
         """Write the library to disk in the background; a failed write only costs a download."""
         def write():
@@ -810,11 +836,15 @@ class Studio:
         download that started after that one, so a read-back can share a download.
         (Numbers, not times: on Windows the clock ticks only every ~15 ms.)
         """
+        with self.lock:
+            cold = self.library is None
+        pre = self._preread_cache() if cold and not refresh and after is None else None
         lastmodified, user_id = self._remote_state(client)
         if lastmodified and not refresh and after is None:  # a read-back always reads fresh data
             if library := self._in_memory(user_id, lastmodified):
                 return library, "memory"
-            if library := self._read_cache(user_id, lastmodified):
+            if library := (self._take_preread(pre, user_id, lastmodified, self.combine_sets) if pre
+                           else self._read_cache(user_id, lastmodified)):
                 with self.lock:
                     if client is not self.client:
                         raise NotConnected("You disconnected from iBroadcast.")
@@ -853,7 +883,9 @@ class Studio:
         return {"combine_sets": self.combine_sets}
 
     def load_library(self, refresh=False):
+        started = time.monotonic()
         library, source = self._current(self._require_client(), refresh)
+        log.info("Library ready from %s in %.1f s", source, time.monotonic() - started)
         albums = library.album_index()
         try:
             favourites = self.collections.album_favourites(library)

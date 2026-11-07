@@ -109,16 +109,16 @@ document.addEventListener("click", event => {
 // LRCLIB first, GD Studio after, saved to iBroadcast when sure. One click; the button shows the progress.
 const albumLyricsRun = {active: false, text: "", timer: null, before: null};
 
-function albumFindLyricsButton() {
+function albumFindLyricsButton(scope = "album") {
   const busy = albumLyricsRun.active;
-  return `<button type="button" class="button" data-album-find-lyrics ${busy ? "disabled" : ""} title="Find and save timed lyrics for the songs on this album that have none">${busy ? escapeHtml(albumLyricsRun.text || "Finding lyrics…") : "♪ Find lyrics"}</button>`;
+  return `<button type="button" class="button" data-find-lyrics="${scope}" ${busy ? "disabled" : ""} title="Find and save timed lyrics for the songs on this ${scope} that have none">${busy ? escapeHtml(albumLyricsRun.text || "Finding lyrics…") : "♪ Find lyrics"}</button>`;
 }
 
 function albumLyricsRunPaint() {
-  const button = $("#album-page")?.querySelector("[data-album-find-lyrics]");
-  if (!button) return;
-  button.disabled = albumLyricsRun.active;
-  button.textContent = albumLyricsRun.active ? albumLyricsRun.text || "Finding lyrics…" : "♪ Find lyrics";
+  for (const button of document.querySelectorAll("[data-find-lyrics]")) {
+    button.disabled = albumLyricsRun.active;
+    button.textContent = albumLyricsRun.active ? albumLyricsRun.text || "Finding lyrics…" : "♪ Find lyrics";
+  }
 }
 
 function albumLyricsRunSummary(before, after) {
@@ -150,10 +150,13 @@ async function albumLyricsRunPoll() {
   albumLyricsRunPaint();
 }
 
-async function albumFindLyrics() {
+// Fork v90: the same button on playlist pages (the songs on the page, at most 500 at a time).
+async function albumFindLyrics(scope = "album") {
   if (albumLyricsRun.active) return;
-  const ids = albumLyricsTracks().map(track => String(track.id));
-  if (!ids.length) { toast("Open the album first."); return; }
+  const tracks = scope === "playlist" ? collectionsView.data?.tracks || [] : albumLyricsTracks();
+  const ids = tracks.map(track => String(track.id)).slice(0, 500);
+  if (!ids.length) { toast(`Open the ${scope} first.`); return; }
+  if (tracks.length > 500) toast("Looking at the first 500 songs.");
   albumLyricsRun.active = true; albumLyricsRun.text = "Finding lyrics…"; albumLyricsRunPaint();
   try {
     albumLyricsRun.before = (await api("/api/lyrics-job")).counts || {};
@@ -166,5 +169,6 @@ async function albumFindLyrics() {
 }
 
 document.addEventListener("click", event => {
-  if (event.target.closest("[data-album-find-lyrics]")) void albumFindLyrics();
+  const button = event.target.closest("[data-find-lyrics]");
+  if (button) void albumFindLyrics(button.dataset.findLyrics === "playlist" ? "playlist" : "album");
 });
