@@ -15,8 +15,8 @@ const LEGACY_PAGE_SIZES = {"tagcast-artists-per-page": "24", "tagcast-favourite-
   "tagcast-browse-per-page": "24", "tagcast-favourites-per-page": "50", "tagcast-tracks-per-page": "50",
   "tagcast-recently-played-per-page": "50", "tagcast-guide-per-page": "24"};
 function page({hash = "", storage = {}, server = true, browserNavigator = {}, metadataClass, setupAudio, deferReady = false, freshPageSizes = false} = {}) {
-  // Fork v85: lyrics in the bar / Mini Player look songs up while playing; upstream tests expect a quiet player.
-  for (const key of ["tagcast-lyrics-bar", "tagcast-lyrics-mini"]) if (!(key in storage)) storage[key] = "false";
+  // Fork v85/v86: lyrics in the bar / Mini Player / header card look songs up while playing; upstream tests expect a quiet player.
+  for (const key of ["tagcast-lyrics-bar", "tagcast-lyrics-mini", "tagcast-lyrics-card", "tagcast-lyrics-autosave"]) if (!(key in storage)) storage[key] = "false";
   if (!("tagcast-look" in storage)) storage["tagcast-look"] = "classic";   // fork v76 tests turn Sonora on
   if (!("tagcast-gapless-v80" in storage)) storage["tagcast-gapless-v80"] = "done";   // fork v80 resets gapless once
   if (!("tagcast-heart-playlist" in storage)) storage["tagcast-heart-playlist"] = "off";   // fork v53 tests turn it on
@@ -11524,4 +11524,23 @@ test('fork v85: timed lyrics show in the player bar without the large Now playin
   assert.equal(p.requests.filter(r=>r.options?.method==='POST').length,0);  // iBroadcast only: no online lookup
   p.run('lyricsEverywhereSet("bar", false)');
   assert.equal(p.nodes.get('#bar-lyrics').hidden,true);
+});
+
+test('fork v86: timed lyrics found online are saved once to iBroadcast and listed in Change history', async () => {
+  const p=page({storage:{'tagcast-lyrics-autosave':'true'}}); await settle();
+  p.setFetch(()=>({ok:true,json:async()=>({status:'saved',note:'Timed lyrics saved.',confirmed:true})}));
+  p.run('state.mode="live"; state.connection.playback_session="s1"; playTracks(state.details.get("1"));'); await settle();
+  const before=p.run('state.history.length');
+  p.run('globalThis.sel={track_id:"5",title:"T",artist:"A",session:"s1"}; globalThis.res={timed:true,source:"lrclib",lines:[{start:1,end:2,text:"one"},{start:2,end:3,text:"two"}]}');
+  await p.run('lyricsAutosave(sel, null, res)'); await settle();
+  await p.run('lyricsAutosave(sel, null, res)'); await settle();  // once per song
+  const posts=p.requests.filter(r=>String(r.url).includes('/api/lyrics/autosave'));
+  assert.equal(posts.length,1);
+  assert.deepEqual(JSON.parse(posts[0].options.body).lines,[{start:1,text:'one'},{start:2,text:'two'}]);
+  assert.equal(p.run('state.history.length'),before+1);
+  assert.equal(p.run('state.history[0].changes[0].fields.lyrics.after'),'Timed lyrics from LRCLIB (2 lines)');
+  await p.run('lyricsAutosave({...sel, track_id:"6"}, null, {...res, source:"ibroadcast"})'); await settle();
+  p.run('lyricsEverywhereSet("autosave", false)');
+  await p.run('lyricsAutosave({...sel, track_id:"7"}, null, res)'); await settle();
+  assert.equal(p.requests.filter(r=>String(r.url).includes('/api/lyrics/autosave')).length,1);
 });

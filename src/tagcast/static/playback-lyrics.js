@@ -31,7 +31,7 @@ function playbackLyricsSettings() {
   return `<section class="player-display-settings" data-settings-category="playback"><h3>Now playing lyrics <span class="settings-mode">Immediate · this browser</span></h3>
     <label class="field"><span>Preferred lyrics source</span><select id="playback-lyrics-mode">${options.map(([key, label]) => `<option value="${key}" ${playbackLyricsView.mode === key ? "selected" : ""}>${label}</option>`).join("")}</select></label>
     <p class="muted">Shown in the large Now playing view (Lyrics button), and, with the options under Lyrics while playing, in the player bar, a floating box and the Mini Player. An online option checks Unison first, then LRCLIB if no usable result is available. The current song’s title, track artist, album and duration are sent while lyrics are shown anywhere. No account details or audio are sent. The LRCLIB switch under Sources &amp; keys also applies here.</p>
-    <p class="muted">Timed lyrics highlight the current line, with a moving underline for words or syllables when available. Ordinary text remains readable without synchronisation. Online results stay temporarily in memory; they are never saved to iBroadcast, music files or the lyrics editor. Existing iBroadcast lyrics keep their usual cache and editing behaviour.</p>
+    <p class="muted">Timed lyrics highlight the current line, with a moving underline for words or syllables when available. Ordinary text remains readable without synchronisation. Online results stay temporarily in memory and are never written to music files or the lyrics editor; with “Save found timed lyrics to iBroadcast” on (Lyrics while playing), timed ones go to the song's iBroadcast lyrics once, only when it has none. Existing iBroadcast lyrics keep their usual cache and editing behaviour.</p>
     <label class="checkline"><input type="checkbox" id="playback-lyrics-cover-background" ${playbackLyricsView.coverBackground ? "checked" : ""}> Use cover colours behind Now playing</label>
     <p class="muted">Adds a softened cover background to the large Now playing view. Off by default. Your theme stays unchanged elsewhere.</p></section>`;
 }
@@ -195,6 +195,7 @@ async function loadPlaybackLyrics(selection, entry, request, details) {
         : "No matching lyrics found for this recording.";
   $("#visual-lyrics-retry").hidden = !errors.length;
   paintPlaybackLyrics();
+  if (playbackLyricsView.data && typeof lyricsAutosave === "function") void lyricsAutosave(selection, entry, playbackLyricsView.data);
 }
 
 function renderPlaybackLyrics() {

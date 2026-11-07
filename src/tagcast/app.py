@@ -534,6 +534,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/lyrics/review": self.studio.lyrics.prepare,
             "/api/lyrics/save": self.studio.lyrics.save,
             "/api/lyrics/display": self.studio.lyrics.display.view,  # v69: upstream 1.3.0 Now playing lyrics
+            "/api/lyrics/autosave": self.studio.lyrics_job.autosave,  # fork v86: save found lyrics while playing
             "/api/metadata-export": self.studio.metadata_export.start,
             "/api/metadata-export/cancel": self.studio.metadata_export.cancel,
             "/api/album-guide/analyse": lambda b: self.studio.album_guide.analyse(),

@@ -146,6 +146,33 @@ class LyricsJobTests(unittest.TestCase):
         self.assertEqual(studio.files["lyrics-job.json"]["checked"]["5"], "saved")
         self.assertNotIn("5", studio.files["lyrics-job.json"]["review"])
 
+    def test_autosave_fills_only_songs_without_lyrics(self):
+        studio = FakeStudio()
+        job = LyricsJob(studio)
+        lines = [{"start": 65.25, "text": "world"}, {"start": 1.5, "text": " hello "}]
+        answer = job.autosave({"track_id": "2", "source": "lrclib", "lines": lines})
+        self.assertEqual(answer["status"], "saved")
+        self.assertTrue(answer["confirmed"])
+        self.assertEqual(studio.client.userdata["2"], [{"type": "lyrics", "value": "[00:01.50]hello\n[01:05.25]world"}])
+        self.assertEqual(studio.files["lyrics-job.json"]["checked"]["2"], "saved")
+        answer = job.autosave({"track_id": "1", "source": "unison", "lines": lines})
+        self.assertEqual(answer["status"], "has")
+        self.assertEqual(studio.client.userdata["1"], [{"type": "lyrics", "value": "old words"}])  # never replaced
+
+    def test_autosave_refuses_bad_input(self):
+        job = LyricsJob(FakeStudio())
+        good = [{"start": 1, "text": "a"}, {"start": 2, "text": "b"}]
+        for body in ({"track_id": "x", "source": "lrclib", "lines": good},
+                     {"track_id": "2", "source": "ibroadcast", "lines": good},
+                     {"track_id": "2", "source": "lrclib", "lines": [{"start": "1", "text": "a"}, {"start": 2, "text": "b"}]},
+                     {"track_id": "2", "source": "lrclib", "lines": [{"start": 1, "text": ""}, {"start": 2, "text": "b"}]},
+                     {"track_id": "2", "source": "lrclib", "lines": [{"start": 1, "text": "a"}, {"start": 400, "text": "b"}]}):
+            with self.assertRaises(lyrics_job.LibraryError):
+                job.autosave(body)
+        job.studio.premium = False
+        with self.assertRaises(lyrics_job.LibraryError):
+            job.autosave({"track_id": "2", "source": "lrclib", "lines": good})
+
     def test_dismiss_removes_from_the_list(self):
         studio, job = self.run_job()
         job.dismiss("5")

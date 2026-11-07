@@ -4,7 +4,9 @@
 // a line in the player bar, a floating box that stays across pages, and the Mini Player.
 // Uses the same lyrics, sources and track clock as playback-lyrics.js.
 const lyricsEverywhere = {bar: lyricsEverywhereStored("bar", true), float: lyricsEverywhereStored("float", false),
-  mini: lyricsEverywhereStored("mini", true), last: "", box: null};
+  mini: lyricsEverywhereStored("mini", true), card: lyricsEverywhereStored("card", true),
+  autosave: lyricsEverywhereStored("autosave", true), last: "", box: null,
+  cardNode: null, cardKey: "", cardActive: -2, cardFollow: true, cardTimer: 0, saved: new Set(), savedKeys: new Set()};
 
 function lyricsEverywhereStored(name, fallback) {
   try { const v = localStorage.getItem(`tagcast-lyrics-${name}`); return v === null ? fallback : v === "true"; }
@@ -21,7 +23,7 @@ function lyricsEverywhereSet(name, value) {
 function lyricsEverywhereWanted() {
   if (!player.queue[player.index] || $("#player").hidden) return false;
   const miniOpen = lyricsEverywhere.mini && typeof miniOwner !== "undefined" && miniOwner.active;
-  return ((lyricsEverywhere.bar || lyricsEverywhere.float) && !document.hidden) || Boolean(miniOpen);
+  return ((lyricsEverywhere.bar || lyricsEverywhere.float || lyricsEverywhere.card) && !document.hidden) || Boolean(miniOpen);
 }
 
 // The lines around the current position: {prev, now, next, index, timed}.
@@ -133,6 +135,7 @@ function renderLyricsEverywhere(position) {
   } else if (lyricsEverywhere.box) {
     lyricsEverywhere.box.hidden = true;
   }
+  renderHeaderLyrics(on, position);
 }  // the Mini Player reads lyricsEverywhereMini() in its own 4x-per-second snapshot
 
 function lyricsEverywhereSettings() {
@@ -141,6 +144,8 @@ function lyricsEverywhereSettings() {
     ${check("bar", "Current line in the player bar (the ♪ button)")}
     ${check("float", "Floating lyrics box (drag it anywhere, stays across pages)")}
     ${check("mini", "Lyrics in the Mini Player")}
+    ${check("card", "Lyrics card in page headers (right of the cover and title)")}
+    ${check("autosave", "Save found timed lyrics to iBroadcast (only songs without lyrics, never overwrites)")}
     <p class="muted">These use the lyrics source chosen under Now playing lyrics. With an online option, the current song is looked up while any of these shows lyrics, not only in the large view.</p></section>`;
 }
 
@@ -164,3 +169,111 @@ audio.addEventListener("timeupdate", () => {
   if (now - lyricsEverywhereChecked < 1000 || !playbackLyricsWanted()) return;
   lyricsEverywhereChecked = now; renderPlaybackLyrics();
 });
+
+
+// Fork v86: a lyrics card in the empty space of page headers (album, artist, playlist and other pages),
+// like upstream Tagcast 1.5.5's Now playing card: LYRICS + Follow switch, current line bold, click to jump.
+function headerLyricsTarget() {
+  for (const node of document.querySelectorAll("main .album-detail-header, main .page-intro")) {
+    if (node.offsetParent !== null && !node.closest(".settings-page, [hidden]")) return node;
+  }
+  return null;
+}
+
+function headerLyricsNode() {
+  if (lyricsEverywhere.cardNode) return lyricsEverywhere.cardNode;
+  const card = document.createElement("section");
+  card.id = "header-lyrics"; card.className = "header-lyrics";
+  card.setAttribute("aria-label", "Lyrics");
+  card.innerHTML = `<header class="header-lyrics-head"><span>Lyrics</span>
+    <label class="header-lyrics-follow" title="Keep the current line in view"><span>Follow</span><input type="checkbox" role="switch" checked></label></header>
+    <div class="header-lyrics-lines" tabindex="0" role="region" aria-label="Lyrics; scroll to read other lines"></div>
+    <footer class="header-lyrics-source"></footer>`;
+  const region = card.querySelector(".header-lyrics-lines"), follow = card.querySelector(".header-lyrics-follow input");
+  follow.addEventListener("change", () => { lyricsEverywhere.cardFollow = follow.checked; lyricsEverywhere.cardActive = -2; renderLyricsEverywhere(); });
+  const stopFollowing = () => { if (playbackLyricsView.data?.timed) { lyricsEverywhere.cardFollow = false; follow.checked = false; } };
+  for (const name of ["wheel", "touchstart"]) region.addEventListener(name, stopFollowing, {passive: true});
+  region.addEventListener("click", event => {
+    const node = event.target.closest("[data-line]");
+    if (!node || window.getSelection?.()?.toString()) return;
+    lyricsEverywhereSeek(playbackLyricsView.data?.lines[Number(node.dataset.line)]);
+    lyricsEverywhere.cardFollow = true; follow.checked = true; lyricsEverywhere.cardActive = -2;
+  });
+  lyricsEverywhere.cardNode = card;
+  return card;
+}
+
+function headerLyricsSource(data) {
+  const sources = {unison: ["Unison", "https://unison.boidu.dev/"], lrclib: ["LRCLIB", "https://lrclib.net/"], gdstudio: ["GD Studio", "https://music.gdstudio.xyz/"]};
+  const source = sources[data?.source];
+  if (!source) return data ? "Saved in iBroadcast" : "";
+  const link = `<a href="${source[1]}" target="_blank" rel="noopener noreferrer">Lyrics from ${source[0]} ↗</a>`;
+  const track = player.queue[player.index];
+  return `${link} · ${track && lyricsEverywhere.saved.has(String(track.id)) ? "Saved in iBroadcast" : "Not stored in iBroadcast"}`;
+}
+
+function renderHeaderLyrics(on, position = playerTrackPosition()) {
+  const view = lyricsEverywhere;
+  if (!view.card || !on) { if (view.cardNode) view.cardNode.remove(); return; }
+  if (!view.cardTimer && typeof setInterval === "function") {
+    // A page change while paused rebuilds the header without a timeupdate: place the card again.
+    view.cardTimer = setInterval(() => { if (view.card && !document.hidden && player.queue[player.index]) renderLyricsEverywhere(); }, 1000);
+  }
+  const target = headerLyricsTarget();
+  if (!target) { if (view.cardNode) view.cardNode.remove(); return; }
+  const card = headerLyricsNode();
+  if (card.parentNode !== target) { target.append(card); view.cardActive = -2; }
+  const data = playbackLyricsView.data, region = card.querySelector(".header-lyrics-lines");
+  const track = player.queue[player.index];
+  const key = `${track?.id}|${playbackLyricsView.key}|${data ? data.lines.length : playbackLyricsView.loading ? "loading" : "none"}|${data?.source}|${view.saved.has(String(track?.id))}`;
+  if (key !== view.cardKey) {
+    view.cardKey = key; view.cardActive = -2;
+    if (!view.cardFollow && data?.timed) { view.cardFollow = true; card.querySelector(".header-lyrics-follow input").checked = true; }
+    region.toggleAttribute("data-timed", Boolean(data?.timed));
+    region.innerHTML = data ? data.lines.map((line, i) => `<p class="header-lyric"${data.timed ? ` data-line="${i}"` : ""}>${escapeHtml(line.text || (data.timed ? "♪" : " "))}</p>`).join("")
+      : `<p class="header-lyric muted">${playbackLyricsView.loading ? "Checking lyrics…" : "No lyrics found for this song."}</p>`;
+    card.querySelector(".header-lyrics-follow").hidden = !data?.timed;
+    card.querySelector(".header-lyrics-source").innerHTML = headerLyricsSource(data);
+  }
+  if (!data?.timed) return;
+  const active = playbackLyricIndex(data.lines, position);
+  if (active === view.cardActive) return;
+  const nodes = region.querySelectorAll("[data-line]");
+  nodes[view.cardActive]?.classList.remove("now"); nodes[view.cardActive]?.removeAttribute("aria-current");
+  const node = nodes[active];
+  view.cardActive = active;
+  if (!node) return;
+  node.classList.add("now"); node.setAttribute("aria-current", "true");
+  if (view.cardFollow) region.scrollTop = Math.max(0, node.offsetTop - region.offsetTop - region.clientHeight / 3);
+}
+
+// Fork v86: timed lyrics found online while playing are saved once to the song's iBroadcast lyrics,
+// only when the song has none (the server checks again and never overwrites). Shown in Change history.
+async function lyricsAutosave(selection, entry, result) {
+  const view = lyricsEverywhere;
+  if (!view.autosave || !selection || !result?.timed || !["lrclib", "unison"].includes(result.source)) return;
+  if (state.connection?.premium === false || entry?.data?.native_text?.trim()) return;
+  const id = String(selection.track_id), key = `${selection.session}|${id}`;
+  if (view.savedKeys.has(key)) return;
+  view.savedKeys.add(key);  // once per song per session, also after an error
+  const lines = result.lines.filter(line => Number.isFinite(line.start)).slice(0, 2000)
+    .map(line => ({start: line.start, text: String(line.text || "").slice(0, 500)}));
+  if (lines.filter(line => line.text.trim()).length < 2) return;
+  try {
+    const data = await api("/api/lyrics/autosave", {track_id: id, source: result.source, lines});
+    if (data.status !== "saved") return;
+    view.saved.add(id);
+    if (entry) { entry.data = null; entry.error = ""; }
+    const track = player.queue.find(t => String(t.id) === id) || {title: selection.title, artist: selection.artist};
+    const album = track.album_id != null && typeof state.albums?.find === "function" ? state.albums.find(a => String(a.id) === String(track.album_id)) : null;
+    const label = `${track.artist || selection.artist} – ${track.title || selection.title}`;
+    state.history.unshift({created: new Date().toISOString(), status: data.confirmed === false ? "unverified" : "saved", source: "ibroadcast",
+      selection: [{name: album?.name || label}],
+      changes: [{label, status: data.confirmed === false ? "unverified" : "saved",
+        fields: {lyrics: {before: "", after: `Timed lyrics from ${result.source === "lrclib" ? "LRCLIB" : "Unison"} (${lines.length} lines)`}}}]});
+    rememberHistory();
+    if (typeof updateHistoryControls === "function") updateHistoryControls();
+    if (typeof refreshAlbumLyricsLabels === "function") refreshAlbumLyricsLabels();
+    view.cardKey = ""; renderLyricsEverywhere();
+  } catch { /* not Premium, offline or iBroadcast busy: the song keeps playing with temporary lyrics */ }
+}

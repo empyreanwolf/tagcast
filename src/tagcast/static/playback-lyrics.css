@@ -57,3 +57,18 @@
 .floating-lyric.now{font-size:16px;font-weight:600;color:var(--green);opacity:1;white-space:normal}
 .floating-lyrics.big .floating-lyric{font-size:16px}.floating-lyrics.big .floating-lyric.now{font-size:22px}
 @media (prefers-reduced-motion:no-preference){.floating-lyric{transition:color .2s,font-size .2s}}
+
+/* Fork v86: lyrics card in page headers, after upstream Tagcast 1.5.5's Now playing card */
+.header-lyrics{flex:0 1 340px;min-width:240px;max-width:380px;margin-left:auto;align-self:stretch;display:flex;flex-direction:column;gap:8px;box-sizing:border-box;padding:14px 16px;border:1px solid var(--line);border-radius:16px;background:color-mix(in srgb,var(--ink) 4%,transparent);max-height:250px}
+.header-lyrics-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.header-lyrics-follow:not([hidden]){display:flex;align-items:center;gap:6px;font-size:12px;letter-spacing:0;text-transform:none;cursor:pointer}
+.header-lyrics-lines{flex:1;min-height:90px;overflow-y:auto;scrollbar-width:thin;padding:6px 2px 30px 0;mask-image:linear-gradient(transparent,#000 14px,#000 calc(100% - 18px),transparent)}
+.header-lyric{margin:0 0 9px;font-size:15px;line-height:1.4;opacity:.45}
+.header-lyrics-lines[data-timed] .header-lyric{cursor:pointer}
+.header-lyrics-lines[data-timed] .header-lyric:hover{opacity:.8}
+.header-lyric.now{opacity:1;font-weight:700;font-size:17px}
+.header-lyric.muted{opacity:1;color:var(--muted);font-size:13px}
+.header-lyrics-source{flex:none;padding-top:8px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}
+.header-lyrics-source a{color:inherit}
+@media (prefers-reduced-motion:no-preference){.header-lyric{transition:opacity .2s,font-size .2s}.header-lyrics-lines{scroll-behavior:smooth}}
+@media (max-width:1100px){.header-lyrics{display:none}}
