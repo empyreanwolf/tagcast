@@ -30,7 +30,7 @@ function playbackLyricsSettings() {
     ["native-first", "iBroadcast first · Unison → LRCLIB fallback"], ["unison-first", "Unison → LRCLIB first · iBroadcast fallback"]];
   return `<section class="player-display-settings" data-settings-category="playback"><h3>Now playing lyrics <span class="settings-mode">Immediate · this browser</span></h3>
     <label class="field"><span>Preferred lyrics source</span><select id="playback-lyrics-mode">${options.map(([key, label]) => `<option value="${key}" ${playbackLyricsView.mode === key ? "selected" : ""}>${label}</option>`).join("")}</select></label>
-    <p class="muted">Open the large Now playing view and choose Lyrics. An online option checks Unison first, then LRCLIB if no usable result is available. The current song’s title, track artist, album and duration are sent while that view is open. No account details or audio are sent. The LRCLIB switch under Sources &amp; keys also applies here.</p>
+    <p class="muted">Shown in the large Now playing view (Lyrics button), and, with the options under Lyrics while playing, in the player bar, a floating box and the Mini Player. An online option checks Unison first, then LRCLIB if no usable result is available. The current song’s title, track artist, album and duration are sent while lyrics are shown anywhere. No account details or audio are sent. The LRCLIB switch under Sources &amp; keys also applies here.</p>
     <p class="muted">Timed lyrics highlight the current line, with a moving underline for words or syllables when available. Ordinary text remains readable without synchronisation. Online results stay temporarily in memory; they are never saved to iBroadcast, music files or the lyrics editor. Existing iBroadcast lyrics keep their usual cache and editing behaviour.</p>
     <label class="checkline"><input type="checkbox" id="playback-lyrics-cover-background" ${playbackLyricsView.coverBackground ? "checked" : ""}> Use cover colours behind Now playing</label>
     <p class="muted">Adds a softened cover background to the large Now playing view. Off by default. Your theme stays unchanged elsewhere.</p></section>`;
@@ -71,9 +71,18 @@ function setPlaybackLyricsMode(mode) {
   resetPlaybackLyrics(); renderPlaybackLyrics();
 }
 
+// Fork v85: lyrics also load while only the player bar, the floating box or the Mini Player shows them.
+function playbackLyricsBigView() {
+  return playbackLyricsView.open && visualPlayer.open && !document.hidden;
+}
+
+function playbackLyricsWanted() {
+  return playbackLyricsBigView() || (typeof lyricsEverywhereWanted === "function" && lyricsEverywhereWanted());
+}
+
 function playbackLyricsCurrent(selection, request, details) {
   return request === playbackLyricsView.request && details === state.details
-    && playbackLyricsView.open && visualPlayer.open && !document.hidden
+    && playbackLyricsWanted()
     && lyricsKey(lyricsSelection(player.queue[player.index])) === lyricsKey(selection);
 }
 
@@ -194,7 +203,7 @@ function renderPlaybackLyrics() {
   $("#visual-player-lyrics-toggle").setAttribute("aria-pressed", String(view.open));
   $("#visual-player-lyrics").hidden = !view.open;
   $(".visual-player-content").classList.toggle("lyrics-visible", view.open);
-  if (!view.open || !visualPlayer.open || document.hidden) return;
+  if (!playbackLyricsWanted()) return;
   const selection = lyricsSelection(player.queue[player.index]);
   if (!selection) { resetPlaybackLyrics(); return; }
   // Initialise the shared native cache before capturing this display request's revision.
@@ -263,12 +272,16 @@ function playbackLyricIndex(lines, position) {
 
 function syncPlaybackLyrics(force = false) {
   const view = playbackLyricsView;
-  if (!view.open || !visualPlayer.open || document.hidden || !view.data?.timed) {
-    stopPlaybackLyricsFrame(); return;
+  if (!playbackLyricsWanted() || !view.data?.timed) {
+    stopPlaybackLyricsFrame();
+    if (typeof renderLyricsEverywhere === "function") renderLyricsEverywhere();
+    return;
   }
   const position = playerTrackPosition(), lines = view.data.lines;
   const active = playbackLyricIndex(lines, position), previous = view.active;
   view.active = active;
+  if (typeof renderLyricsEverywhere === "function") renderLyricsEverywhere(position);
+  if (!playbackLyricsBigView()) { stopPlaybackLyricsFrame(); return; }
   const region = $("#visual-lyrics-lines"), highlighted = new Set();
   const reducedMotion = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   lines.forEach((line, i) => { if (line.start <= position && position < line.end) highlighted.add(i); });
@@ -338,7 +351,7 @@ for (const name of ["load", "error"]) $("#visual-player-art").addEventListener(n
   Promise.resolve().then(renderLyricsCoverBackground);
 });
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) suspendPlaybackLyrics(); else renderPlaybackLyrics();
+  if (document.hidden && !playbackLyricsWanted()) suspendPlaybackLyrics(); else renderPlaybackLyrics();
 });
 for (const name of ["timeupdate", "seeking", "seeked", "loadedmetadata", "play", "pause", "ended", "ratechange"]) $("#audio").addEventListener(name, () => {
   // Let the existing gapless boundary handler update its track-relative position first.

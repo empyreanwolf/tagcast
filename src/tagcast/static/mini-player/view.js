@@ -3,7 +3,7 @@
 // Fork v69: in a browser the bridge comes from Tagcast's tab (mini-bridge.js): set on a
 // Picture-in-Picture window, or handed to a popup window through its opener.
 const bridge = window.tagcastMini || window.opener?.tagcastMiniBridge?.(window);
-const nodes = Object.fromEntries(["cover", "device", "title", "artist", "album", "previous", "play", "next", "elapsed", "duration", "position", "status", "pin", "open", "viz"].map(id => [id, document.getElementById(id)]));
+const nodes = Object.fromEntries(["cover", "device", "title", "artist", "album", "previous", "play", "next", "elapsed", "duration", "position", "status", "pin", "open", "viz", "lyric", "lyricNext"].map(id => [id, document.getElementById(id)]));
 const miniColourRoles = ["brand-background", "brand-ink", "brand-paper", "sidebar", "accent", "shell-ink", "shell-muted", "shell-active", "shell-line", "ink", "muted", "paper", "line", "link", "surface", "soft", "tint", "focus", "primary", "primary-hover", "chart", "primary-ink"];
 // Fork v78: a visualizer behind the Mini Player. This window has no audio, so it moves to a pretend beat.
 const vizState = {on: false, engine: null};
@@ -49,6 +49,12 @@ function render() {
   miniText(nodes.title, s?.title || "Tagcast Mini Player"); nodes.title.title = nodes.title.textContent;
   miniText(nodes.artist, s?.artist || "Waiting for Tagcast…"); nodes.artist.title = nodes.artist.textContent;
   miniText(nodes.album, s?.album || ""); nodes.album.hidden = !s?.album; nodes.album.title = nodes.album.textContent;
+  // Fork v85: the current lyric line (and the next one, dimmed) when Tagcast has timed lyrics for this song.
+  const lyric = s?.lyrics;
+  if (nodes.lyric) {
+    nodes.lyric.parentElement.hidden = !lyric;
+    miniText(nodes.lyric, lyric ? lyric.now || "…" : ""); miniText(nodes.lyricNext, lyric?.next || "");
+  }
   miniDisabled(nodes.previous, !s?.previous); miniDisabled(nodes.next, !s?.next);
   miniDisabled(nodes.play, !ready); nodes.play.dataset.paused = String(s?.paused !== false);
   const playLabel = s?.paused !== false ? "Play" : "Pause";

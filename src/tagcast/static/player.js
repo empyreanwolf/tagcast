@@ -167,6 +167,7 @@ function hideVisualPlayer() {
   if (!visualPlayer.open) return;
   visualPlayer.open = false; visualPlayer.native = false; visualPlayer.request += 1;
   if (typeof suspendPlaybackLyrics === "function") suspendPlaybackLyrics();
+  if (typeof renderPlaybackLyrics === "function") Promise.resolve().then(renderPlaybackLyrics);  // fork v85: keep the bar/box lyrics
   visualPlayer.artwork = null;
   $("#visual-player-art").removeAttribute("src");
   if (typeof renderLyricsCoverBackground === "function") renderLyricsCoverBackground();

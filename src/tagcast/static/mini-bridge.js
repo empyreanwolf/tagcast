@@ -32,7 +32,7 @@
   window.tagcastMiniBridge = view => bridgeFor(view);  // a popup asks through window.opener
 
   async function openPictureInPicture() {
-    const pip = await documentPictureInPicture.requestWindow({width: 400, height: 190});
+    const pip = await documentPictureInPicture.requestWindow({width: 400, height: 240})  /* fork v85: room for a lyric line */;
     const page = await fetch("mini-player/index.html").then(response => response.text());
     const parsed = new DOMParser().parseFromString(page, "text/html"), base = new URL("mini-player/", location.href);
     pip.document.documentElement.lang = "en";
@@ -52,7 +52,7 @@
   }
 
   function openPopup() {
-    const popup = window.open("mini-player/index.html", "tagcast-mini-player", "popup,width=420,height=230");
+    const popup = window.open("mini-player/index.html", "tagcast-mini-player", "popup,width=420,height=280");
     if (!popup) { if (typeof toast === "function") toast("Allow pop-ups for Tagcast to open the Mini Player."); return; }
     owner.pip = false;
     const watch = setInterval(() => { if (popup.closed) { clearInterval(watch); if (owner.view === popup) closed(); } }, 1000);

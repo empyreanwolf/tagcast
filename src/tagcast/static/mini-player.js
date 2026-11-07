@@ -25,6 +25,7 @@ function miniSnapshot() {
     status: !available ? "" : !controllable ? "Playback is controlled on another device" : audio.error ? "Playback error · try Next or open Tagcast" : g && (!ready || g.seekIntent) ? "Preparing audio…" : audio.readyState < 3 && !audio.paused ? "Buffering…" : g ? "Gapless · experimental" : "",
     theme: theme === "dark" || (!theme && globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches) ? "dark" : "light",
     palette: document.documentElement.dataset.palette || "forest",
+    lyrics: available && typeof lyricsEverywhereMini === "function" ? lyricsEverywhereMini() : null,
     colours: globalThis.TagcastThemes?.active?.() ? {...TagcastThemes.active()[TagcastThemes.mode()]} : {}};
 }
 function publishMiniPlayer() {

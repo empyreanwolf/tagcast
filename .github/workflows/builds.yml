@@ -37,14 +37,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
-            target: macos-arm64
-          - os: macos-15-intel
-            target: macos-x64
+          # fork: Windows only (macOS/Linux builds removed)
           - os: windows-2022
             target: windows-x64
-          - os: ubuntu-22.04
-            target: linux-x64
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag || '' }}
     steps:

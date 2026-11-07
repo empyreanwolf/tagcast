@@ -15,6 +15,8 @@ const LEGACY_PAGE_SIZES = {"tagcast-artists-per-page": "24", "tagcast-favourite-
   "tagcast-browse-per-page": "24", "tagcast-favourites-per-page": "50", "tagcast-tracks-per-page": "50",
   "tagcast-recently-played-per-page": "50", "tagcast-guide-per-page": "24"};
 function page({hash = "", storage = {}, server = true, browserNavigator = {}, metadataClass, setupAudio, deferReady = false, freshPageSizes = false} = {}) {
+  // Fork v85: lyrics in the bar / Mini Player look songs up while playing; upstream tests expect a quiet player.
+  for (const key of ["tagcast-lyrics-bar", "tagcast-lyrics-mini"]) if (!(key in storage)) storage[key] = "false";
   if (!("tagcast-look" in storage)) storage["tagcast-look"] = "classic";   // fork v76 tests turn Sonora on
   if (!("tagcast-gapless-v80" in storage)) storage["tagcast-gapless-v80"] = "done";   // fork v80 resets gapless once
   if (!("tagcast-heart-playlist" in storage)) storage["tagcast-heart-playlist"] = "off";   // fork v53 tests turn it on
@@ -11505,4 +11507,21 @@ test("fork v77: Player style is saved, forces a device for the playing song and 
   assert.equal(p.run('psYearsText("stage")'), "2018 on");
   assert.equal(p.run('psYearsText("rapper")'), "hip hop albums");
   assert.equal(p.run('psYearsText("phonograph")'), "before 1910");
+});
+
+test('fork v85: timed lyrics show in the player bar without the large Now playing view', async () => {
+  const p=page({storage:{'tagcast-lyrics-bar':'true','tagcast-now-playing-lyrics':'native'}}); await settle();
+  p.setFetch(()=>({ok:true,json:async()=>({status:'ready',source:'ibroadcast',text:'',native_text:'[00:01.00]First\n[00:05.00]Second <b>\n[00:09.00]Third',can_save:true,can_lookup:false,before_token:'before'})}));
+  p.run('state.mode="live"; state.connection.playback_session="lyrics-session"; playTracks(state.details.get("1"));');
+  await settle(); p.run('renderPlaybackLyrics()'); await settle();
+  assert.equal(p.run('visualPlayer.open'),false);
+  assert.equal(p.run('Boolean(playbackLyricsView.data && playbackLyricsView.data.timed)'),true);
+  p.run('renderLyricsEverywhere(6)');
+  assert.equal(p.nodes.get('#bar-lyrics').hidden,false);
+  assert.equal(p.nodes.get('#bar-lyric-now').textContent,'Second <b>');
+  assert.equal(p.nodes.get('#bar-lyric-next').textContent,'Third');
+  assert.equal(p.run('JSON.stringify(lyricsEverywhereLines(6).prev)'),'"First"');
+  assert.equal(p.requests.filter(r=>r.options?.method==='POST').length,0);  // iBroadcast only: no online lookup
+  p.run('lyricsEverywhereSet("bar", false)');
+  assert.equal(p.nodes.get('#bar-lyrics').hidden,true);
 });

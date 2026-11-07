@@ -37,3 +37,23 @@
 .lyrics-search-form label{display:grid;gap:3px;font-size:calc(12px*var(--ts))}
 .lyrics-search-form input{padding:7px 9px;border-radius:8px;border:1px solid var(--line);background:var(--palette-surface,#fff);color:var(--ink)}
 .lyrics-search-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+/* Fork v85: lyrics in the player bar and a floating box */
+.bar-lyrics{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:6px;margin-top:3px;min-width:0;max-width:52ch}
+.bar-lyrics p{margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;grid-column:1}
+.bar-lyric-now{font-size:13px;font-weight:600;color:var(--green);cursor:pointer}
+.bar-lyric-next{font-size:11px;color:var(--muted)}
+.bar-lyrics-float{grid-column:2;grid-row:1/span 2;align-self:center;border:0;background:transparent;color:var(--muted);font-size:14px;cursor:pointer;padding:2px 4px;border-radius:5px}
+.bar-lyrics-float:hover{color:var(--ink);background:var(--palette-tint,var(--white))}
+.player-lyrics-toggle[aria-pressed=true]{color:var(--green)}
+.floating-lyrics{position:fixed;right:18px;bottom:96px;z-index:60;width:min(340px,calc(100vw - 24px));background:var(--paper);color:var(--ink);border:1px solid var(--line,rgba(127,127,127,.3));border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.25);overflow:hidden}
+.floating-lyrics.big{width:min(520px,calc(100vw - 24px))}
+.floating-lyrics-head{display:flex;align-items:center;gap:4px;padding:6px 8px 6px 12px;cursor:grab;user-select:none;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.floating-lyrics-head span{flex:1}
+.floating-lyrics-head button{border:0;background:transparent;color:var(--muted);font-size:15px;cursor:pointer;width:26px;height:26px;border-radius:6px}
+.floating-lyrics-head button:hover{color:var(--ink);background:var(--palette-tint,var(--white))}
+.floating-lyrics-lines{padding:2px 14px 12px;text-align:center}
+.floating-lyric{margin:3px 0;font-size:13px;line-height:1.35;color:var(--muted);opacity:.75;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.floating-lyric.now{font-size:16px;font-weight:600;color:var(--green);opacity:1;white-space:normal}
+.floating-lyrics.big .floating-lyric{font-size:16px}.floating-lyrics.big .floating-lyric.now{font-size:22px}
+@media (prefers-reduced-motion:no-preference){.floating-lyric{transition:color .2s,font-size .2s}}
