@@ -57,6 +57,7 @@ from .library import (
 )
 from .lyrics import Lyrics
 from .lyrics_job import LyricsJob
+from .lyrics_translate import LyricsTranslator
 from .metadata_export import MetadataExport
 from .playlist_import import PlaylistImport
 from .queue_sync import QUEUE_SCOPES, QueueSync
@@ -504,6 +505,7 @@ class Studio:
         self.duplicate_cleanup = DuplicateCleanup(self)
         self.artist_pictures = ArtistPictures(self)
         self.lyrics_job = LyricsJob(self)  # fork v81
+        self.lyrics_translate = LyricsTranslator(self)  # fork v88
         tokens = self._read("tokens.json")
         if tokens and tokens.get("client_id") == self.client_id and tokens.get("token_set"):
             try:

@@ -196,6 +196,7 @@ async function loadPlaybackLyrics(selection, entry, request, details) {
   $("#visual-lyrics-retry").hidden = !errors.length;
   paintPlaybackLyrics();
   if (playbackLyricsView.data && typeof lyricsAutosave === "function") void lyricsAutosave(selection, entry, playbackLyricsView.data);
+  if (playbackLyricsView.data && typeof lyricsTranslateEnglish === "function") void lyricsTranslateEnglish(playbackLyricsView.data);
 }
 
 function renderPlaybackLyrics() {

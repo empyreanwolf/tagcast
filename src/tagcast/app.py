@@ -535,6 +535,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/lyrics/save": self.studio.lyrics.save,
             "/api/lyrics/display": self.studio.lyrics.display.view,  # v69: upstream 1.3.0 Now playing lyrics
             "/api/lyrics/autosave": self.studio.lyrics_job.autosave,  # fork v86: save found lyrics while playing
+            "/api/lyrics/translate": self.studio.lyrics_translate.view,  # fork v88: English translation of CJK lyrics
             "/api/metadata-export": self.studio.metadata_export.start,
             "/api/metadata-export/cancel": self.studio.metadata_export.cancel,
             "/api/album-guide/analyse": lambda b: self.studio.album_guide.analyse(),
@@ -768,7 +769,7 @@ QUEUED_PATHS = {"/api/save", "/api/artwork", "/api/artwork/undo", "/api/trash", 
 # worth a line each; their failures still are.
 QUIET_ROUTES = {"/api/queue-sync", "/api/galaxy/cards", "/api/galaxy/album-years", "/api/artist-biography",
                 "/api/album-information", "/api/playlist-import/view", "/api/lyrics/review", "/api/lyrics/display",
-                "/api/lyrics-job"}
+                "/api/lyrics-job", "/api/lyrics/translate"}
 _ROUTE_CATEGORIES = [
     (("/api/galaxy", "/api/bandcamp", "/api/soulseek", "/api/youtube", "/api/more", "/api/labels", "/api/spotify", "/api/downloads", "/api/discography", "/api/wishlist",
       "/api/complete", "/api/charts", "/api/recommendations", "/api/releases", "/api/digest", "/api/uploader"), "downloads"),

@@ -16,7 +16,7 @@ const LEGACY_PAGE_SIZES = {"tagcast-artists-per-page": "24", "tagcast-favourite-
   "tagcast-recently-played-per-page": "50", "tagcast-guide-per-page": "24"};
 function page({hash = "", storage = {}, server = true, browserNavigator = {}, metadataClass, setupAudio, deferReady = false, freshPageSizes = false} = {}) {
   // Fork v85/v86: lyrics in the bar / Mini Player / header card look songs up while playing; upstream tests expect a quiet player.
-  for (const key of ["tagcast-lyrics-bar", "tagcast-lyrics-mini", "tagcast-lyrics-card", "tagcast-lyrics-autosave"]) if (!(key in storage)) storage[key] = "false";
+  for (const key of ["tagcast-lyrics-bar", "tagcast-lyrics-mini", "tagcast-lyrics-card", "tagcast-lyrics-autosave", "tagcast-lyrics-autotranslate"]) if (!(key in storage)) storage[key] = "false";
   if (!("tagcast-look" in storage)) storage["tagcast-look"] = "classic";   // fork v76 tests turn Sonora on
   if (!("tagcast-gapless-v80" in storage)) storage["tagcast-gapless-v80"] = "done";   // fork v80 resets gapless once
   if (!("tagcast-heart-playlist" in storage)) storage["tagcast-heart-playlist"] = "off";   // fork v53 tests turn it on
@@ -11580,4 +11580,31 @@ test('fork v87: a line translation shows under the current line, replaces the di
   assert.equal(p.run('lyricsEverywhereLines(6).around[2].tr'),'Zweite <i>');
   p.run('lyricsEverywhereSet("translate", false)'); p.run('renderLyricsEverywhere(6)');
   assert.equal(p.nodes.get('#bar-lyric-next').textContent,'Third');
+});
+
+
+test('fork v88: Chinese lyrics get English lines from the translator, once per song, and a refusal changes nothing', async () => {
+  const p=page({storage:{'tagcast-lyrics-bar':'true','tagcast-now-playing-lyrics':'native','tagcast-lyrics-autotranslate':'true'}}); await settle();
+  let mode='ok';
+  p.setFetch(url=>{
+    if(String(url).includes('/api/lyrics/translate')){
+      if(mode==='busy') return {ok:false,status:429,json:async()=>({error:'The translator says too many requests.'})};
+      return {ok:true,json:async()=>({status:'ready',tr:['Hello','','Goodbye']})};
+    }
+    return {ok:true,json:async()=>({status:'ready',source:'ibroadcast',text:'',native_text:'[00:01.00]你好\n[00:05.00]♪\n[00:09.00]再见',can_save:true,can_lookup:false,before_token:'before'})};
+  });
+  mode='busy';
+  p.run('state.mode="live"; state.connection.playback_session="s"; playTracks(state.details.get("1"));');
+  await settle(); p.run('renderPlaybackLyrics()'); await settle();
+  assert.equal(p.run('playbackLyricsView.data.lines[0].tr'),undefined);  // refused: nothing changes, no crash
+  mode='ok';
+  p.run('lyricsEverywhereSet("bar", true)');
+  await p.run('lyricsTranslateEnglish(playbackLyricsView.data)'); await settle();
+  p.run('renderLyricsEverywhere(2)');
+  assert.equal(p.nodes.get('#bar-lyric-now').textContent,'你好');
+  assert.equal(p.nodes.get('#bar-lyric-next').textContent,'Hello');
+  const posts=()=>p.requests.filter(r=>String(r.url).includes('/api/lyrics/translate')).length;
+  const before=posts();
+  await p.run('lyricsTranslateEnglish(playbackLyricsView.data)'); await settle();
+  assert.equal(posts(),before);  // once per song
 });

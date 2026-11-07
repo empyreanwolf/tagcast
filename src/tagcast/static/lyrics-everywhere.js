@@ -5,7 +5,7 @@
 // Uses the same lyrics, sources and track clock as playback-lyrics.js.
 const lyricsEverywhere = {bar: lyricsEverywhereStored("bar", true), float: lyricsEverywhereStored("float", false),
   mini: lyricsEverywhereStored("mini", true), card: lyricsEverywhereStored("card", true),
-  autosave: lyricsEverywhereStored("autosave", true), translate: lyricsEverywhereStored("translate", true), last: "", box: null,
+  autosave: lyricsEverywhereStored("autosave", true), translate: lyricsEverywhereStored("translate", true), autotranslate: lyricsEverywhereStored("autotranslate", true), last: "", box: null,
   cardNode: null, cardKey: "", cardActive: -2, cardFollow: true, cardTimer: 0, saved: new Set(), savedKeys: new Set()};
 
 function lyricsEverywhereStored(name, fallback) {
@@ -150,7 +150,8 @@ function lyricsEverywhereSettings() {
     ${check("float", "Floating lyrics box (drag it anywhere, stays across pages)")}
     ${check("mini", "Lyrics in the Mini Player")}
     ${check("card", "Lyrics card in page headers (right of the cover and title)")}
-    ${check("translate", "Show translations under Chinese lyrics (when GD Studio has one)")}
+    ${check("translate", "Show translations under the lyrics")}
+    ${check("autotranslate", "Translate Chinese, Japanese and Korean lyrics to English (free web translator, saved on this PC)")}
     ${check("autosave", "Save found timed lyrics to iBroadcast (only songs without lyrics, never overwrites)")}
     <p class="muted">These use the lyrics source chosen under Now playing lyrics. With an online option, the current song is looked up while any of these shows lyrics, not only in the large view.</p></section>`;
 }
@@ -282,4 +283,29 @@ async function lyricsAutosave(selection, entry, result) {
     if (typeof refreshAlbumLyricsLabels === "function") refreshAlbumLyricsLabels();
     view.cardKey = ""; renderLyricsEverywhere();
   } catch { /* not Premium, offline or iBroadcast busy: the song keeps playing with temporary lyrics */ }
+}
+
+
+// Fork v88: Chinese (also Japanese and Korean) lyrics get an English line under each line, from the free web translator
+// behind /api/lyrics/translate (one request per song, remembered on this PC). Lines that already have a translation keep it.
+const lyricsCjk = /[぀-ヿ㐀-䶿一-鿿가-힯]/;
+
+async function lyricsTranslateEnglish(data) {
+  const view = lyricsEverywhere;
+  if (!view.autotranslate || !data?.timed || data.trBusy || data.trDone || data.lines.length > 300) return;
+  const lines = data.lines.map(line => String(line.text || "").slice(0, 300));
+  if (!lines.some(text => lyricsCjk.test(text))) return;
+  data.trBusy = true;
+  try {
+    const answer = await api("/api/lyrics/translate", {lines});
+    if (answer.status !== "ready" || !Array.isArray(answer.tr) || answer.tr.length !== lines.length) return;
+    data.trDone = true;
+    data.lines.forEach((line, i) => { if (!line.tr && typeof answer.tr[i] === "string" && answer.tr[i]) line.tr = answer.tr[i]; });
+    if (playbackLyricsView.data === data) {
+      view.cardKey = ""; view.last = "";
+      if (typeof paintPlaybackLyrics === "function") paintPlaybackLyrics();
+      renderLyricsEverywhere();
+    }
+  } catch { /* the translator is busy or offline: the lyrics stay as they are and it is tried again next time */ }
+  finally { data.trBusy = false; }
 }
