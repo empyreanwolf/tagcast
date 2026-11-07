@@ -5,7 +5,7 @@
 // Uses the same lyrics, sources and track clock as playback-lyrics.js.
 const lyricsEverywhere = {bar: lyricsEverywhereStored("bar", true), float: lyricsEverywhereStored("float", false),
   mini: lyricsEverywhereStored("mini", true), card: lyricsEverywhereStored("card", true),
-  autosave: lyricsEverywhereStored("autosave", true), last: "", box: null,
+  autosave: lyricsEverywhereStored("autosave", true), translate: lyricsEverywhereStored("translate", true), last: "", box: null,
   cardNode: null, cardKey: "", cardActive: -2, cardFollow: true, cardTimer: 0, saved: new Set(), savedKeys: new Set()};
 
 function lyricsEverywhereStored(name, fallback) {
@@ -17,6 +17,7 @@ function lyricsEverywhereSet(name, value) {
   lyricsEverywhere[name] = Boolean(value);
   try { localStorage.setItem(`tagcast-lyrics-${name}`, String(lyricsEverywhere[name])); } catch { /* private window */ }
   lyricsEverywhere.last = "";
+  if (name === "translate" && playbackLyricsView.data && typeof paintPlaybackLyrics === "function") paintPlaybackLyrics();
   renderPlaybackLyrics(); renderLyricsEverywhere();
 }
 
@@ -25,6 +26,9 @@ function lyricsEverywhereWanted() {
   const miniOpen = lyricsEverywhere.mini && typeof miniOwner !== "undefined" && miniOwner.active;
   return ((lyricsEverywhere.bar || lyricsEverywhere.float || lyricsEverywhere.card) && !document.hidden) || Boolean(miniOpen);
 }
+
+// Fork v87: a line's translation (GD Studio's translated lyric), when "Show translations" is on.
+const lyricsTranslation = line => (lyricsEverywhere.translate && typeof line?.tr === "string" ? line.tr : "");
 
 // The lines around the current position: {prev, now, next, index, timed}.
 function lyricsEverywhereLines(position = playerTrackPosition()) {
@@ -37,14 +41,14 @@ function lyricsEverywhereLines(position = playerTrackPosition()) {
     return {prev: "", now: "", next: upcoming >= 0 ? lines[upcoming].text : "", index: -1, upcoming};
   }
   const text = i => (lines[i] && lines[i].text) || (lines[i] ? "♪" : "");
-  return {prev: text(index - 1), now: text(index) || "♪", next: text(index + 1), index,
-    around: [-2, -1, 0, 1, 2].map(d => ({i: index + d, text: index + d >= 0 ? text(index + d) : ""}))};
+  return {prev: text(index - 1), now: text(index) || "♪", next: text(index + 1), index, tr: lyricsTranslation(lines[index]),
+    around: [-2, -1, 0, 1, 2].map(d => ({i: index + d, text: index + d >= 0 ? text(index + d) : "", tr: d === 0 ? lyricsTranslation(lines[index]) : ""}))};
 }
 
 function lyricsEverywhereMini() {
   if (!lyricsEverywhere.mini) return null;
   const lines = lyricsEverywhereLines();
-  return lines ? {now: lines.now, next: lines.next} : null;
+  return lines ? {now: lines.now, next: lines.tr || lines.next} : null;
 }
 
 function lyricsEverywhereSeek(line) {
@@ -115,11 +119,12 @@ function renderLyricsEverywhere(position) {
     bar.hidden = !show;
     if (show) {
       const now = lines ? lines.now || (lines.next ? "…" : "") : "Checking lyrics…";
-      const key = `${now}\n${lines?.next || ""}`;
+      const under = lines?.tr || lines?.next || "";
+      const key = `${now}\n${under}`;
       if (key !== lyricsEverywhere.last) {
         lyricsEverywhere.last = key;
         $("#bar-lyric-now").textContent = now;
-        $("#bar-lyric-next").textContent = lines?.next || "";
+        $("#bar-lyric-next").textContent = under;
       }
       $("#bar-lyric-now").dataset.line = String(lines?.index ?? -1);
     }
@@ -130,7 +135,7 @@ function renderLyricsEverywhere(position) {
     box.hidden = false;
     const html = !lines ? `<p class="floating-lyric muted">${loading ? "Checking lyrics…" : playbackLyricsView.data ? "Text lyrics · no timing" : "No timed lyrics for this song"}</p>`
       : (lines.around || [{i: -1, text: ""}, {i: -1, text: ""}, {i: -1, text: "…"}, {i: lines.upcoming ?? -1, text: lines.next}, {i: -1, text: ""}])
-        .map((row, n) => `<p class="floating-lyric${n === 2 ? " now" : ""}"${row.i >= 0 ? ` data-line="${row.i}"` : ""}>${escapeHtml(row.text || " ")}</p>`).join("");
+        .map((row, n) => `<p class="floating-lyric${n === 2 ? " now" : ""}"${row.i >= 0 ? ` data-line="${row.i}"` : ""}>${escapeHtml(row.text || " ")}${row.tr ? `<small class="floating-lyric-tr">${escapeHtml(row.tr)}</small>` : ""}</p>`).join("");
     if (region.dataset.html !== html) { region.innerHTML = html; region.dataset.html = html; }
   } else if (lyricsEverywhere.box) {
     lyricsEverywhere.box.hidden = true;
@@ -145,6 +150,7 @@ function lyricsEverywhereSettings() {
     ${check("float", "Floating lyrics box (drag it anywhere, stays across pages)")}
     ${check("mini", "Lyrics in the Mini Player")}
     ${check("card", "Lyrics card in page headers (right of the cover and title)")}
+    ${check("translate", "Show translations under Chinese lyrics (when GD Studio has one)")}
     ${check("autosave", "Save found timed lyrics to iBroadcast (only songs without lyrics, never overwrites)")}
     <p class="muted">These use the lyrics source chosen under Now playing lyrics. With an online option, the current song is looked up while any of these shows lyrics, not only in the large view.</p></section>`;
 }
@@ -225,12 +231,12 @@ function renderHeaderLyrics(on, position = playerTrackPosition()) {
   if (card.parentNode !== target) { target.append(card); view.cardActive = -2; }
   const data = playbackLyricsView.data, region = card.querySelector(".header-lyrics-lines");
   const track = player.queue[player.index];
-  const key = `${track?.id}|${playbackLyricsView.key}|${data ? data.lines.length : playbackLyricsView.loading ? "loading" : "none"}|${data?.source}|${view.saved.has(String(track?.id))}`;
+  const key = `${track?.id}|${playbackLyricsView.key}|${data ? data.lines.length : playbackLyricsView.loading ? "loading" : "none"}|${data?.source}|${view.saved.has(String(track?.id))}|${view.translate}`;
   if (key !== view.cardKey) {
     view.cardKey = key; view.cardActive = -2;
     if (!view.cardFollow && data?.timed) { view.cardFollow = true; card.querySelector(".header-lyrics-follow input").checked = true; }
     region.toggleAttribute("data-timed", Boolean(data?.timed));
-    region.innerHTML = data ? data.lines.map((line, i) => `<p class="header-lyric"${data.timed ? ` data-line="${i}"` : ""}>${escapeHtml(line.text || (data.timed ? "♪" : " "))}</p>`).join("")
+    region.innerHTML = data ? data.lines.map((line, i) => `<p class="header-lyric"${data.timed ? ` data-line="${i}"` : ""}>${escapeHtml(line.text || (data.timed ? "♪" : " "))}${lyricsTranslation(line) ? `<small class="header-lyric-tr">${escapeHtml(lyricsTranslation(line))}</small>` : ""}</p>`).join("")
       : `<p class="header-lyric muted">${playbackLyricsView.loading ? "Checking lyrics…" : "No lyrics found for this song."}</p>`;
     card.querySelector(".header-lyrics-follow").hidden = !data?.timed;
     card.querySelector(".header-lyrics-source").innerHTML = headerLyricsSource(data);

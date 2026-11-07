@@ -72,3 +72,7 @@
 .header-lyrics-source a{color:inherit}
 @media (prefers-reduced-motion:no-preference){.header-lyric{transition:opacity .2s,font-size .2s}.header-lyrics-lines{scroll-behavior:smooth}}
 @media (max-width:1100px){.header-lyrics{display:none}}
+
+/* Fork v87: translations under lyric lines */
+.floating-lyric-tr,.header-lyric-tr,.visual-lyric-tr{display:block;margin-top:2px;font-size:.78em;font-weight:400;font-style:italic;opacity:.8}
+.floating-lyric:not(.now) .floating-lyric-tr{display:none}

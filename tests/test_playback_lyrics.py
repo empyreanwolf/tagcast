@@ -11,6 +11,7 @@ import requests
 import test_lyrics
 import yaml
 
+from tagcast import playback_lyrics
 from tagcast.library import ConflictError, LibraryError
 from tagcast.playback_lyrics import (
     _lrclib_lines,
@@ -782,3 +783,16 @@ class ForkV80StreamSessionTests(unittest.TestCase):
         thread = threading.Thread(target=lambda: other.append(_stream_session()))
         thread.start(); thread.join()
         self.assertIsNot(first, other[0])
+
+
+class GdStudioTranslationTests(unittest.TestCase):
+    def test_translated_lines_are_matched_by_start_time(self):
+        result = playback_lyrics.parse_lrc("[00:10.00]你好\n[00:20.00]世界\n[00:30.00]再见", 100, "gdstudio")
+        playback_lyrics.gdstudio_translation(result, "[00:10.30]Hello\n[00:20.00]世界\n[00:55.00]Far away")
+        self.assertEqual([line.get("tr") for line in result["lines"]], ["Hello", None, None])
+
+    def test_bad_or_missing_translation_is_ignored(self):
+        for raw in (None, "", "no timing here", "[99:99.99]x", 5):
+            result = playback_lyrics.parse_lrc("[00:10.00]a\n[00:20.00]b", 100, "gdstudio")
+            playback_lyrics.gdstudio_translation(result, raw)
+            self.assertTrue(all("tr" not in line for line in result["lines"]))

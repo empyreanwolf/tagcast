@@ -11544,3 +11544,37 @@ test('fork v86: timed lyrics found online are saved once to iBroadcast and liste
   await p.run('lyricsAutosave({...sel, track_id:"7"}, null, res)'); await settle();
   assert.equal(p.requests.filter(r=>String(r.url).includes('/api/lyrics/autosave')).length,1);
 });
+
+test('fork v87: album Find lyrics runs the server job for the album songs and reports the result', async () => {
+  const p=page(); await settle();
+  let started=false;
+  p.setFetch(url=>{
+    if(String(url).includes('/api/lyrics-job/start')){started=true; return {ok:true,json:async()=>({started:true,count:2})};}
+    return {ok:true,json:async()=>({running:false,message:'',counts:started?{saved:4,none:1,review:1}:{saved:1}})};
+  });
+  p.run('albumLyricsTracks = () => [{id: 1}, {id: "2"}]');
+  assert.match(p.run('albumFindLyricsButton()'),/data-album-find-lyrics[^>]*>♪ Find lyrics</);
+  await p.run('albumFindLyrics()'); await settle();
+  const start=p.requests.find(r=>String(r.url).includes('/api/lyrics-job/start'));
+  assert.deepEqual(JSON.parse(start.options.body),{track_ids:['1','2']});
+  assert.match(p.run('albumFindLyricsButton()'),/disabled/);  // one run at a time
+  p.flushTimers(800); await settle();
+  assert.equal(p.run('albumLyricsRun.active'),false);
+  assert.equal(p.nodes.get('#toast').textContent,'Lyrics: 3 saved, 1 not found, 1 need a look in Overview → Find lyrics.');
+});
+
+test('fork v87: a line translation shows under the current line, replaces the dim next line, and can be turned off', async () => {
+  const p=page({storage:{'tagcast-lyrics-bar':'true','tagcast-now-playing-lyrics':'native'}}); await settle();
+  p.setFetch(()=>({ok:true,json:async()=>({status:'ready',source:'ibroadcast',text:'',native_text:'[00:01.00]First\n[00:05.00]Second\n[00:09.00]Third',can_save:true,can_lookup:false,before_token:'before'})}));
+  p.run('state.mode="live"; state.connection.playback_session="s"; playTracks(state.details.get("1"));');
+  await settle(); p.run('renderPlaybackLyrics()'); await settle();
+  p.run('playbackLyricsView.data.lines[1].tr = "Zweite <i>"');
+  p.run('renderLyricsEverywhere(6)');
+  assert.equal(p.nodes.get('#bar-lyric-now').textContent,'Second');
+  assert.equal(p.nodes.get('#bar-lyric-next').textContent,'Zweite <i>');
+  p.run('lyricsEverywhereSet("mini", true); audio.currentTime = 6');
+  assert.deepEqual(p.json('lyricsEverywhereMini()'),{now:'Second',next:'Zweite <i>'});
+  assert.equal(p.run('lyricsEverywhereLines(6).around[2].tr'),'Zweite <i>');
+  p.run('lyricsEverywhereSet("translate", false)'); p.run('renderLyricsEverywhere(6)');
+  assert.equal(p.nodes.get('#bar-lyric-next').textContent,'Third');
+});

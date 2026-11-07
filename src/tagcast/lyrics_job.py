@@ -162,11 +162,25 @@ class LyricsJob:
 
     # -- control ------------------------------------------------------------------------------
 
-    def start(self, retry=False):
+    def start(self, retry=False, track_ids=None):
+        """track_ids (fork v87, the album page's button): only these songs; ones that were not found or
+        unsure before are looked at again, saved ones and ones that already had lyrics stay as they are."""
         client = self.studio._require_client()
         if not self.studio.premium:
             raise LibraryError("Saving lyrics to iBroadcast requires Premium.")
         library, user = self.studio._library()
+        only = None
+        if track_ids is not None:
+            if not isinstance(track_ids, list) or not 0 < len(track_ids) <= 500:
+                raise LibraryError("Choose the songs to find lyrics for.")
+            only = []
+            for value in track_ids:
+                tid = number(value) if isinstance(value, (str, int)) and not isinstance(value, bool) else None
+                row = library.tracks.get(tid) if tid is not None else None
+                if row is None or row.get("trashed"):
+                    raise LibraryError("A song is no longer in the library. Reload the library.")
+                if tid not in only:
+                    only.append(tid)
         with self.lock:
             if self.running:
                 raise LibraryError("Already finding lyrics.")
@@ -174,13 +188,18 @@ class LyricsJob:
             if retry:
                 for tid in [t for t, v in state["checked"].items() if v == "none"]:
                     del state["checked"][tid]
+            if only is not None:
+                for tid in only:
+                    if state["checked"].get(str(tid)) in ("none", "review", "skipped"):
+                        del state["checked"][str(tid)]
+                        state["review"].pop(str(tid), None)
             self.running, self.paused, self.message = True, False, ""
             self.stop_flag.clear()
             self.pause_flag.clear()
             self.progress = {"done": 0, "total": 0, "name": "", "phase": "starting"}
-        self.thread = threading.Thread(target=self._run, args=(client, library, str(user)), name="lyrics-job", daemon=True)
+        self.thread = threading.Thread(target=self._run, args=(client, library, str(user), only), name="lyrics-job", daemon=True)
         self.thread.start()
-        return {"started": True}
+        return {"started": True, "count": len(only) if only is not None else None}
 
     def pause(self):
         with self.lock:
@@ -236,12 +255,12 @@ class LyricsJob:
 
     # -- the run -----------------------------------------------------------------------------------
 
-    def _run(self, client, library, account):
+    def _run(self, client, library, account, only=None):
         galaxy_module._tls.sleep = self._sleep  # Galaxy's rate-limit waits end at once on Pause / Stop
         blocks = errors = 0
         try:
             state = self._state(account)
-            todo = [i for i in self._tracks(library) if str(i) not in state["checked"]]
+            todo = [i for i in (only if only is not None else self._tracks(library)) if str(i) not in state["checked"]]
             with self.lock:
                 self.progress = {"done": 0, "total": len(todo), "name": "", "phase": "starting"}
             for track_id in todo:

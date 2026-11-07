@@ -438,7 +438,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/artist-cleanup/separate": self.studio.artist_cleanup.keep_separate,
             "/api/artist-pictures/start": lambda b: self.studio.artist_pictures.start(),
             "/api/artist-pictures/stop": lambda b: self.studio.artist_pictures.stop(),
-            "/api/lyrics-job/start": lambda b: self.studio.lyrics_job.start(b.get("retry") is True),
+            "/api/lyrics-job/start": lambda b: self.studio.lyrics_job.start(b.get("retry") is True, b.get("track_ids")),
             "/api/lyrics-job/pause": lambda b: self.studio.lyrics_job.pause(),
             "/api/lyrics-job/resume": lambda b: self.studio.lyrics_job.resume(),
             "/api/lyrics-job/stop": lambda b: self.studio.lyrics_job.stop(),

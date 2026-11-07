@@ -103,3 +103,68 @@ document.addEventListener("click", event => {
     })();
   }
 });
+
+
+// Fork v87: "Find lyrics" on an album page. The same server job as the Overview run, for this album's songs only:
+// LRCLIB first, GD Studio after, saved to iBroadcast when sure. One click; the button shows the progress.
+const albumLyricsRun = {active: false, text: "", timer: null, before: null};
+
+function albumFindLyricsButton() {
+  const busy = albumLyricsRun.active;
+  return `<button type="button" class="button" data-album-find-lyrics ${busy ? "disabled" : ""} title="Find and save timed lyrics for the songs on this album that have none">${busy ? escapeHtml(albumLyricsRun.text || "Finding lyrics…") : "♪ Find lyrics"}</button>`;
+}
+
+function albumLyricsRunPaint() {
+  const button = $("#album-page")?.querySelector("[data-album-find-lyrics]");
+  if (!button) return;
+  button.disabled = albumLyricsRun.active;
+  button.textContent = albumLyricsRun.active ? albumLyricsRun.text || "Finding lyrics…" : "♪ Find lyrics";
+}
+
+function albumLyricsRunSummary(before, after) {
+  const gained = key => Math.max(0, (after[key] || 0) - (before[key] || 0));
+  const parts = [[gained("saved"), "saved"], [gained("has"), "already had lyrics"], [gained("instrumental"), "instrumental"],
+    [gained("none"), "not found"], [gained("review"), "need a look in Overview → Find lyrics"]]
+    .filter(([count]) => count).map(([count, label]) => `${count} ${label}`);
+  return parts.length ? `Lyrics: ${parts.join(", ")}.` : "Lyrics: nothing new to look up.";
+}
+
+async function albumLyricsRunPoll() {
+  clearTimeout(albumLyricsRun.timer);
+  try {
+    const data = await api("/api/lyrics-job");
+    if (data.running) {
+      const p = data.progress || {};
+      albumLyricsRun.text = p.total ? `Finding lyrics… ${Math.min(p.done || 0, p.total)}/${p.total}` : "Finding lyrics…";
+      albumLyricsRunPaint();
+      albumLyricsRun.timer = setTimeout(albumLyricsRunPoll, 1500);
+      return;
+    }
+    albumLyricsRun.active = false;
+    toast(data.message || albumLyricsRunSummary(albumLyricsRun.before || {}, data.counts || {}));
+    resetTrackLyrics();  // the Lyrics labels on the songs read the new lyrics
+  } catch (error) {
+    albumLyricsRun.active = false;
+    toast(error.message || "Could not read the lyrics progress.");
+  }
+  albumLyricsRunPaint();
+}
+
+async function albumFindLyrics() {
+  if (albumLyricsRun.active) return;
+  const ids = albumLyricsTracks().map(track => String(track.id));
+  if (!ids.length) { toast("Open the album first."); return; }
+  albumLyricsRun.active = true; albumLyricsRun.text = "Finding lyrics…"; albumLyricsRunPaint();
+  try {
+    albumLyricsRun.before = (await api("/api/lyrics-job")).counts || {};
+    await api("/api/lyrics-job/start", {track_ids: ids});
+    albumLyricsRun.timer = setTimeout(albumLyricsRunPoll, 800);
+  } catch (error) {
+    albumLyricsRun.active = false; albumLyricsRunPaint();
+    toast(error.message);
+  }
+}
+
+document.addEventListener("click", event => {
+  if (event.target.closest("[data-album-find-lyrics]")) void albumFindLyrics();
+});

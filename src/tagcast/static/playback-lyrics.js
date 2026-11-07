@@ -232,7 +232,8 @@ function paintPlaybackLyrics() {
     const text = words.length ? words.map((word, j) =>
       `<span class="visual-lyric-word" data-lyric-word="${j}">${escapeHtml(word.text)}</span>`).join("")
       : escapeHtml(line.text || (data.timed ? "♪" : "\u00a0"));
-    return `<p class="visual-lyric-line" data-lyric-line="${i}">${text}</p>`;
+    const tr = typeof lyricsTranslation === "function" ? lyricsTranslation(line) : "";
+    return `<p class="visual-lyric-line" data-lyric-line="${i}">${text}${tr ? `<small class="visual-lyric-tr">${escapeHtml(tr)}</small>` : ""}</p>`;
   }).join("") : "";
   view.lineNodes = Array.from(region.querySelectorAll("[data-lyric-line]"));
   view.wordNodes = view.lineNodes.map(line => Array.from(line.querySelectorAll("[data-lyric-word]")));

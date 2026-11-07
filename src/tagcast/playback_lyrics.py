@@ -4,6 +4,7 @@ Independent implementation of the documented Unison API and TTML/LRC formats;
 no provider code or lyrics corpus is bundled. Audio and metadata saves stay separate.
 """
 
+import bisect
 import json
 import math
 import re
@@ -754,6 +755,37 @@ def gdstudio_clean_lrc(value):
     return "\n".join(rows)
 
 
+def gdstudio_translation(result, raw):
+    """Fork v87: GD Studio sends a translated lyric (`tlyric`) next to the original. Each original line gets the
+    translated line that starts within a second of it as `tr`. Best effort: a missing or odd translation is
+    simply left out and never fails the lyrics."""
+    if not result.get("timed") or not isinstance(raw, str) or not raw.strip() or len(raw) > MAX_TEXT or "\x00" in raw:
+        return result
+    try:
+        extra = parse_lrc(gdstudio_clean_lrc(raw), 0, "gdstudio")
+    except SourceError:
+        return result
+    pool = [(line["start"], line["text"].strip()) for line in extra["lines"]
+            if line["start"] is not None and line["text"].strip()]
+    if not pool:
+        return result
+    starts = [start for start, _ in pool]
+    taken = set()
+    for line in result["lines"]:
+        if not line["text"].strip():
+            continue
+        at = bisect.bisect_left(starts, line["start"])
+        best = min((i for i in (at - 1, at) if 0 <= i < len(pool) and i not in taken),
+                   key=lambda i: abs(starts[i] - line["start"]), default=None)
+        if best is None or abs(starts[best] - line["start"]) > 1.0:
+            continue
+        taken.add(best)
+        text = pool[best][1][:300]
+        if text != line["text"].strip():
+            line["tr"] = text
+    return result
+
+
 def _gdstudio_match(hit, track):
     if not isinstance(hit, dict) or not isinstance(hit.get("name"), str):
         return False
@@ -806,7 +838,7 @@ def fetch_gdstudio_lyrics(track, album, check_current=lambda: None, policy=None)
                 starts = [line["start"] for line in result["lines"] if line["start"] is not None]
                 if track["length"] > 0 and starts and max(starts) < track["length"] * .4:
                     continue  # A much shorter song (or a different cut): the timing could not follow this recording.
-                return result
+                return gdstudio_translation(result, data.get("tlyric"))
     except LibraryError:
         raise
     except (requests.RequestException, ValueError):

@@ -173,6 +173,31 @@ class LyricsJobTests(unittest.TestCase):
         with self.assertRaises(lyrics_job.LibraryError):
             job.autosave({"track_id": "2", "source": "lrclib", "lines": good})
 
+    def test_album_start_looks_only_at_the_given_songs(self):
+        studio = FakeStudio()
+        studio.library.tracks = {1: {}, 2: {}, 3: {}, 5: {}}
+        job = LyricsJob(studio)
+        job._state("7")["checked"]["5"] = "none"
+        job._state("7")["review"]["5"] = {"title": "x"}
+        with mock.patch.object(lyrics_job, "fetch_lrclib_display", side_effect=lrclib_for), \
+                mock.patch.object(lyrics_job, "SONG_PAUSE", 0), mock.patch.object(lyrics_job, "READ_PAUSE", 0), \
+                mock.patch.object(lyrics_job.threading, "Thread") as thread:
+            answer = job.start(track_ids=["2", 5, "2"])
+            self.assertEqual(answer, {"started": True, "count": 2})
+            only = thread.call_args.kwargs["args"][3]
+            self.assertEqual(only, [2, 5])
+            self.assertNotIn("5", job._state("7")["checked"])  # a song that was not found is looked at again
+            job._run(studio.client, studio.library, "7", only)
+        self.assertEqual(studio.client.userdata["2"], [{"type": "lyrics", "value": "[00:01.50]hello\n[01:05.25]world"}])
+        self.assertEqual(studio.client.userdata["3"], [])  # not asked for: untouched
+        self.assertNotIn("3", studio.files["lyrics-job.json"]["checked"])
+
+    def test_album_start_refuses_bad_songs(self):
+        job = LyricsJob(FakeStudio())
+        for ids in ([], "2", ["4"], ["99"], ["abc"], [True]):
+            with self.assertRaises(lyrics_job.LibraryError):
+                job.start(track_ids=ids)
+
     def test_dismiss_removes_from_the_list(self):
         studio, job = self.run_job()
         job.dismiss("5")
