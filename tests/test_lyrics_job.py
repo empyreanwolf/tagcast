@@ -155,6 +155,8 @@ class LyricsJobTests(unittest.TestCase):
         self.assertTrue(answer["confirmed"])
         self.assertEqual(studio.client.userdata["2"], [{"type": "lyrics", "value": "[00:01.50]hello\n[01:05.25]world"}])
         self.assertEqual(studio.files["lyrics-job.json"]["checked"]["2"], "saved")
+        studio.client.userdata["3"] = []
+        self.assertEqual(job.autosave({"track_id": "3", "source": "gdstudio", "lines": lines})["status"], "saved")
         answer = job.autosave({"track_id": "1", "source": "unison", "lines": lines})
         self.assertEqual(answer["status"], "has")
         self.assertEqual(studio.client.userdata["1"], [{"type": "lyrics", "value": "old words"}])  # never replaced

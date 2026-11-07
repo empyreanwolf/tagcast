@@ -11539,10 +11539,13 @@ test('fork v86: timed lyrics found online are saved once to iBroadcast and liste
   assert.deepEqual(JSON.parse(posts[0].options.body).lines,[{start:1,text:'one'},{start:2,text:'two'}]);
   assert.equal(p.run('state.history.length'),before+1);
   assert.equal(p.run('state.history[0].changes[0].fields.lyrics.after'),'Timed lyrics from LRCLIB (2 lines)');
+  await p.run('lyricsAutosave({...sel, track_id:"8"}, null, {...res, source:"gdstudio"})'); await settle();
+  assert.equal(p.requests.filter(r=>String(r.url).includes('/api/lyrics/autosave')).length,2);
+  assert.equal(p.run('state.history[0].changes[0].fields.lyrics.after'),'Timed lyrics from GD Studio (2 lines)');
   await p.run('lyricsAutosave({...sel, track_id:"6"}, null, {...res, source:"ibroadcast"})'); await settle();
   p.run('lyricsEverywhereSet("autosave", false)');
   await p.run('lyricsAutosave({...sel, track_id:"7"}, null, res)'); await settle();
-  assert.equal(p.requests.filter(r=>String(r.url).includes('/api/lyrics/autosave')).length,1);
+  assert.equal(p.requests.filter(r=>String(r.url).includes('/api/lyrics/autosave')).length,2);
 });
 
 test('fork v87: album Find lyrics runs the server job for the album songs and reports the result', async () => {

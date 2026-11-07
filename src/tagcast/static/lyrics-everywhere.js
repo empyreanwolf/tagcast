@@ -257,7 +257,7 @@ function renderHeaderLyrics(on, position = playerTrackPosition()) {
 // only when the song has none (the server checks again and never overwrites). Shown in Change history.
 async function lyricsAutosave(selection, entry, result) {
   const view = lyricsEverywhere;
-  if (!view.autosave || !selection || !result?.timed || !["lrclib", "unison"].includes(result.source)) return;
+  if (!view.autosave || !selection || !result?.timed || !["lrclib", "unison", "gdstudio"].includes(result.source)) return;
   if (state.connection?.premium === false || entry?.data?.native_text?.trim()) return;
   const id = String(selection.track_id), key = `${selection.session}|${id}`;
   if (view.savedKeys.has(key)) return;
@@ -276,7 +276,7 @@ async function lyricsAutosave(selection, entry, result) {
     state.history.unshift({created: new Date().toISOString(), status: data.confirmed === false ? "unverified" : "saved", source: "ibroadcast",
       selection: [{name: album?.name || label}],
       changes: [{label, status: data.confirmed === false ? "unverified" : "saved",
-        fields: {lyrics: {before: "", after: `Timed lyrics from ${result.source === "lrclib" ? "LRCLIB" : "Unison"} (${lines.length} lines)`}}}]});
+        fields: {lyrics: {before: "", after: `Timed lyrics from ${({lrclib: "LRCLIB", unison: "Unison", gdstudio: "GD Studio"})[result.source]} (${lines.length} lines)`}}}]});
     rememberHistory();
     if (typeof updateHistoryControls === "function") updateHistoryControls();
     if (typeof refreshAlbumLyricsLabels === "function") refreshAlbumLyricsLabels();

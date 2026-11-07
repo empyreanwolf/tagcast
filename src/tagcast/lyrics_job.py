@@ -593,7 +593,7 @@ class LyricsJob:
         track_id = str(body.get("track_id") or "")
         source = body.get("source")
         lines = body.get("lines")
-        if not track_id.isdigit() or source not in ("lrclib", "unison") or not isinstance(lines, list) or not 2 <= len(lines) <= 2000:
+        if not track_id.isdigit() or source not in ("lrclib", "unison", "gdstudio") or not isinstance(lines, list) or not 2 <= len(lines) <= 2000:
             raise LibraryError("These lyrics cannot be saved.")
         rows = []
         for line in lines:
@@ -614,7 +614,7 @@ class LyricsJob:
             raise LibraryError("These lyrics are longer than the song.")
         text = lrc_from_lines({"timed": True, "lines": sorted(rows, key=lambda row: row["start"])})
         status, note = self._write(client, library, number(track_id), track, text, interruptible=False)
-        label = "LRCLIB" if source == "lrclib" else "Unison"
+        label = {"lrclib": "LRCLIB", "unison": "Unison", "gdstudio": "GD Studio"}[source]
         with self.lock:
             state = self._state(str(user))
             if status in ("saved", "has"):
