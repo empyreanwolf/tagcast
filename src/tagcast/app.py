@@ -336,6 +336,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._run(self.studio.artist_pictures.status)
         elif url.path == "/api/lyrics-job":
             self._run(self.studio.lyrics_job.status)
+        elif url.path == "/api/track-numbers":
+            self._run(self.studio.track_numbers.status)
         elif url.path == "/api/lyrics-job/preview":
             self._run(lambda: self.studio.lyrics_job.preview(query.get("track_id", ""), query.get("source", ""), query.get("lyric_id", "")))
         elif url.path == "/api/downloads":
@@ -442,6 +444,11 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/lyrics-job/pause": lambda b: self.studio.lyrics_job.pause(),
             "/api/lyrics-job/resume": lambda b: self.studio.lyrics_job.resume(),
             "/api/lyrics-job/stop": lambda b: self.studio.lyrics_job.stop(),
+            "/api/track-numbers/start": lambda b: self.studio.track_numbers.start(b.get("retry") is True),
+            "/api/track-numbers/pause": lambda b: self.studio.track_numbers.pause(),
+            "/api/track-numbers/resume": lambda b: self.studio.track_numbers.resume(),
+            "/api/track-numbers/stop": lambda b: self.studio.track_numbers.stop(),
+            "/api/track-numbers/dismiss": lambda b: self.studio.track_numbers.dismiss(str(b.get("album_id", ""))),
             "/api/lyrics-job/pick": lambda b: self.studio.lyrics_job.pick(str(b.get("track_id", "")), str(b.get("source", "")), str(b.get("lyric_id", ""))),
             "/api/lyrics-job/dismiss": lambda b: self.studio.lyrics_job.dismiss(str(b.get("track_id", ""))),
             "/api/downloads/check": lambda b: self.studio.download_manager.check(
@@ -486,6 +493,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/digest/mark-found-seen": lambda b: self.studio.digest.mark_found_seen(),
             "/api/wishlist/retry": lambda b: self.studio.wishlist.retry(b.get("ids")),
             "/api/wishlist/remove": lambda b: self.studio.wishlist.remove(b.get("ids")),
+            "/api/wishlist/search-as": lambda b: self.studio.wishlist.search_as(b),
             "/api/wishlist/settings": lambda b: self.studio.wishlist.save_settings(b),
             "/api/wishlist/add": lambda b: self.studio.wishlist.add(b.get("kind"), b.get("artist"), b.get("title"), b.get("album") or ""),
             "/api/uploads/checked": lambda b: self.studio.uploads_checked(b),
@@ -506,6 +514,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/pagelist/recheck": lambda b: self.studio.pagelist.recheck(b.get("id"), b.get("item"), b.get("artist"), b.get("album")),
             "/api/pagelist/get": lambda b: self.studio.pagelist.get(b.get("id"), b.get("ids")),
             "/api/youtube/settings": lambda b: self.studio.youtube.save_settings(b),
+            "/api/youtube/update": lambda b: self.studio.youtube.update_ytdlp(),
             "/api/youtube/add": lambda b: self.studio.youtube.add_lines(b.get("lines")),
             "/api/youtube/artist": lambda b: self.studio.youtube.artist_releases(b.get("artist"), b.get("where")),
             "/api/youtube/releases": lambda b: self.studio.youtube.add_releases(b.get("artist"), b.get("releases")),
@@ -769,7 +778,7 @@ QUEUED_PATHS = {"/api/save", "/api/artwork", "/api/artwork/undo", "/api/trash", 
 # worth a line each; their failures still are.
 QUIET_ROUTES = {"/api/queue-sync", "/api/galaxy/cards", "/api/galaxy/album-years", "/api/artist-biography",
                 "/api/album-information", "/api/playlist-import/view", "/api/lyrics/review", "/api/lyrics/display",
-                "/api/lyrics-job", "/api/lyrics/translate"}
+                "/api/lyrics-job", "/api/track-numbers", "/api/lyrics/translate"}
 _ROUTE_CATEGORIES = [
     (("/api/galaxy", "/api/bandcamp", "/api/soulseek", "/api/youtube", "/api/more", "/api/labels", "/api/spotify", "/api/downloads", "/api/discography", "/api/wishlist",
       "/api/complete", "/api/charts", "/api/recommendations", "/api/releases", "/api/digest", "/api/uploader"), "downloads"),

@@ -79,5 +79,48 @@ class WishlistTests(unittest.TestCase):
             studio.wishlist.add("album", "", "Viva")
 
 
+class V91SearchAsTests(unittest.TestCase):
+    """Fork v91: aliases, a credit suggestion and "Search as..." for a wish."""
+
+    def make(self):
+        studio = LocalStudio()
+        studio.discography.aliases = lambda name: []
+        studio.discography.credited_as = lambda name, title: ""
+        return studio
+
+    def test_an_alias_is_tried_after_your_own_spelling(self):
+        studio = self.make()
+        studio.discography.aliases = lambda name: ["Poetic Death"]
+        item = studio.wishlist.add("album", "Jus Allah", "Shakespeare Science")
+        studio.gd.search_results[("netease_album", "Shakespeare Science", 1)] = [gd_song(61, "Hamlet", "Poetic Death", "Shakespeare Science")]
+        view = (studio.wishlist.retry([item["id"]]), wait(studio.wishlist))[1]
+        self.assertEqual(view["items"], [])
+        self.assertIn("searched as “Poetic Death”", view["found"][0]["note"])
+
+    def test_a_credit_on_musicbrainz_becomes_a_one_click_suggestion(self):
+        studio = self.make()
+        studio.discography.credited_as = lambda name, title: "Poetic Death"
+        item = studio.wishlist.add("album", "Jus Allah", "Shakespeare Science")
+        view = (studio.wishlist.retry([item["id"]]), wait(studio.wishlist))[1]
+        self.assertEqual(view["items"][0]["suggest"], "Poetic Death")
+        self.assertIn("MusicBrainz credits an album with this title to “Poetic Death”", view["items"][0]["note"])
+
+    def test_search_as_searches_now_under_the_new_names_and_drops_the_suggestion(self):
+        studio = self.make()
+        item = studio.wishlist.add("album", "Jus Allah", "Shakespeare Science")
+        studio.wishlist._update(item["id"], suggest="Poetic Death")
+        studio.gd.search_results[("netease_album", "Shakespeare Science", 1)] = [gd_song(61, "Hamlet", "Poetic Death", "Shakespeare Science")]
+        view = (studio.wishlist.search_as({"id": item["id"], "artist": "Poetic Death", "title": "Shakespeare Science"}), wait(studio.wishlist))[1]
+        self.assertEqual((view["items"], view["found"][0]["title"]), ([], "Shakespeare Science"))
+
+    def test_search_as_needs_both_names_and_a_known_wish(self):
+        studio = self.make()
+        item = studio.wishlist.add("album", "Jus Allah", "Shakespeare Science")
+        with self.assertRaises(LibraryError):
+            studio.wishlist.search_as({"id": item["id"], "artist": "", "title": "x"})
+        with self.assertRaises(LibraryError):
+            studio.wishlist.search_as({"id": "nope", "artist": "a", "title": "b"})
+
+
 if __name__ == "__main__":
     unittest.main()

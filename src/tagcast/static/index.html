@@ -67,6 +67,7 @@
   <script src="digest.js" defer></script>
   <script src="artist-pictures.js" defer></script>
   <script src="lyrics-job.js" defer></script>
+  <script src="track-numbers.js" defer></script>
   <script src="activity.js" defer></script>
   <script src="collections.js" defer></script>
   <script src="quick-playlist.js" defer></script>
@@ -197,6 +198,12 @@
       <div class="page-intro"><div><div class="eyebrow">SLOW AND GENTLE, IN THE BACKGROUND</div><h1>Find lyrics<span>.</span></h1><p>Looks for lyrics for every song that has none: LRCLIB first, then GD Studio (netease, joox, bilibili; the title with and without the artist, simplified Chinese too). A match needs the same title and artist and a timing that fits the song. Sure matches are saved to the song's iBroadcast lyrics as timed lyrics; unsure ones wait under "Couldn't match" for you to pick. Songs that already have lyrics are never touched. Pause, resume or stop any time: it continues where it left off, even after a restart.</p></div></div>
       <p id="lyrics-job-status" class="error-text" role="status"></p>
       <div id="lyrics-job-content"></div>
+    </section>
+    <section id="track-numbers-page" hidden aria-label="Track numbers">
+      <button type="button" class="button small page-back" data-track-numbers-back>← Overview</button>
+      <div class="page-intro"><div><div class="eyebrow">FROM A REAL TRACK LIST, NEVER GUESSED</div><h1>Track numbers<span>.</span></h1><p>For every album with songs that have no track number, looks up the album's track list on MusicBrainz, then Discogs (when a token is saved in Settings), and gives each song the number that release gives it. A song is numbered only when its title matches exactly one place on a release of the same album and artist. Songs that already have a number are never changed, and a release that disagrees with a number you have is not used. Albums with no source are listed, not numbered. Changes are saved like any edit, so Change history can undo them. Pause, resume or stop any time.</p></div></div>
+      <p id="track-numbers-status" class="error-text" role="status"></p>
+      <div id="track-numbers-content"></div>
     </section>
     <section id="charts-page" hidden aria-label="Charts">
       <div class="page-intro"><div><div class="eyebrow">OUTSIDE HIP-HOP CHARTS</div><h1>Charts<span>.</span></h1><p>Chinese and mainstream hip-hop charts from NetEase, HotNewHipHop, Deezer, Apple Music and Spotify, plus artists recommended from the ones you follow. Every song is checked against your iBroadcast library and download history first, then "Get it" queues it the same way Downloads does; nothing happens automatically. The fixed tabs above stay hip-hop; <b>Browse</b> picks any country and/or genre, or any public Spotify playlist link, as far as each source supports it.</p></div></div>

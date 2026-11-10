@@ -143,16 +143,50 @@ class Wishlist:
             self._done(item, "Library", "You have it now")
             return
         d = self.studio.discography
-        ctx.setdefault(item["artist"], {"bandcamp": None, "bandcamp_checked": False})
-        artist_ctx = ctx[item["artist"]]
-        if item["kind"] == "album":
-            source, note = d._album(item["artist"], item["title"], item.get("status"), None, artist_ctx)
-        else:
-            source, note = d._song(item["artist"], item["title"], item.get("album", ""), artist_ctx)
+        # Fork v91: "Search as..." names win; otherwise your own spelling, then MusicBrainz aliases.
+        artist = item.get("search_artist") or item["artist"]
+        title = item.get("search_title") or item["title"]
+        names = [artist]
+        if item["kind"] == "album" and not item.get("search_artist"):
+            names += d.aliases(artist)
+        source = note = None
+        for index, name in enumerate(names):
+            artist_ctx = ctx.setdefault(name, {"bandcamp": None, "bandcamp_checked": False})
+            if item["kind"] == "album":
+                source, note = d._album(name, title, item.get("status"), None, artist_ctx)
+            else:
+                source, note = d._song(name, title, item.get("album", ""), artist_ctx)
+            if source:
+                if index:
+                    note = f"{note} (searched as “{name}”, an alias on MusicBrainz)"
+                break
         if source:
             self._done(item, source, note)
-        else:
-            self._update(item["id"], tries=item.get("tries", 1) + 1, last_try=time.time(), note=note)
+            return
+        fields = {"tries": item.get("tries", 1) + 1, "last_try": time.time(), "note": note}
+        if item["kind"] == "album" and not item.get("search_artist"):
+            credited = d.credited_as(artist, title)
+            if credited:
+                fields["suggest"] = credited
+                fields["note"] = f"{note} · MusicBrainz credits an album with this title to “{credited}”"
+        self._update(item["id"], **fields)
+
+    def search_as(self, body):
+        """Fork v91: one click on a row: look for it under another artist / title right now."""
+        body = body or {}
+        artist, title = match.clean(body.get("artist") or ""), match.clean(body.get("title") or "")
+        item_id = str(body.get("id") or "")
+        if not artist or not title:
+            raise LibraryError("Type an artist and a title to search as.")
+        with self.lock:
+            if not any(i["id"] == item_id for i in self.state["items"]):
+                raise LibraryError("That wish is no longer on the list.")
+            for i in self.state["items"]:
+                if i["id"] == item_id:
+                    i.update(search_artist=artist, search_title=title, note=f"Searching as “{artist} - {title}”")
+                    i.pop("suggest", None)
+        self._persist()
+        return self.retry([item_id])
 
     def _schedule(self):
         time.sleep(60)

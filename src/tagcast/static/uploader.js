@@ -6,7 +6,7 @@
 // for you: each flagged song waits for Skip or Upload anyway.
 const uploaderView = {data: null, loading: false, status: "", folder: "", sel: new Set(), anchor: "", q: "", sortKey: "name", sortDir: 1,
   edits: new Map(), dupes: {}, dupeLibrary: true, decisions: new Map(), suggest: {}, showUploaded: false, dates: "all", pickDate: "",
-  folderFilter: "", editing: null, open: new Set(), panel: "", timer: null, busy: false, bulk: {}, settingsOpen: false, dupesFor: ""};
+  folderFilter: "", editing: null, open: new Set(), panel: "", timer: null, busy: false, bulk: {}, settingsOpen: false, dupesFor: "", pop: false, popDraft: {}};
 
 const uploaderCols = [["name", "File name", false], ["title", "Title", true], ["artist", "Artist", true], ["album_artist", "Album artist", true],
   ["album", "Album", true], ["track_no", "#", true], ["disc", "Disc", true], ["year", "Year", true], ["genre", "Genre", true],
@@ -116,19 +116,19 @@ function uploaderHtml() {
         <button type="button" class="button primary" data-uploader="save" ${pending && !v.busy ? "" : "disabled"}>💾 Save (${pending})</button>
         <button type="button" class="button" data-uploader="discard" ${pending ? "" : "disabled"}>Discard changes</button>
         <button type="button" class="button" data-uploader="undo" ${d.can_undo ? "" : "disabled"}>↶ Undo last save</button>
-        <button type="button" class="button" data-uploader-panel="edit" aria-expanded="${v.panel === "edit"}">Edit selected…</button>
+        <button type="button" class="button" data-uploader="pop" ${picked.length ? "" : "disabled"}>Edit selected…</button>
         <button type="button" class="button" data-uploader-panel="tools" aria-expanded="${v.panel === "tools"}">Tools…</button>
         <button type="button" class="button primary" data-uploader="upload" ${toUpload.length && !blocked && !pending && !(p?.running) && d.connected !== false ? "" : "disabled"} title="${pending ? "Save your changes first" : blocked ? "Decide the flagged duplicates first" : ""}">⬆ Upload selected (${toUpload.length})</button></div>
       ${blocked ? `<p class="error-text" role="status">${blocked} selected ${blocked === 1 ? "song looks" : "songs look"} like ${blocked === 1 ? "one" : "ones"} you may already have. Choose Skip or Upload anyway on each ⚠ row first.</p>` : ""}
       ${Object.keys(v.dupes).length ? `<div class="dl-actions"><span class="muted">${Object.keys(v.dupes).length} possible duplicates.</span>
-        <button type="button" class="button small" data-uploader="skip-dupes">Skip all duplicates</button></div>` : ""}
+        <button type="button" class="button small" data-uploader="skip-dupes" title="Skips songs iBroadcast already has or you uploaded before, and later copies of a song repeated in this list. The first copy stays for you to decide.">Skip duplicates (${uploaderSkipIds().length})</button></div>` : ""}
       ${v.dupeLibrary === false ? '<p class="muted">The iBroadcast library is not loaded, so only the files here were compared.</p>' : ""}
-      ${v.panel === "edit" ? uploaderEditHtml() : ""}${v.panel === "tools" ? uploaderToolsHtml() : ""}
+      ${v.panel === "tools" ? uploaderToolsHtml() : ""}
       <div class="upl-scroll"><table class="upl-grid"><thead><tr><th><input type="checkbox" data-uploader-all aria-label="Select all" ${rows.length && picked.length === rows.length ? "checked" : ""}></th><th></th>
         ${uploaderCols.map(([k, l]) => `<th><button type="button" class="text-action" data-uploader-sort="${k}">${l}${v.sortKey === k ? (v.sortDir > 0 ? " ▲" : " ▼") : ""}</button></th>`).join("")}</tr></thead>
         <tbody>${rows.map(uploaderRowHtml).join("") || `<tr><td colspan="${uploaderCols.length + 2}" class="muted">${d.rows.some(r => r.uploaded) && !v.showUploaded ? "Everything here is uploaded. Tick “Show uploaded” to see it." : "No files match."}</td></tr>`}</tbody></table></div>`
       : '<p class="muted">Scan a folder to see its files here.</p>'}
-    <datalist id="uploader-genre-cells">${(d.genres || []).map(g => `<option value="${escapeHtml(g)}">`).join("")}</datalist>`;
+    <datalist id="uploader-genre-cells">${(d.genres || []).map(g => `<option value="${escapeHtml(g)}">`).join("")}</datalist>${uploaderPopupHtml()}`;
 }
 
 function uploaderSettingsHtml() {
@@ -181,6 +181,16 @@ function uploaderSuggestHtml(r, key, value) {
   return fixes.map(([from, to]) => ` <button type="button" class="text-action" data-uploader-fix data-id="${r.id}" data-key="${key}" data-from="${escapeHtml(from)}" data-to="${escapeHtml(to)}" title="iBroadcast has “${escapeHtml(to)}”">→ ${escapeHtml(to)}</button>`).join("");
 }
 
+// Fork v91: "Skip duplicates" skips what iBroadcast has or you uploaded before. A song that is only repeated inside
+// this list keeps its first copy (by file name), so it is not skipped everywhere.
+function uploaderSkipIds() {
+  const v = uploaderView, names = new Map((v.data?.rows || []).map(r => [r.id, String(r.name || "")]));
+  return Object.entries(v.dupes || {}).filter(([id, hits]) => {
+    if (hits.some(h => h.where !== "folder")) return true;
+    return hits.some(h => String(h.name || "") < (names.get(id) || ""));
+  }).map(([id]) => id);
+}
+
 function uploaderCompareHtml(r, hits) {
   const decision = uploaderView.decisions.get(r.id);
   const where = {ibroadcast: "In iBroadcast", folder: "In this list", uploaded: "Uploaded before"};
@@ -191,22 +201,65 @@ function uploaderCompareHtml(r, hits) {
       <button type="button" class="button small ${decision === "upload" ? "primary" : ""}" data-uploader-decide="upload" data-id="${r.id}">Upload anyway</button></div></td></tr>`;
 }
 
-function uploaderEditHtml() {
-  const v = uploaderView, genres = v.data.genres || [];
-  const input = ([key, label]) => key === "genre"
-    ? `<label>${label} <select data-uploader-bulk="genre"><option value="">&lt;keep&gt;</option>${genres.map(g => `<option ${v.bulk.genre === g ? "selected" : ""}>${escapeHtml(g)}</option>`).join("")}</select></label>`
-    : `<label>${label} <input data-uploader-bulk="${key}" maxlength="300" placeholder="&lt;keep&gt;" value="${escapeHtml(v.bulk[key] || "")}"></label>`;
-  return `<div class="dl-card upl-panel"><p class="muted">Fill only what should change on every selected file. Fields left as &lt;keep&gt; stay as they are.</p>
-    <div class="upl-fields">${[["title", "Title"], ["artist", "Artist"], ["album_artist", "Album artist"], ["album", "Album"], ["track_no", "Track #"], ["disc", "Disc"], ["year", "Year"], ["genre", "Genre"]].map(input).join("")}</div>
-    <div class="dl-actions"><button type="button" class="button primary" data-uploader="bulk-apply">Apply to the selected</button></div></div>`;
+// Fork v91: click a row and its tags open in a popup, like Mp3tag. With several files selected, fields that differ
+// show <keep> and only what you type is changed. Prev / Next move on to the next file; Save writes the files.
+const uploaderPopFields = [["title", "Title"], ["artist", "Artist"], ["album_artist", "Album artist"], ["album", "Album"],
+  ["track_no", "Track #"], ["disc", "Disc"], ["year", "Year"], ["genre", "Genre"]];
+
+function uploaderPopupHtml() {
+  const v = uploaderView, rows = uploaderSelected();
+  if (!v.pop || !rows.length) return "";
+  const order = uploaderRows().map(r => r.id), at = order.indexOf(rows[0].id), single = rows.length === 1, r = rows[0];
+  const common = key => {
+    const first = String(uploaderValue(rows[0], key) ?? "");
+    return rows.every(x => String(uploaderValue(x, key) ?? "") === first) ? first : null;
+  };
+  const input = ([key, label]) => {
+    const shared = common(key), drafted = key in v.popDraft;
+    const value = drafted ? v.popDraft[key] : (shared ?? ""), shown = (key === "track_no" || key === "disc") && value === "0" ? "" : value;
+    return `<label>${label}<input data-uploader-pop="${key}" maxlength="300" value="${escapeHtml(String(shown))}" ${!drafted && shared === null ? 'placeholder="&lt;keep&gt;"' : ""}
+      ${key === "genre" ? 'list="uploader-genre-cells"' : ""} ${key === "track_no" || key === "disc" || key === "year" ? 'inputmode="numeric"' : ""}></label>`;
+  };
+  const hits = single ? v.dupes[r.id] : null, decision = single ? v.decisions.get(r.id) : "";
+  const dupe = hits && !r.uploaded ? `<div class="upl-pop-dupe"><b>⚠ You may already have this song</b>
+      ${hits.map(h => `<div class="muted">${({ibroadcast: "In iBroadcast", folder: "In this list", uploaded: "Uploaded before"})[h.where] || h.where}: ${escapeHtml(h.title)} · ${escapeHtml(h.artist)}${h.album ? ` · ${escapeHtml(h.album)}` : ""} <span class="pill">${h.how === "same" ? "same title" : "close title"}</span></div>`).join("")}
+      <div class="dl-actions"><button type="button" class="button small ${decision === "skip" ? "primary" : ""}" data-uploader-decide="skip" data-id="${r.id}">Skip</button>
+        <button type="button" class="button small ${decision === "upload" ? "primary" : ""}" data-uploader-decide="upload" data-id="${r.id}">Upload anyway</button></div></div>` : "";
+  return `<div class="upl-pop" role="dialog" aria-modal="true" aria-label="Edit tags"><div class="upl-pop-box">
+    <div class="upl-pop-head"><div><b>${single ? escapeHtml(r.name) : `${rows.length} files selected`}</b>
+      <div class="muted">${single ? `${escapeHtml((r.format || "").toUpperCase())} · ${uploaderSize(r.size)} · ${r.has_cover ? "cover ✓" : "no cover"}${at >= 0 ? ` · ${at + 1} of ${order.length}` : ""}` : "Fields that differ show &lt;keep&gt;. Only what you type is changed."}</div></div>
+      <button type="button" class="button small" data-uploader="pop-close" aria-label="Close">✕</button></div>
+    ${dupe}
+    <div class="upl-fields">${uploaderPopFields.map(input).join("")}</div>
+    <div class="dl-actions upl-pop-foot">
+      ${single ? `<button type="button" class="button" data-uploader="pop-prev" ${at > 0 ? "" : "disabled"}>◀ Previous</button>
+        <button type="button" class="button" data-uploader="pop-next" ${at >= 0 && at < order.length - 1 ? "" : "disabled"}>Next ▶</button>` : ""}
+      <span class="upl-pop-gap"></span>
+      <button type="button" class="button" data-uploader="pop-close">Cancel</button>
+      <button type="button" class="button primary" data-uploader="pop-save" ${v.busy ? "disabled" : ""}>Save</button></div></div></div>`;
+}
+
+function uploaderPopStage() {
+  const v = uploaderView, fields = {};
+  for (const [key, value] of Object.entries(v.popDraft)) if (uploaderFields.includes(key)) fields[key] = value;
+  if (Object.keys(fields).length) for (const r of uploaderSelected()) uploaderStage(r.id, fields);
+  v.popDraft = {};
+}
+
+function uploaderPopGo(delta) {
+  const v = uploaderView, order = uploaderRows().map(r => r.id), from = order.indexOf(uploaderSelected()[0]?.id), to = from + delta;
+  if (from < 0 || to < 0 || to >= order.length) return;
+  uploaderPopStage();
+  v.sel = new Set([order[to]]); v.anchor = order[to];
+  renderDownloads();
+  $("#downloads-content [data-uploader-pop]")?.focus();
 }
 
 function uploaderToolsHtml() {
   const v = uploaderView, t = v.bulk;
   const field = name => `<select data-uploader-tool="${name}">${[["title", "Title"], ["artist", "Artist"], ["album_artist", "Album artist"], ["album", "Album"], ["genre", "Genre"]].map(([k, l]) => `<option value="${k}" ${(t[name] || "title") === k ? "selected" : ""}>${l}</option>`).join("")}</select>`;
   return `<div class="dl-card upl-panel">
-    <div class="dl-actions"><button type="button" class="button" data-uploader="number">Auto-number the selected (in the order shown)</button>
-      <button type="button" class="button" data-uploader="split">Split artists (feat., &amp;, / …) · first = album artist</button>
+    <div class="dl-actions"><button type="button" class="button" data-uploader="split">Split artists (feat., &amp;, / …) · first = album artist</button>
       <button type="button" class="button" data-uploader="cover">Copy the cover of the first selected to the others</button></div>
     <div class="dl-actions"><b>Replace text</b> ${field("replaceField")} <input data-uploader-tool="find" maxlength="100" placeholder="Find" value="${escapeHtml(t.find || "")}">
       <input data-uploader-tool="with" maxlength="100" placeholder="Replace with" value="${escapeHtml(t.with || "")}"><button type="button" class="button" data-uploader="replace">Replace</button></div>
@@ -278,7 +331,7 @@ document.addEventListener("click", async event => {
     return;
   }
   if (act === "undo") { const r = await uploaderCall("/api/uploader/undo", {}, () => "Last save undone."); if (r) uploaderChecks(); return; }
-  if (act === "skip-dupes") { for (const id of Object.keys(v.dupes)) v.decisions.set(id, "skip"); renderDownloads(); return; }
+  if (act === "skip-dupes") { for (const id of uploaderSkipIds()) v.decisions.set(id, "skip"); renderDownloads(); return; }
   if (act === "upload") {
     const ids = uploaderSelected().filter(r => !r.uploaded && v.decisions.get(r.id) !== "skip").map(r => r.id);
     const r = await uploaderCall("/api/uploader/upload", {ids}, () => "Uploading…");
@@ -286,15 +339,18 @@ document.addEventListener("click", async event => {
     return;
   }
   if (act === "retry-all") { const r = await uploaderCall("/api/uploader/retry", {}, () => "Uploading again…"); if (r) { v.data.progress = r.progress; uploaderPoll(); } return; }
-  if (act === "bulk-apply") {
-    const fields = Object.fromEntries(Object.entries(v.bulk).filter(([k, val]) => uploaderFields.includes(k) && val !== "" && val != null));
-    if (!Object.keys(fields).length) { v.status = "Type a value in at least one field."; renderDownloads(); return; }
-    for (const r of uploaderSelected()) uploaderStage(r.id, fields);
-    v.bulk = {}; v.status = "Changes are pending. Press Save to write them to the files."; renderDownloads(); return;
-  }
-  if (act === "number") {
-    const rows = uploaderSelected(); rows.forEach((r, i) => uploaderStage(r.id, {track_no: i + 1}));
-    v.status = `${rows.length} files numbered 1–${rows.length} (pending, press Save).`; renderDownloads(); return;
+  if (act === "pop") { if (uploaderSelected().length) { v.pop = true; v.popDraft = {}; renderDownloads(); $("#downloads-content [data-uploader-pop]")?.focus(); } return; }
+  if (act === "pop-close") { v.pop = false; v.popDraft = {}; renderDownloads(); return; }
+  if (act === "pop-prev" || act === "pop-next") { uploaderPopGo(act === "pop-prev" ? -1 : 1); return; }
+  if (act === "pop-save") {
+    uploaderPopStage();
+    const ids = uploaderSelected().map(r => r.id).filter(id => v.edits.has(id));
+    if (ids.length) {
+      const r = await uploaderCall("/api/uploader/save", {edits: ids.map(id => ({id, fields: v.edits.get(id)}))}, x => x.errors?.length ? `${x.saved} saved, ${x.errors.length} failed: ${x.errors[0].name}: ${x.errors[0].reason}` : `${x.saved} files saved.`);
+      if (!r) return;
+      ids.forEach(id => v.edits.delete(id)); uploaderChecks();
+    }
+    v.pop = false; renderDownloads(); return;
   }
   if (act === "split") {
     const r = await uploaderCall("/api/uploader/split", {ids: [...v.sel]}, x => `${Object.keys(x.edits).length} files change (pending, press Save).`);
@@ -374,8 +430,13 @@ document.addEventListener("click", event => {  // clicking a row's blank area se
   const id = cell.dataset.id;
   if (event.ctrlKey || event.metaKey) v.sel[v.sel.has(id) ? "delete" : "add"](id);
   else if (event.shiftKey && v.anchor) { const rows = uploaderRows().map(r => r.id), [a, b] = [rows.indexOf(v.anchor), rows.indexOf(id)].sort((x, y) => x - y); rows.slice(a, b + 1).forEach(r => v.sel.add(r)); }
-  else v.sel = new Set([id]);
+  else {
+    v.sel = new Set([id]);
+    const row = v.data?.rows.find(r => r.id === id);
+    if (row && !row.uploaded && row.editable !== false) { v.pop = true; v.popDraft = {}; }  // fork v91: opens the tag popup
+  }
   v.anchor = id; renderDownloads();
+  if (v.pop) $("#downloads-content [data-uploader-pop]")?.focus();
 });
 
 document.addEventListener("dblclick", event => {
@@ -386,6 +447,8 @@ document.addEventListener("dblclick", event => {
 });
 
 document.addEventListener("keydown", event => {
+  if (uploaderView.pop && event.key === "Escape") { uploaderView.pop = false; uploaderView.popDraft = {}; renderDownloads(); return; }
+  if (uploaderView.pop && event.key === "Enter" && event.target.closest?.("[data-uploader-pop]")) { event.preventDefault(); $("#downloads-content [data-uploader=\"pop-save\"]")?.click(); return; }
   const input = event.target.closest?.("[data-uploader-input]");
   if (!input) return;
   if (event.key === "Escape") { uploaderView.editing = null; renderDownloads(); }
@@ -404,6 +467,7 @@ document.addEventListener("focusout", event => {
 document.addEventListener("input", event => {
   const t = event.target, v = uploaderView;
   if (t.id === "uploader-search") { v.q = t.value; const at = t.selectionStart; renderDownloads(); const box = $("#uploader-search"); box?.focus(); box?.setSelectionRange?.(at, at); }
+  else if (t.dataset?.uploaderPop) v.popDraft[t.dataset.uploaderPop] = t.value;
   else if (t.dataset?.uploaderBulk) v.bulk[t.dataset.uploaderBulk] = t.value;
   else if (t.dataset?.uploaderTool) v.bulk[t.dataset.uploaderTool] = t.value;
   else if (t.id === "uploader-folder") v.folder = t.value;

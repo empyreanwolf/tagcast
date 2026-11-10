@@ -94,9 +94,6 @@ class QueueTests(unittest.TestCase):
         self.assertIn("from YouTube, lossy", saved["extras"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class V61Tests(unittest.TestCase):
     def test_page_meta_cover_choice_and_tags(self):
@@ -229,3 +226,90 @@ class V65Tests(unittest.TestCase):
                                                        "album": "São Paulo", "source": "galaxy", "state": "failed"})
         studio.youtube.try_item("g2")
         self.assertEqual([i["source"] for i in studio.download_manager.state["queue"]], ["youtube"])
+
+
+class V91Tests(unittest.TestCase):
+    """Fork v91: age-restricted videos, album size and length guards, cookies."""
+
+    def yt(self, search):
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=search, fetch_audio=lambda *a: None)
+        studio.youtube.ensure_worker = lambda: None
+        return studio
+
+    def test_an_age_restricted_video_fails_the_row_and_starts_the_fallback(self):
+        from tagcast.youtube import AgeRestricted
+        studio = self.yt(lambda q, playlists=False: [video("Obscure Song", "Coldplay - Topic", vid="v2")])
+        yt, called = studio.youtube, []
+        yt.on_failed = lambda item: called.append(item)
+
+        def fetch(url, folder, hook):
+            raise AgeRestricted("Age-restricted on YouTube (sign-in needed).")
+        yt._fetch_audio = fetch
+        yt.add_song("Coldplay", "Obscure Song", "Parachutes")
+        job = studio.download_manager.next_queued("youtube")
+        yt.active = job["id"]
+        yt.process(job)
+        for _ in range(100):
+            if called:
+                break
+            import time
+            time.sleep(0.01)
+        item = studio.download_manager.item(job["id"])
+        self.assertEqual(item["state"], "failed")
+        self.assertIn("Age-restricted", item["note"])
+        self.assertEqual(called[0]["id"], job["id"])
+
+    def test_the_age_gate_message_is_recognised(self):
+        from tagcast.youtube import AGE_GATE
+        self.assertTrue(AGE_GATE.search("[youtube] J3oB6NhQeEg: Sign in to confirm your age. This video may be inappropriate for some users."))
+        self.assertFalse(AGE_GATE.search("HTTP Error 403: Forbidden"))
+
+    def test_the_fallback_skips_the_bad_video_and_tries_the_next_upload(self):
+        entries = [video("Obscure Song", "Coldplay - Topic", vid="bad"), video("Obscure Song", "Coldplay - Topic", vid="good")]
+        studio = self.yt(lambda q, playlists=False: entries)
+        studio.discography.youtube_fallback({"id": "x", "kind": "song", "title": "Obscure Song", "artist": "Coldplay",
+                                             "album": "Parachutes", "payload": {"id": "bad"}})
+        queued = [i for i in studio.download_manager.state["queue"] if i.get("source") == "youtube"]
+        self.assertEqual([i["payload"]["id"] for i in queued], ["good"])
+
+    def test_a_playlist_with_far_more_videos_than_the_album_has_is_skipped(self):
+        big = [{"id": f"t{i}xxxxxx", "title": f"Track {i}", "channel": "Moka Only - Topic"} for i in range(30)]
+        small = [{"id": f"s{i}xxxxxx", "title": f"Song {i}", "channel": "Moka Only - Topic"} for i in range(19)]
+
+        def search(query, playlists=False):
+            if "music.youtube.com/search" in query:
+                return [{"title": "Choose One", "url": "big"}, {"title": "Choose One", "url": "small"}]
+            return {"big": big, "small": small}.get(query, [])
+        studio = self.yt(search)
+        self.assertEqual(len(studio.youtube.find_album("Moka Only", "Choose One")["tracks"]), 30)
+        self.assertEqual(len(studio.youtube.find_album("Moka Only", "Choose One", expected=19)["tracks"]), 19)
+
+    def test_videos_over_twenty_minutes_are_not_queued_as_album_songs(self):
+        songs = [{"id": f"t{i}xxxxxx", "title": f"Track {i}", "channel": "Moka Only - Topic", "duration": 200} for i in range(4)]
+        songs.append({"id": "longxxxxxx", "title": "Unreleased", "channel": "Moka Only - Topic", "duration": 3480})
+        studio = self.yt(lambda q, playlists=False: [{"title": "Airport 2", "url": "u"}] if "music.youtube" in q else songs if q == "u" else [])
+        result = studio.youtube.add_album("Moka Only", "Airport 2")
+        titles = [i["title"] for i in studio.download_manager.state["queue"] if i.get("source") == "youtube"]
+        self.assertEqual((len(titles), result["skipped_long"]), (4, 1))
+        self.assertNotIn("Unreleased", titles)
+
+    def test_cookie_settings_are_checked_and_used(self):
+        import tempfile
+        studio = self.yt(lambda q, playlists=False: [])
+        yt = studio.youtube
+        self.assertEqual(yt._cookie_opts(), {})
+        self.assertEqual(yt.save_settings({"cookies_browser": "Firefox"})["cookies_browser"], "firefox")
+        self.assertEqual(yt._cookie_opts(), {"cookiesfrombrowser": ("firefox",)})
+        with self.assertRaises(YouTubeError):
+            yt.save_settings({"cookies_browser": "netscape"})
+        with self.assertRaises(YouTubeError):
+            yt.save_settings({"cookies_file": "C:\\nope\\cookies.txt"})
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+            f.write("# Netscape HTTP Cookie File\n")
+        view = yt.save_settings({"cookies_file": f.name})
+        self.assertEqual((yt._cookie_opts(), view["cookies_ok"]), ({"cookiefile": f.name}, True))
+        self.assertTrue(yt.save_settings({"enabled": False}) and not yt.state["enabled"])
+
+if __name__ == "__main__":
+    unittest.main()

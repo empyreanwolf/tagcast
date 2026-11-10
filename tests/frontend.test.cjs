@@ -11657,3 +11657,81 @@ test('fork v90: the lyrics card size is remembered and defaults to medium', asyn
   assert.match(p.run('headerLyricInner(ln,true,true)'),/^<span class="kar-line">.*<\/span><small class="header-lyric-tr">Hello<\/small>$/);
   assert.equal(p.run('headerLyricInner(ln,true,false)'),'你好<small class="header-lyric-tr">Hello</small>');
 });
+
+test('fork v91: a wishlist row offers Search as… and a one-click credit suggestion', async () => {
+  const p=page(); await settle();
+  p.run('globalThis.row={id:"w1",title:"Shakespeare Science",artist:"Jus Allah",album:"",kind:"album",tries:3,note:"x",next_try:1}');
+  let html=p.run('wishlistSearchAsHtml(row)');
+  assert.match(html,/data-wishlist="searchas-open" data-wish-id="w1"/);
+  assert.doesNotMatch(html,/data-wishlist="suggest"/);
+  assert.doesNotMatch(html,/wish-sa-artist/);
+  p.run('row.suggest="Poetic Death"; missingView.searchAs="w1"');
+  html=p.run('wishlistSearchAsHtml(row)');
+  assert.match(html,/data-wishlist="suggest"[^>]*data-wish-artist="Poetic Death"[^>]*data-wish-title="Shakespeare Science"/);
+  assert.match(html,/id="wish-sa-artist"[^>]*value="Poetic Death"/);
+  assert.match(html,/id="wish-sa-title"[^>]*value="Shakespeare Science"/);
+});
+
+test('fork v91: Skip duplicates keeps the first copy of a song only repeated inside the list', async () => {
+  const p=page(); await settle();
+  p.run(`uploaderView.data = {rows: [{id:"a",name:"01 - Flow.mp3"},{id:"b",name:"06 - Flow.mp3"},{id:"c",name:"09 - Flow.mp3"},{id:"d",name:"02 - Kems.mp3"}]};
+    uploaderView.dupes = {
+      a: [{where:"folder",name:"06 - Flow.mp3"},{where:"folder",name:"09 - Flow.mp3"}],
+      b: [{where:"folder",name:"01 - Flow.mp3"},{where:"folder",name:"09 - Flow.mp3"}],
+      c: [{where:"folder",name:"01 - Flow.mp3"},{where:"folder",name:"06 - Flow.mp3"}],
+      d: [{where:"ibroadcast",title:"Kem's Theme (Intro)"}]}`);
+  assert.deepEqual(JSON.parse(p.run("JSON.stringify(uploaderSkipIds().sort())")),["b","c","d"]);
+});
+
+test('fork v91: YouTube settings offer yt-dlp update and optional sign-in cookies', async () => {
+  const p=page(); await settle();
+  p.run('youtubeView.status = {enabled:true, installed:true, version:"2025.1.1", cookies_browser:"firefox", cookies_file:"", cookies_ok:true, browsers:["firefox","edge","chrome"], updating:false, update_note:"yt-dlp is up to date (2025.1.1)"}');
+  const html=p.run("youtubeSettingsHtml()");
+  assert.match(html,/data-youtube="update"/);
+  assert.match(html,/<option value="firefox" selected>firefox<\/option>/);
+  assert.match(html,/data-youtube-cookies="file"/);
+  assert.match(html,/Cookies are used for YouTube downloads/);
+  assert.match(html,/up to date/);
+  p.run('youtubeView.status.updating = true');
+  assert.match(p.run("youtubeSettingsHtml()"),/data-youtube="update" disabled>Updating yt-dlp…/);
+});
+
+test('fork v91: clicking an Upload row opens a tag popup; several files show <keep>; Previous/Next stage your typing', async () => {
+  const p=page(); await settle();
+  p.run(`uploaderView.data = {settings: {folder: "", genres: []}, genres: ["Hip Hop"], failed: [], progress: null, connected: true, last_upload: 0, scanned: 1,
+    rows: [{id:"a",name:"01 - Kems Theme.mp3",folder:"",title:"Kems Theme",artist:"1200 Techniques",album_artist:"",album:"Consistency Theory",track_no:1,disc:1,year:"",genre:"Hip Hop",has_cover:false,format:"mp3",size:1000,created:1700000000,editable:true},
+           {id:"b",name:"02 - B-Boy.mp3",folder:"",title:"B-Boy",artist:"1200 Techniques",album_artist:"",album:"Consistency Theory",track_no:2,disc:1,year:"",genre:"Hip Hop",has_cover:true,format:"mp3",size:2000,created:1700000000,editable:true}]};
+    uploaderView.sel = new Set(["a"]); uploaderView.pop = true; uploaderView.popDraft = {};`);
+  let html = p.run("uploaderPopupHtml()");
+  assert.match(html, /01 - Kems Theme\.mp3/);
+  assert.match(html, /data-uploader-pop="title" maxlength="300" value="Kems Theme"/);
+  assert.match(html, /1 of 2/);
+  assert.match(html, /data-uploader="pop-prev" disabled/);
+  assert.doesNotMatch(html, /data-uploader="pop-next" disabled/);
+  p.run('uploaderView.sel = new Set(["a","b"])');
+  html = p.run("uploaderPopupHtml()");
+  assert.match(html, /2 files selected/);
+  assert.match(html, /data-uploader-pop="title"[^>]*placeholder="&lt;keep&gt;"/);
+  assert.match(html, /data-uploader-pop="artist" maxlength="300" value="1200 Techniques"/);
+  p.run('uploaderView.sel = new Set(["a"]); uploaderView.popDraft = {album: "Choose One"}; uploaderPopGo(1)');
+  assert.equal(p.run('[...uploaderView.sel].join()'), "b");
+  assert.equal(p.run('uploaderView.edits.get("a").album'), "Choose One");
+  assert.equal(p.run('uploaderView.edits.has("b")'), false);
+  p.run('uploaderView.pop = false');
+  assert.equal(p.run("uploaderPopupHtml()"), "");
+});
+
+test('fork v91: the Track numbers page lists outcomes and the Upload tools no longer auto-number by order', async () => {
+  const p=page(); await settle();
+  p.run('state.mode = "live"; state.connection.connected = true');
+  p.run(`trackNumbersView.data = {running:false, paused:false, message:"", progress:null, jobs:[{album_id:"1",artist:"Kems",album:"Choose One",status:"numbered",source:"MusicBrainz",note:"9 of 9 songs numbered."}],
+    counts:{numbered:1,none:2}, total:4, remaining:1, review:[{album_id:"7",artist:"A",album:"B",missing:["Intro"],source:"Discogs"}], review_count:1, discogs:false}`);
+  p.run("renderTrackNumbers()");
+  const html=p.nodes.get('#track-numbers-content').innerHTML;
+  assert.match(html,/id="tn-run"/);
+  assert.match(html,/id="tn-retry"/);
+  assert.match(html,/Numbered<\/span>|pill">Numbered/);
+  assert.match(html,/Not on that release: Intro/);
+  assert.match(html,/Discogs is off/);
+  assert.doesNotMatch(p.run("uploaderToolsHtml()"),/Auto-number/);
+});

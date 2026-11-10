@@ -19,6 +19,7 @@ be imported; importing twice adds nothing twice.
 """
 
 import csv
+import difflib
 import io
 import json
 import logging
@@ -65,6 +66,33 @@ def song_key(title):
 
 def album_key(title):
     return match.simplified(title_key(match.clean(title)))
+
+
+# Fork v91: a typo ("Feaks"), a spelling ("Kems" / "Kem's") or a tag in brackets ("(Intro)") no longer hides a song
+# you already have. Remix / live / mix and the like still make it another song.
+_VERSION_RE = re.compile(r"\b(remix|mix|live|edit|instrumental|acoustic|demo|dub|cover|karaoke|acapella|a cappella|"
+                         r"extended|radio|club|reprise|unplugged|session|rework|vip|remaster(?:ed)?)\b", re.I)
+_ANY_BRACKET = re.compile(r"\s*[(\[（【][^)\]）】]*[)\]）】]")
+
+
+def title_versions(title):
+    return frozenset(w.lower() for w in _VERSION_RE.findall(str(title or "")))
+
+
+def fuzzy_title_key(title):
+    value = FEAT_TAIL.sub("", FEAT_BRACKET.sub("", match.clean(title)))
+    value = _ANY_BRACKET.sub(lambda m: m.group(0) if _VERSION_RE.search(m.group(0)) else "", value)
+    return match.simplified(title_key(value))
+
+
+def close_title(a, b):
+    """True for the same song written a little differently (same version words, key ratio >= 0.9)."""
+    if title_versions(a) != title_versions(b):
+        return False
+    ka, kb = fuzzy_title_key(a), fuzzy_title_key(b)
+    if min(len(ka), len(kb)) < 5:
+        return False
+    return ka == kb or difflib.SequenceMatcher(None, ka, kb).ratio() >= 0.9
 
 
 # v65+: "(Bonus Edition)", "[Deluxe]", " - Remastered 2011" and the like name an edition of the same album.
@@ -121,7 +149,7 @@ class LibraryIndex:
     """Songs and albums of one library copy, keyed for the duplicate check."""
 
     def __init__(self, library):
-        self.songs, self.albums, self.album_bases = {}, {}, {}
+        self.songs, self.albums, self.album_bases, self.by_artist = {}, {}, {}, {}
         sets = {}
         for album_id in library.album_ids():
             album = library.albums[album_id]
@@ -139,10 +167,12 @@ class LibraryIndex:
                 names = [library.artist_name(track.get("artist_id")),
                          *(library.artist_name(e["artist_id"]) for e in library.extra_artists(track)
                            if e.get("type") in (None, "", "artist", "band"))]
-                self.songs.setdefault(song_key(track.get("title")), []).append({
-                    "keys": artist_keys(*names) | entry["keys"], "named": _named(*names) or entry["named"],
-                    "title": text(track.get("title")),
-                    "artist": names[0], "album": album_name, "track_id": track_id, "album_id": album_id})
+                hit = {"keys": artist_keys(*names) | entry["keys"], "named": _named(*names) or entry["named"],
+                       "title": text(track.get("title")),
+                       "artist": names[0], "album": album_name, "track_id": track_id, "album_id": album_id}
+                self.songs.setdefault(song_key(track.get("title")), []).append(hit)
+                for key in hit["keys"]:
+                    self.by_artist.setdefault(key, []).append(hit)
         for entry in sets.values():
             self.albums.setdefault(album_key(entry["title"]), []).append(entry)
             self.album_bases.setdefault(album_base_key(entry["title"]), []).append(entry)
@@ -150,11 +180,13 @@ class LibraryIndex:
 
 class HistoryIndex:
     def __init__(self, entries):
-        self.songs, self.albums = {}, {}
+        self.songs, self.albums, self.by_artist = {}, {}, {}
         for entry in entries:
             artists = entry.get("artists", [])
             keys, named = artist_keys(*artists), _named(*artists)
             self.songs.setdefault(song_key(entry.get("title")), []).append((keys, named, entry))
+            for key in keys:
+                self.by_artist.setdefault(key, []).append((keys, named, entry))
             if entry.get("album"):
                 self.albums.setdefault(album_key(entry["album"]), []).append((keys, named, entry))
 
@@ -179,11 +211,27 @@ def check_item(item, library_index, history_index):
             if _overlap(keys, named, hit["keys"], hit["named"]):
                 found.append({"where": "ibroadcast", "title": hit["title"], "artist": hit["artist"],
                               "album": hit["album"], "album_id": hit["album_id"]})
+        if not found and keys and library_index:
+            # Fork v91: the same artist has a song with a slightly different title.
+            seen = set()
+            for key in keys:
+                for hit in getattr(library_index, "by_artist", {}).get(key, []):
+                    if hit["track_id"] not in seen and close_title(item["title"], hit["title"]):
+                        seen.add(hit["track_id"])
+                        found.append({"where": "ibroadcast", "title": hit["title"], "artist": hit["artist"],
+                                      "album": hit["album"], "album_id": hit["album_id"], "close": True})
         if found:
             return {"status": "have", "you_have": found[:EXAMPLES]}
         for other, other_named, entry in history_index.songs.get(song_key(item["title"]), []):
             if _overlap(keys, named, other, other_named):
                 found.append(_history_hit(entry))
+        if not found and keys:
+            seen = set()
+            for key in keys:
+                for other, other_named, entry in getattr(history_index, "by_artist", {}).get(key, []):
+                    if id(entry) not in seen and close_title(item["title"], entry.get("title", "")):
+                        seen.add(id(entry))
+                        found.append({**_history_hit(entry), "close": True})
         return {"status": "downloaded" if found else "new", "you_have": found[-EXAMPLES:]}
     partly = []
     for hit in library_index.albums.get(album_key(item["title"]), []) if library_index else []:
@@ -655,10 +703,17 @@ class Downloads:
         with self.lock:
             waiting = {self._same(i) for i in self.state["queue"] if i.get("state") == "queued"} \
                 | {self._same(i) for i in self.state["held"]}
+            batch = set()
             for item in cleaned:
                 if self._same(item) in waiting:
                     continue  # already queued or already waiting for you
                 waiting.add(self._same(item))
+                if item["kind"] == "song":
+                    # Fork v91: one album run never fetches the same song twice (an edition listed it again).
+                    twice = (song_key(item["title"]), tuple(sorted(artist_keys(item["artist"]))) if item["artist"] else ())
+                    if twice in batch:
+                        continue
+                    batch.add(twice)
                 result = check_item(item, library_index, history_index)
                 if result["status"] == "new" and pre_check:
                     hit = pre_check(item)

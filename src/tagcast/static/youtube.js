@@ -55,8 +55,15 @@ function youtubeHtml() {
 function youtubeSettingsHtml() {
   const st = youtubeView.status;
   if (!st) { youtubeLoad(); return '<p class="muted">Loading…</p>'; }
+  const browsers = st.browsers || [];
   return `<label class="checkline"><input type="checkbox" data-youtube-enabled ${st.enabled ? "checked" : ""}> Try YouTube first for every download (then Galaxy, Bandcamp, Soulseek)</label>
-    <p class="muted">${st.installed ? `yt-dlp ${escapeHtml(st.version)} is installed. If YouTube stops working, update it: <code>pip install -U yt-dlp</code>.` : "yt-dlp is not installed yet. Restart Tagcast once, or run <code>pip install yt-dlp</code>."}</p>`;
+    <p class="muted">${st.installed ? `yt-dlp ${escapeHtml(st.version)} is installed.` : "yt-dlp is not installed yet. Restart Tagcast once, or run <code>pip install yt-dlp</code>."}
+      <button type="button" class="button small" data-youtube="update" ${st.updating || !st.installed ? "disabled" : ""}>${st.updating ? "Updating yt-dlp…" : "Update yt-dlp"}</button>
+      ${st.update_note ? `<span role="status">${escapeHtml(st.update_note)}</span>` : ""}</p>
+    <p class="muted">Age-restricted videos need a signed-in YouTube. Without it, Tagcast tries another upload, then Galaxy, Bandcamp and Soulseek. To download them from YouTube, use your browser's sign-in (Firefox or Edge work best on Windows; Chrome often blocks it) or a <code>cookies.txt</code> file.</p>
+    <div class="dl-actions"><label>Sign-in from <select data-youtube-cookies="browser"><option value="">none</option>${browsers.map(b => `<option value="${escapeHtml(b)}" ${st.cookies_browser === b ? "selected" : ""}>${escapeHtml(b)}</option>`).join("")}</select></label>
+      <label>or cookies.txt <input class="dl-path" data-youtube-cookies="file" maxlength="500" placeholder="C:\\path\\cookies.txt" value="${escapeHtml(st.cookies_file || "")}"></label>
+      <span class="muted">${st.cookies_ok ? "Cookies are used for YouTube downloads." : "No cookies set."}</span></div>`;
 }
 
 document.addEventListener("click", async event => {
@@ -71,6 +78,29 @@ document.addEventListener("click", async event => {
     downloadsView.queue = (await api("/api/downloads/queue")).queue;
   } catch (error) { setActionStatus("#downloads-status", error.message || String(error)); }
   view.busy = false; renderDownloads();
+});
+
+// Fork v91: yt-dlp update and the optional YouTube sign-in (cookies).
+document.addEventListener("click", async event => {
+  if (!event.target.closest?.('[data-youtube="update"]')) return;
+  try {
+    youtubeView.status = await api("/api/youtube/update", {});
+    renderDownloads();
+    for (let i = 0; i < 120 && youtubeView.status.updating; i++) {
+      await new Promise(done => setTimeout(done, 2000));
+      youtubeView.status = await api("/api/youtube/status");
+      renderDownloads();
+    }
+  } catch (error) { setActionStatus("#downloads-status", error.message || String(error)); }
+});
+
+document.addEventListener("change", async event => {
+  const cookie = event.target.closest?.("[data-youtube-cookies]");
+  if (!cookie) return;
+  const body = cookie.dataset.youtubeCookies === "browser" ? {cookies_browser: cookie.value} : {cookies_file: cookie.value.trim()};
+  try { youtubeView.status = await api("/api/youtube/settings", body); }
+  catch (error) { setActionStatus("#downloads-status", error.message || String(error)); }
+  renderDownloads();
 });
 
 document.addEventListener("change", async event => {

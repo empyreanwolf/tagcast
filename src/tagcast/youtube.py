@@ -12,7 +12,11 @@ Downloading copyrighted music from YouTube can break YouTube's terms and the law
 """
 
 import logging
+import os
 import re
+import threading
+import sys
+import subprocess
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -35,6 +39,15 @@ OTHER_VERSIONS = ("live", "remix", "cover", "karaoke", "instrumental", "sped up"
 
 class YouTubeError(LibraryError):
     pass
+
+
+class AgeRestricted(JobFailed):
+    """Fork v91: YouTube only serves this video to a signed-in, age-verified account."""
+
+
+AGE_GATE = re.compile(r"confirm your age|age[- ]restricted|inappropriate for some users", re.I)
+COOKIE_BROWSERS = ("firefox", "edge", "chrome", "brave", "chromium", "opera", "vivaldi", "safari")
+LONG_SECONDS = 20 * 60   # a video this long is not one song of an album (a full-album upload, a mix)
 
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -200,6 +213,10 @@ class YtdlpWorker(FileWorker):
     wait_text = "Reading the YouTube video…"
     _fetch_audio = None
 
+    def _cookie_opts(self):
+        """yt-dlp options for a signed-in YouTube (fork v91); nothing unless the YouTube worker has them."""
+        return {}
+
     # -- downloading (the worker) ------------------------------------------------------------
 
     def _yt_fetch(self, url, folder, hook):
@@ -210,6 +227,7 @@ class YtdlpWorker(FileWorker):
         opts = {"quiet": True, "no_warnings": True, "noplaylist": True, "socket_timeout": 20, "retries": 3,
                 "fragment_retries": 3, "format": self.formats, "outtmpl": str(folder / "audio.%(ext)s"),
                 "progress_hooks": [hook], "overwrites": True}
+        opts.update(self._cookie_opts())
         ffmpeg = ffmpeg_path()
         if ffmpeg:
             opts.update(format="bestaudio/best", ffmpeg_location=ffmpeg,
@@ -223,6 +241,9 @@ class YtdlpWorker(FileWorker):
             reason = str(error)
             if isinstance(error, yt_dlp.utils.DownloadError) and error.exc_info and isinstance(error.exc_info[1], (StopRequested, JobCancelled)):
                 raise error.exc_info[1]
+            if AGE_GATE.search(reason):
+                raise AgeRestricted("Age-restricted on YouTube (sign-in needed). Tagcast tries other sources; "
+                                    "to download it from YouTube, set YouTube cookies in Settings.") from None
             raise JobFailed(f"YouTube download failed ({plain_error(reason)[:160]}). Updating yt-dlp often fixes this.") from None
         files = sorted((p for p in folder.glob("audio.*") if p.suffix not in (".part", ".ytdl", ".webp", ".jpg", ".png")),
                        key=lambda p: p.suffix != ".mp3")
@@ -316,7 +337,29 @@ class YouTube(YtdlpWorker):
         self.state.setdefault("enabled", True)
         self._search = search or self._yt_search
         self._fetch_audio = fetch_audio or self._yt_fetch
+        self.on_failed = None  # fork v91: set by Discography: an age-restricted video tries another upload, then other sources
+        self.updating = False
+        self.update_note = ""
+        self._update_lock = threading.Lock()
         super().__init__(studio, None)
+
+    def _cookie_opts(self):
+        file = str(self.state.get("cookies_file") or "")
+        browser = str(self.state.get("cookies_browser") or "")
+        if file and os.path.isfile(file):
+            return {"cookiefile": file}
+        if browser in COOKIE_BROWSERS:
+            return {"cookiesfrombrowser": (browser,)}
+        return {}
+
+    def process(self, job):
+        try:
+            super().process(job)
+        except AgeRestricted as error:
+            jid = job["id"]
+            self.manager.update_item(jid, persist=True, state="failed", note=str(error), speed=0, eta=0)
+            if self.on_failed:
+                threading.Thread(target=self.on_failed, args=(self.manager.item(jid),), daemon=True, name="youtube-fallback").start()
 
     # -- availability and settings --------------------------------------------------------------
 
@@ -340,14 +383,56 @@ class YouTube(YtdlpWorker):
         return bool(self.state.get("enabled")) and (self.installed() or self._search is not self._yt_search)
 
     def settings_view(self):
-        return {"enabled": bool(self.state.get("enabled")), "installed": self.installed(), "version": self.version()}
+        return {"enabled": bool(self.state.get("enabled")), "installed": self.installed(), "version": self.version(),
+                "cookies_browser": str(self.state.get("cookies_browser") or ""),
+                "cookies_file": str(self.state.get("cookies_file") or ""),
+                "cookies_ok": bool(self._cookie_opts()), "browsers": list(COOKIE_BROWSERS),
+                "updating": self.updating, "update_note": self.update_note}
 
     def save_settings(self, body):
-        if not isinstance(body, dict) or "enabled" not in body:
+        if not isinstance(body, dict) or not any(k in body for k in ("enabled", "cookies_browser", "cookies_file")):
             raise YouTubeError("Choose whether to use YouTube.")
-        self.state["enabled"] = body["enabled"] is True
+        if "enabled" in body:
+            self.state["enabled"] = body["enabled"] is True
+        if "cookies_browser" in body:
+            browser = str(body["cookies_browser"] or "").strip().lower()
+            if browser and browser not in COOKIE_BROWSERS:
+                raise YouTubeError("Choose one of: " + ", ".join(COOKIE_BROWSERS) + ".")
+            self.state["cookies_browser"] = browser
+        if "cookies_file" in body:
+            file = str(body["cookies_file"] or "").strip().strip('"')
+            if file and (len(file) > 500 or not os.path.isfile(file)):
+                raise YouTubeError("That cookies file does not exist. Paste the full path of a cookies.txt file.")
+            self.state["cookies_file"] = file
         self.studio._write(STATE_FILE, self.state)
         return self.settings_view()
+
+    def update_ytdlp(self):
+        """Fork v91: pip install --upgrade yt-dlp in the background; the new version is used right away."""
+        with self._update_lock:
+            if self.updating:
+                return self.settings_view()
+            self.updating, self.update_note = True, ""
+        threading.Thread(target=self._update_ytdlp, daemon=True, name="ytdlp-update").start()
+        return self.settings_view()
+
+    def _update_ytdlp(self):
+        before = self.version()
+        try:
+            out = subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", "yt-dlp"],
+                                 capture_output=True, text=True, timeout=600,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if out.returncode != 0:
+                raise OSError((out.stderr or out.stdout or "pip failed").strip()[-200:])
+            for name in [n for n in sys.modules if n == "yt_dlp" or n.startswith("yt_dlp.")]:
+                del sys.modules[name]  # the next download loads the new version
+            after = self.version()
+            self.update_note = f"yt-dlp is up to date ({after})" if after == before else f"yt-dlp updated {before} → {after}"
+        except (OSError, subprocess.SubprocessError) as error:
+            self.update_note = f"Could not update yt-dlp: {error}"
+            log.warning(self.update_note)
+        finally:
+            self.updating = False
 
     # -- searching ---------------------------------------------------------------------------
 
@@ -373,13 +458,14 @@ class YouTube(YtdlpWorker):
             raise YouTubeError(f"YouTube search failed ({plain_error(error)[:160]})") from None
         return list(info.get("entries") or [])
 
-    def find_song(self, artist, title, seconds=0):
-        entries = self._search(f"{artist} {title}")
+    def find_song(self, artist, title, seconds=0, exclude=()):
+        skip = set(exclude or ())
+        entries = [e for e in self._search(f"{artist} {title}") if e.get("id") not in skip]
         self._last_entries = entries
         found = best_video(entries, artist, title, seconds)
         parts = artist_parts(artist)
         for part in parts[1:] if not found else []:  # v72: "PACT派克特": search each name part on its own
-            more = [e for e in self._try(f"{part} {title}") if e.get("id") not in {x.get("id") for x in entries}]
+            more = [e for e in self._try(f"{part} {title}") if e.get("id") not in {x.get("id") for x in entries} and e.get("id") not in skip]
             entries = entries + more
             self._last_entries = entries
             found = best_video(entries, artist, title, seconds)
@@ -427,28 +513,32 @@ class YouTube(YtdlpWorker):
                 return None
         return songs
 
-    def find_album(self, artist, album):
+    def find_album(self, artist, album, expected=None):
         """This artist's album: YouTube Music's album search first (v63, it lists "Artist - Topic" albums with
-        the artist), then plain YouTube's playlist search. Anything less sure is None so the next source is tried."""
+        the artist), then plain YouTube's playlist search. Anything less sure is None so the next source is tried.
+        Fork v91: with ``expected`` (how many songs the album has) a playlist that holds far more videos (several
+        releases mixed, remixes added) is skipped."""
+        def fits(songs):
+            return bool(songs) and (not expected or len(songs) <= expected + 2)
         try:
             music = self._search(f"https://music.youtube.com/search?q={quote(f'{artist} {album}')}#albums")
         except LibraryError:
             music = []
         for entry in music[:6]:
             songs = self._album_from(entry, artist, album, need_artist=False)
-            if songs:
+            if fits(songs):
                 return {"title": album, "artist": artist, "tracks": songs}
         results = self._try(f"{artist} {album} album", playlists=True)[:6]
         for entry in results:
             songs = self._album_from(entry, artist, album, need_artist=True)
-            if songs:
+            if fits(songs):
                 return {"title": album, "artist": artist, "tracks": songs}
         for part in artist_parts(artist)[1:]:  # v72: the other spelling of the name finds playlists too
             more = self._try(f"{part} {album}", playlists=True)[:6]
             results += [e for e in more if e not in results]
         for entry in results:
             songs = self._loose_album(entry, artist, album)
-            if songs:
+            if fits(songs):
                 return {"title": album, "artist": artist, "tracks": songs}
         return None
 
@@ -501,24 +591,32 @@ class YouTube(YtdlpWorker):
         self.ensure_worker()
         return result
 
-    def add_song(self, artist, title, album=""):
+    def add_song(self, artist, title, album="", exclude=()):
         artist, title = match.clean(artist), match.clean(title)
         if not artist or not title:
             raise YouTubeError("Each song needs an artist and a title.")
-        video = self.find_song(artist, title)
+        video = self.find_song(artist, title, exclude=exclude)
         if not video:
             raise YouTubeError(f"query “{artist} {title}”: no official audio")
         return self._submit([self._item(artist, title, match.clean(album), video, query=f"{artist} {title}")])
 
-    def add_album(self, artist, album):
-        found = self.find_album(match.clean(artist), match.clean(album))
+    def add_album(self, artist, album, expected=None):
+        found = self.find_album(match.clean(artist), match.clean(album), expected)
         query = f"{match.clean(artist)} {match.clean(album)}"
         if not found:
-            raise YouTubeError(f"query “{query}”: no matching album")
-        total = len(found["tracks"])
+            raise YouTubeError(f"query “{query}”: no matching album" + (f" with about {expected} songs" if expected else ""))
+        # Fork v91: a video over 20 minutes is a full-album upload or a mix, never one song of the album.
+        tracks = [t for t in found["tracks"] if not (t.get("duration") or 0) > LONG_SECONDS]
+        long = len(found["tracks"]) - len(tracks)
+        if not tracks:
+            raise YouTubeError(f"query “{query}”: every video is over {LONG_SECONDS // 60} minutes")
+        total = len(tracks)
         items = [self._item(artist, match.clean(t["title"]), album, t, number=i + 1, total=total, query=query)
-                 for i, t in enumerate(found["tracks"])]
-        return self._submit(items)
+                 for i, t in enumerate(tracks)]
+        result = self._submit(items)
+        if long:
+            result["skipped_long"] = long
+        return result
 
     def try_item(self, item_id):
         """v65: "⬇ Try YouTube" on a failed download: look the song up on YouTube; the failed row goes once queued."""

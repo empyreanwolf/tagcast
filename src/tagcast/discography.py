@@ -134,6 +134,9 @@ class Discography:
         galaxy = getattr(studio, "galaxy", None)
         if galaxy is not None:
             galaxy.on_failed = self.galaxy_fallback
+        youtube = getattr(studio, "youtube", None)
+        if youtube is not None:
+            youtube.on_failed = self.youtube_fallback
 
     @property
     def manager(self):
@@ -545,7 +548,7 @@ class Discography:
                     continue
                 # full_album on an appearance: search by album title alone (we don't know the main artist)
                 dl_name = "" if full_album and appearance else job["name"]
-                source, note = self._album(dl_name, title, a.get("status"), a.get("deezer_id"), ctx)
+                source, note = self._album(dl_name, title, a.get("status"), a.get("deezer_id"), ctx, a.get("tracks"))
             except Exception as error:  # one album never stops the rest
                 log.exception("Getting %s failed", title)
                 source, note = None, str(error)
@@ -609,12 +612,12 @@ class Discography:
         youtube = getattr(self.studio, "youtube", None)
         return youtube if youtube is not None and youtube.enabled() else None
 
-    def _youtube_album(self, name, title, why=None):
+    def _youtube_album(self, name, title, why=None, expected=None):
         youtube = self._youtube()
         if youtube is None:
             return None
         try:
-            return "YouTube", self._summary(youtube.add_album(name, title)) + " (lossy, from YouTube)"
+            return "YouTube", self._summary(youtube.add_album(name, title, expected)) + " (lossy, from YouTube)"
         except LibraryError as error:
             log.info("YouTube album skipped: %s", error)
             reason = str(error)
@@ -625,12 +628,12 @@ class Discography:
             why.append(f"YouTube · {reason}")
         return None
 
-    def _youtube_song(self, name, title, album="", why=None):
+    def _youtube_song(self, name, title, album="", why=None, exclude=()):
         youtube = self._youtube()
         if youtube is None:
             return None
         try:
-            return "YouTube", self._summary(youtube.add_song(name, title, album)) + " (lossy, from YouTube)"
+            return "YouTube", self._summary(youtube.add_song(name, title, album, exclude=exclude)) + " (lossy, from YouTube)"
         except LibraryError as error:
             log.info("YouTube song skipped: %s", error)
             reason = str(error)
@@ -648,7 +651,7 @@ class Discography:
             return galaxy_note
         return NOT_FOUND + (f" ({'; '.join(why)})" if why else "")
 
-    def _album(self, name, title, status, deezer_id, ctx):
+    def _album(self, name, title, status, deezer_id, ctx, expected=None):
         tried = []
         if chinese_name(name):
             # v70: a Chinese artist: Galaxy first (NetEase's own album and track list), then YouTube.
@@ -658,13 +661,13 @@ class Discography:
                 return source, note
             galaxy_note = note
             self._step(ctx, f"{title}: searching YouTube…")
-            found = self._youtube_album(name, title, tried)
+            found = self._youtube_album(name, title, tried, expected)
             if found:
                 return found
         else:
             # 0. YouTube (v59) when it is switched on: an album playlist of this artist
             self._step(ctx, f"{title}: searching YouTube…")
-            found = self._youtube_album(name, title, tried)
+            found = self._youtube_album(name, title, tried, expected)
             if found:
                 return found
             # 1. Galaxy: every way (album, then the title as a song, then the artist's songs)
@@ -686,6 +689,42 @@ class Discography:
             result = soulseek.add([{"kind": "album", "artist": name, "album": title, "fallback": True}])
             return "Soulseek", self._summary(result) + " (wishlist if Soulseek has nothing)"
         return None, self._not_found(galaxy_note, tried)
+
+    def aliases(self, name):
+        """Fork v91: other names MusicBrainz lists for exactly this artist (an alias is the same person), at most 4."""
+        try:
+            found = (self.http.json(f"{MB}/artist", {"query": f'artist:"{name}"', "limit": 5, "fmt": "json"}) or {}).get("artists") or []
+            artist = next((a for a in found if match.match_key(a.get("name")) == match.match_key(name)), None)
+            if not artist:
+                return []
+            detail = self.http.json(f"{MB}/artist/{artist['id']}", {"inc": "aliases", "fmt": "json"}) or {}
+            out = []
+            for alias in detail.get("aliases") or []:
+                value = match.clean(alias.get("name") or "")
+                if value and match.match_key(value) != match.match_key(name) and value not in out:
+                    out.append(value)
+            return out[:4]
+        except Exception as error:
+            log.info("MusicBrainz aliases for %s failed: %s", name, error)
+            return []
+
+    def credited_as(self, name, title):
+        """Fork v91: a different artist name MusicBrainz credits an album with this exact title to, when there is
+        exactly one ("Jus Allah" / "Shakespeare Science" -> "Poetic Death"). Only ever a suggestion."""
+        try:
+            groups = (self.http.json(f"{MB}/release-group", {"query": f'releasegroup:"{title}" AND primarytype:album', "limit": 8, "fmt": "json"}) or {}).get("release-groups") or []
+            names = set()
+            for group in groups:
+                if sim(group.get("title") or "", title) < 0.95:
+                    continue
+                for credit in group.get("artist-credit") or []:
+                    credited = match.clean((credit.get("artist") or {}).get("name") or credit.get("name") or "")
+                    if credited and match.match_key(credited) != match.match_key(name):
+                        names.add(credited)
+            return names.pop() if len(names) == 1 else ""
+        except Exception as error:
+            log.info("MusicBrainz credit lookup for %s failed: %s", title, error)
+            return ""
 
     def _spellings(self, name):
         """Your spelling first, then NetEase's for a Chinese name ("派克特Pact", "派克特（PACT）") (v70)."""
@@ -737,7 +776,7 @@ class Discography:
             return None, str(error)
         return None, NOT_FOUND
 
-    def _song(self, name, title, album, ctx, skip_galaxy=False):
+    def _song(self, name, title, album, ctx, skip_galaxy=False, skip_youtube=False, exclude=()):
         tried = []
         if chinese_name(name) and not skip_galaxy:
             # v70: a Chinese artist: Galaxy first, then YouTube.
@@ -745,11 +784,11 @@ class Discography:
             if source:
                 return source, note
             galaxy_note = note
-            found = self._youtube_song(name, title, album, tried)
+            found = None if skip_youtube else self._youtube_song(name, title, album, tried, exclude)
             if found:
                 return found
         else:
-            found = self._youtube_song(name, title, album, tried)
+            found = None if skip_youtube else self._youtube_song(name, title, album, tried, exclude)
             if found:
                 return found
             if skip_galaxy:
@@ -821,6 +860,33 @@ class Discography:
         if source:
             self.manager.remove([item["id"]])
             activity.record("downloads", "info", f"Galaxy couldn't give {item['title']} ({item.get('note') or 'no link'}): trying {source} instead", source=source.casefold())
+            return
+        note = self._wish("song", artist, item["title"], item.get("album", ""), note=note)
+        self.manager.update_item(item["id"], persist=True, note=f"{item.get('note', '')} · {note}".strip(" ·"))
+
+    def youtube_fallback(self, item):
+        """Fork v91: YouTube would not serve a video (age-restricted): try another upload of the song, then Galaxy,
+        Bandcamp and Soulseek; the failed row goes once another source has it, else the song goes on the wishlist."""
+        if not item or item.get("kind") != "song":
+            return
+        artist = re.split(r"\s*;\s*", item.get("artist") or "")[0].strip()
+        if not artist or not item.get("title"):
+            return
+        bad = str((item.get("payload") or {}).get("id") or "")
+        ctx = {"bandcamp": None, "bandcamp_checked": False}
+        try:
+            source = None
+            found = self._youtube_song(artist, item["title"], item.get("album", ""), None, exclude={bad} if bad else ())
+            if found:
+                source, note = found
+            else:
+                source, note = self._song(artist, item["title"], item.get("album", ""), ctx, skip_youtube=True)
+        except Exception as error:
+            log.info("Fallback for %s failed: %s", item["title"], error)
+            source, note = None, str(error)
+        if source:
+            self.manager.remove([item["id"]])
+            activity.record("downloads", "info", f"YouTube age-restricted {item['title']}: trying {source} instead", source=source.casefold())
             return
         note = self._wish("song", artist, item["title"], item.get("album", ""), note=note)
         self.manager.update_item(item["id"], persist=True, note=f"{item.get('note', '')} · {note}".strip(" ·"))

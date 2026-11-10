@@ -238,6 +238,9 @@
 :root[data-theme="dark"] .upl-sel{background:color-mix(in srgb,var(--accent,#569eff) 14%,transparent)}
 :root[data-theme="dark"] .upl-pending{background:color-mix(in srgb,#7c5000 35%,transparent)}
 :root[data-theme="dark"] .upl-compare td{background:color-mix(in srgb,#7c5000 10%,transparent)}
+:root[data-theme="dark"] .upl-pop{background:#d7efe088}
+:root[data-theme="dark"] .upl-pop-box{box-shadow:0 24px 100px #0a1c2440}
+:root[data-theme="dark"] .upl-pop .upl-fields input{background:var(--palette-surface,#1b2520)}
 
 /* set by hand */
 :root[data-theme="dark"]{color-scheme:dark}
@@ -491,6 +494,9 @@
 :root:not([data-theme="light"]) .upl-sel{background:color-mix(in srgb,var(--accent,#569eff) 14%,transparent)}
 :root:not([data-theme="light"]) .upl-pending{background:color-mix(in srgb,#7c5000 35%,transparent)}
 :root:not([data-theme="light"]) .upl-compare td{background:color-mix(in srgb,#7c5000 10%,transparent)}
+:root:not([data-theme="light"]) .upl-pop{background:#d7efe088}
+:root:not([data-theme="light"]) .upl-pop-box{box-shadow:0 24px 100px #0a1c2440}
+:root:not([data-theme="light"]) .upl-pop .upl-fields input{background:var(--palette-surface,#1b2520)}
 
 /* set by hand */
 :root:not([data-theme="light"]){color-scheme:dark}

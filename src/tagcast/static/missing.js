@@ -135,6 +135,18 @@ async function wishlistLoad() {
   if (missingView.wishlist?.progress) missingView.wishlistWasRunning = true;
 }
 
+// Fork v91: "Search as..." tries one wish under another artist / title right now (an alias, a different credit).
+function wishlistSearchAsHtml(i) {
+  const busy = missingView.wishlist?.progress ? "disabled" : "";
+  const open = missingView.searchAs === i.id;
+  return `<div class="dl-actions wish-searchas">
+    ${i.suggest ? `<button type="button" class="button primary" data-wishlist="suggest" data-wish-id="${escapeHtml(i.id)}" data-wish-artist="${escapeHtml(i.suggest)}" data-wish-title="${escapeHtml(i.search_title || i.title)}" ${busy}>Search as “${escapeHtml(i.suggest)}”</button>` : ""}
+    <button type="button" class="button" data-wishlist="searchas-open" data-wish-id="${escapeHtml(i.id)}">Search as…</button>
+    ${open ? `<input id="wish-sa-artist" class="dl-path" maxlength="200" value="${escapeHtml(i.search_artist || i.suggest || i.artist)}" aria-label="Search as artist">
+      <input id="wish-sa-title" class="dl-path" maxlength="200" value="${escapeHtml(i.search_title || i.title)}" aria-label="Search as title">
+      <button type="button" class="button primary" data-wishlist="searchas" data-wish-id="${escapeHtml(i.id)}" ${busy}>Search now</button>` : ""}</div>`;
+}
+
 function wishlistHtml() {
   const w = missingView.wishlist;
   if (!w) { wishlistLoad(); return '<p class="muted">Loading…</p>'; }
@@ -154,6 +166,7 @@ function wishlistHtml() {
         <span class="dl-badge new">${i.kind === "album" ? "Album" : "Song"}</span>
         <div><b>${escapeHtml(i.title)}</b> <span class="muted">· ${escapeHtml(i.artist)}${i.album ? ` · ${escapeHtml(i.album)}` : ""}</span>
           <div class="muted">${i.tries} ${i.tries === 1 ? "try" : "tries"} · ${escapeHtml(i.note || "")} · next try ${missingDate(i.next_try)}</div>
+          ${wishlistSearchAsHtml(i)}
           ${missingCopyHtml(i.title, i.artist, i.kind === "album" ? i.title : i.album)}</div></li>`).join("")}</ul>`
       : '<p class="muted">Your wishlist is empty.</p>'}
     ${w.found.length ? `<h3>Found lately</h3><ul class="dl-list">${w.found.slice(0, 20).map(f => `<li><span class="dl-badge have">${escapeHtml(f.source)}</span>
@@ -250,6 +263,15 @@ document.addEventListener("click", event => {
       downloadsRun(async () => { view.wishlist = await api("/api/wishlist/retry", {ids: [...view.picked]}); view.picked.clear(); missingRefresh(); wishlistLoad(); });
     } else if (action === "remove") {
       downloadsRun(async () => { view.wishlist = await api("/api/wishlist/remove", {ids: [...view.picked]}); view.picked.clear(); missingRefresh(); });
+    } else if (action === "searchas-open") {
+      view.searchAs = view.searchAs === wish.dataset.wishId ? null : wish.dataset.wishId; missingRefresh();
+    } else if (action === "suggest" || action === "searchas") {
+      const id = wish.dataset.wishId;
+      const artist = action === "suggest" ? wish.dataset.wishArtist : $("#wish-sa-artist")?.value.trim();
+      const title = action === "suggest" ? wish.dataset.wishTitle : $("#wish-sa-title")?.value.trim();
+      if (!artist || !title) { toast("Type an artist and a title."); return; }
+      view.searchAs = null;
+      downloadsRun(async () => { view.wishlist = await api("/api/wishlist/search-as", {id, artist, title}); missingRefresh(); wishlistLoad(); });
     }
     return;
   }

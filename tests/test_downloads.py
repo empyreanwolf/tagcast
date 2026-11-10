@@ -128,6 +128,36 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(self.status(song("Moka Only", "Intro")), ["new"])
 
 
+class V91CloseTitleTests(unittest.TestCase):
+    """Fork v91: typos and bracket tags no longer hide a song you have; one run never fetches a song twice."""
+
+    def setUp(self):
+        self.studio = LocalStudio()
+        self.manager = self.studio.download_manager
+
+    def status(self, *items):
+        return [r["status"] for r in self.manager.check(list(items))["results"]]
+
+    def test_a_typo_a_spelling_and_a_bracket_tag_still_match(self):
+        self.assertEqual(self.status(song("Company Flow", "Vital Nerv"), song("Company Flow", "Vital Nerve (Intro)"),
+                                     song("Faye Wong", "Eyes On Me (Album Version)")),
+                         ["have", "have", "have"])
+
+    def test_versions_and_other_songs_are_still_new(self):
+        self.assertEqual(self.status(song("Company Flow", "Vital Nerve (Remix)"), song("Company Flow", "Vital Nerves And Tubes"),
+                                     song("Someone Else", "Vital Nerve")),
+                         ["new", "new", "new"])
+
+    def test_close_title_marks_the_hit(self):
+        hit = self.manager.check([song("Company Flow", "Vital Nerv")])["results"][0]["you_have"][0]
+        self.assertTrue(hit.get("close"))
+
+    def test_the_same_song_twice_in_one_batch_is_queued_once(self):
+        result = self.manager.submit([song("Someone New", "Speed of Light", payload={"id": "a", "source": "galaxy"}),
+                                      song("Someone New", "Speed of Light", payload={"id": "b", "source": "galaxy"})])
+        self.assertEqual((result["queued"], result["skipped"]), (1, 1))
+
+
 class DecisionTests(unittest.TestCase):
     def setUp(self):
         self.studio = LocalStudio()
