@@ -11758,3 +11758,12 @@ test('fork v92: a lyrics card says why a song is not stored and offers Save now'
   assert.match(saved, /Saved in iBroadcast/);
   assert.doesNotMatch(saved, /Save now/);
 });
+
+test('fork v94: the Galaxy page has a Try YouTube first box that is remembered', async () => {
+  const p = livePage(); await settle();
+  assert.equal(p.run("galaxyYoutubeFirst()"), false);
+  p.run(`localStorage.setItem("tagcast.galaxyYoutubeFirst", "1")`);
+  assert.equal(p.run("galaxyYoutubeFirst()"), true);
+  p.run(`galaxyView.data = {mode: "search", query: "x", tracks: [{source: "netease", id: "1", title: "T", artists: ["A"], album: "B", status: "new"}], albums: []}; galaxyView.cards = null; galaxyView.cardFilter = "all"`);
+  assert.match(p.run("galaxyResultsHtml()"), /data-galaxy-ytfirst checked> Try YouTube first/);
+});

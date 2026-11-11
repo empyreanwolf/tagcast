@@ -670,6 +670,11 @@ class Discography:
             found = self._youtube_album(name, title, tried, expected)
             if found:
                 return found
+            if expected == 1:  # fork v94: a one-song release (a feature, a single) has no album playlist: search the song
+                from .youtube import strip_edition
+                found = self._youtube_song(name, strip_edition(title), "", tried)
+                if found:
+                    return found
             # 1. Galaxy: every way (album, then the title as a song, then the artist's songs)
             self._step(ctx, f"{title}: searching Galaxy…")
             source, note = self._galaxy_album(name, title)

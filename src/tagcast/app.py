@@ -516,6 +516,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/youtube/settings": lambda b: self.studio.youtube.save_settings(b),
             "/api/youtube/update": lambda b: self.studio.youtube.update_ytdlp(),
             "/api/youtube/add": lambda b: self.studio.youtube.add_lines(b.get("lines")),
+            "/api/youtube/songs": lambda b: self.studio.youtube.add_songs(b.get("songs")),
             "/api/youtube/artist": lambda b: self.studio.youtube.artist_releases(b.get("artist"), b.get("where")),
             "/api/youtube/releases": lambda b: self.studio.youtube.add_releases(b.get("artist"), b.get("releases")),
             "/api/youtube/try": lambda b: self.studio.youtube.try_item(b.get("id")),

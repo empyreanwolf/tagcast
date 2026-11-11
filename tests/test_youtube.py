@@ -333,5 +333,93 @@ class V93Tests(unittest.TestCase):
             sys.modules.pop("yt_dlp.fake_marker", None)
 
 
+class V94Tests(unittest.TestCase):
+    """Fork v94: tidier titles, edition names, Topic queries, 403 fallback, fan clips."""
+
+    def yt(self, search):
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=search, fetch_audio=lambda *a: None)
+        studio.youtube.ensure_worker = lambda: None
+        return studio
+
+    def test_tempo_tags_go_and_acapella_is_spelled_one_way(self):
+        from tagcast.youtube import strip_edition, tidy_title
+        self.assertEqual(tidy_title("Kan of Whoop Ass (Acapella 99.33 BPM)"), "Kan of Whoop Ass (A Cappella)")
+        self.assertEqual(tidy_title("Keep It Real (Key: Am)"), "Keep It Real")
+        self.assertEqual(tidy_title("Key Chain"), "Key Chain")
+        self.assertEqual(strip_edition("South Central Thynk Taynk (2026 Remaster)"), "South Central Thynk Taynk")
+        self.assertEqual(strip_edition("Album (Deluxe Edition)"), "Album")
+        self.assertEqual(strip_edition("Phoenix (feat. Abstract Rude)"), "Phoenix")
+        self.assertEqual(strip_edition("Album - 2011 Remaster"), "Album")
+        self.assertEqual(strip_edition("(Deluxe)"), "(Deluxe)")  # never an empty name
+
+    def test_an_acappella_matches_only_an_acappella(self):
+        topic = video("Kan of Whoop Ass (A Cappella)", "Abstract Rude - Topic", seconds=241)
+        studio_version = video("Kan of Whoop Ass", "Abstract Rude - Topic", seconds=241)
+        self.assertGreater(score_video(topic, "Abstract Rude", "Kan of Whoop Ass (Acapella 99.33 BPM)"), 0)
+        self.assertEqual(score_video(studio_version, "Abstract Rude", "Kan of Whoop Ass (Acapella 99.33 BPM)"), 0.0)
+        self.assertEqual(score_video(topic, "Abstract Rude", "Kan of Whoop Ass"), 0.0)
+
+    def test_a_skate_clip_using_the_song_is_not_the_song(self):
+        clip = video("Moka Only - Rolling Along (feat. Abstract Rude) skate", "Maibordeldemerde")
+        self.assertEqual(score_video(clip, "Abstract Rude", "Rolling Along"), 0.0)
+
+    def test_the_topic_query_and_the_albums_name_find_a_song_a_plain_search_misses(self):
+        topic = video("Phoenix (feat. Abstract Rude)", "AKAdemics - Topic", seconds=261, vid="topic1")
+        asked = []
+
+        def search(query, playlists=False):
+            asked.append(query)
+            return [topic] if "Topic" in query or "Abstract Rude" in query else [video("DJ akademiks teaching", "Other", vid="x")]
+        yt = self.yt(search).youtube
+        found = yt.find_song("AKAdemics", "Phoenix", album="Phoenix (feat. Abstract Rude)")
+        self.assertEqual(found["id"], "topic1")
+        self.assertTrue(any("Topic" in q for q in asked))
+
+    def test_an_album_is_searched_again_without_its_edition_tag(self):
+        studio = self.yt(lambda q, playlists=False: [])
+        yt = studio.youtube
+        asked = []
+        yt._find_album_once = lambda artist, album, expected=None: asked.append(album) or (
+            {"title": album, "artist": artist, "tracks": [{"id": "1", "title": "A"}]} if album == "South Central Thynk Taynk" else None)
+        found = yt.find_album("Abstract Rude", "South Central Thynk Taynk (2026 Remaster)", 15)
+        self.assertEqual(asked, ["South Central Thynk Taynk (2026 Remaster)", "South Central Thynk Taynk"])
+        self.assertEqual(found["title"], "South Central Thynk Taynk (2026 Remaster)")
+
+    def test_a_403_fails_the_row_and_starts_the_fallback(self):
+        from tagcast.youtube import DownloadBlocked
+        studio = self.yt(lambda q, playlists=False: [video("Obscure Song", "Coldplay - Topic", vid="v2")])
+        yt, called = studio.youtube, []
+        yt.on_failed = lambda item: called.append(item)
+
+        def fetch(url, folder, hook):
+            raise DownloadBlocked("YouTube refused the download (HTTP 403).")
+        yt._fetch_audio = fetch
+        yt.add_song("Coldplay", "Obscure Song", "Parachutes")
+        job = studio.download_manager.next_queued("youtube")
+        yt.active = job["id"]
+        yt.process(job)
+        import time
+        for _ in range(100):
+            if called:
+                break
+            time.sleep(0.02)
+        self.assertEqual(len(called), 1)
+        self.assertEqual(studio.download_manager.item(job["id"])["state"], "failed")
+
+    def test_a_one_song_release_is_searched_as_a_song_before_galaxy(self):
+        studio = self.yt(lambda q, playlists=False: [video("Through The Darkness", "Abstract Rude - Topic", vid="s1")]
+                         if "Through The Darkness" in q and "album" not in q and "#albums" not in q and not playlists else [])
+        source, note = studio.discography._album("Abstract Rude", "Through The Darkness (2026 Remaster)", "new", None,
+                                                 {"bandcamp": None, "bandcamp_checked": False}, expected=1)
+        self.assertEqual(source, "YouTube")
+
+    def test_add_songs_reports_each_song(self):
+        studio = self.yt(lambda q, playlists=False: [video("Found It", "Coldplay - Topic", vid="v9")] if "Found" in q else [])
+        answer = studio.youtube.add_songs([{"key": "a", "artist": "Coldplay", "title": "Found It", "album": "X"},
+                                           {"key": "b", "artist": "Coldplay", "title": "Missing", "album": "X"}])
+        self.assertEqual([(r["key"], r["ok"]) for r in answer["results"]], [("a", True), ("b", False)])
+
+
 if __name__ == "__main__":
     unittest.main()

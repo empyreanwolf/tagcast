@@ -107,6 +107,7 @@ function galaxyResultsHtml() {
     <div class="dl-actions"><strong>${tracks.length} ${tracks.length === 1 ? "song" : "songs"}${data.mode === "artist" ? ` by “${escapeHtml(data.query)}”` : ` for “${escapeHtml(data.query)}”`}</strong>
       <button type="button" class="button small" data-galaxy-dl-selected ${picked ? "" : "disabled"}>⬇ Download selected (${picked})</button>
       <button type="button" class="button small primary" data-galaxy-dl-all ${galaxyMissing(tracks).length ? "" : "disabled"} title="Queues only the songs marked New: not in iBroadcast, not downloaded before, not already queued">⬇ Queue missing ${galaxyMissing(tracks).length}</button>${galaxyWanted(tracks).length < tracks.length ? `<span class="muted">${tracks.length - galaxyWanted(tracks).length} instrumental left out</span>` : ""}
+      <label class="checkline" title="Look each song up on YouTube first (slower, lossy); the ones it does not have go to Galaxy"><input type="checkbox" data-galaxy-ytfirst ${galaxyYoutubeFirst() ? "checked" : ""}> Try YouTube first</label>
       <span class="muted">Click an album to open it, an artist to search them.</span></div>
     ${tracks.length ? `<div class="galaxy-table-wrap"><table class="dl-table galaxy-table"><thead><tr><th><input type="checkbox" data-galaxy-select-all aria-label="Select all" ${tracks.every(t => view.selected.has(galaxyKey(t))) ? "checked" : ""}></th>
       <th aria-label="Cover"></th>${head("title", "Title")}${head("artists", "Artists")}${head("album", "Album")}<th>Status</th><th></th></tr></thead><tbody>${tracks.map(t => `<tr>
@@ -254,13 +255,47 @@ async function galaxyOpenAlbum(album, artist) {
   }
 }
 
+// Fork v94: "Try YouTube first" on the Galaxy page: each song is looked up on YouTube (five at a time); the ones
+// YouTube does not have go to Galaxy as before. Kept in this browser.
+function galaxyYoutubeFirst() {
+  try { return localStorage.getItem("tagcast.galaxyYoutubeFirst") === "1"; } catch { return false; }
+}
+
+async function galaxyViaYoutube(tracks) {
+  const left = [];
+  let queued = 0;
+  for (let i = 0; i < tracks.length; i += 5) {
+    const chunk = tracks.slice(i, i + 5);
+    downloadsNote(`Looking on YouTube… ${i} of ${tracks.length}`);
+    let ok = new Set();
+    try {
+      const answer = await api("/api/youtube/songs", {songs: chunk.map(t => ({key: galaxyKey(t), artist: t.artists[0] || "", title: t.title, album: t.album || ""}))});
+      ok = new Set((answer.results || []).filter(r => r.ok).map(r => r.key));
+    } catch { /* YouTube is off or busy: these go to Galaxy */ }
+    for (const t of chunk) { if (ok.has(galaxyKey(t))) queued++; else left.push(t); }
+  }
+  return {left, queued};
+}
+
 async function galaxyAdd(tracks, album) {
   if (!tracks.length) return;
   tracks = galaxyByAlbum(tracks);
+  let viaYoutube = 0;
+  if (galaxyYoutubeFirst()) {
+    const done = await galaxyViaYoutube(tracks);
+    tracks = done.left; viaYoutube = done.queued;
+    if (!tracks.length) {
+      downloadsNote(`${viaYoutube} queued from YouTube.`);
+      galaxyView.selected.clear();
+      await loadDownloads();
+      renderDownloads();
+      return;
+    }
+  }
   const body = album ? {tracks: tracks.map(t => ({...t, track_no: t.track_no})), album_artist: album.album_artist, total: album.tracks.length}
     : {tracks: tracks.map(({track_no, ...t}) => t)};
   const result = await api("/api/galaxy/add", body);
-  downloadsNote(`${result.queued} queued${result.held ? `, ${result.held} waiting in Needs your decision` : ""}${result.skipped ? `, ${result.skipped} already listed` : ""}.`);
+  downloadsNote(`${viaYoutube ? `${viaYoutube} from YouTube, ` : ""}${result.queued} queued${result.held ? `, ${result.held} waiting in Needs your decision` : ""}${result.skipped ? `, ${result.skipped} already listed` : ""}.`);
   const queued = new Set();
   galaxyView.selected.clear();
   await loadDownloads();
@@ -278,6 +313,11 @@ async function galaxyDownloadAlbum(album, artist) {
 function galaxyTrack(key) {
   return [...(galaxyView.album?.tracks || []), ...(galaxyView.data?.tracks || [])].find(t => galaxyKey(t) === key);
 }
+
+document.addEventListener("change", event => {
+  const box = event.target.closest?.("[data-galaxy-ytfirst]");
+  if (box) { try { localStorage.setItem("tagcast.galaxyYoutubeFirst", box.checked ? "1" : "0"); } catch { /* private mode */ } }
+});
 
 document.addEventListener("click", event => {
   const target = event.target;

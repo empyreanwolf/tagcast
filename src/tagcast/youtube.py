@@ -37,6 +37,10 @@ OTHER_VERSIONS = ("live", "remix", "cover", "karaoke", "instrumental", "sped up"
                   "8d", "reaction", "mashup", "acoustic", "loop", "1 hour", "type beat", "tutorial", "bass boosted")
 
 
+class DownloadBlocked(JobFailed):
+    """YouTube refused the download itself (HTTP 403): an old yt-dlp, or this video (fork v94)."""
+
+
 class YouTubeError(LibraryError):
     pass
 
@@ -120,6 +124,37 @@ NOISE_WORDS = {"official", "audio", "video", "music", "lyrics", "lyric", "visual
                "feat", "ft", "featuring", "with", "prod", "by", "the", "a", "and", "x", "full", "version", "explicit", "clean"}
 
 
+# Fork v94: tidy titles before searching and matching.
+_ACAPPELLA = re.compile(r"(?i)\ba\s?cappella\b|\bacapella\b|\ba\s?capella\b")
+_TEMPO = re.compile(r"(?i)[\s,·\-–]*\b\d{2,3}(?:[.,]\d+)?\s*bpm\b|[\s,·\-–]*\bkey\s*[:=]?\s*(?-i:[A-G][#b♯♭]?(?:maj|min|m)?)\b")
+_EDITION = re.compile(r"(?i)\s*[\(\[（][^\)\]）]*\b(?:remaster(?:ed)?|deluxe|expanded|anniversary|edition|bonus|reissue|re-issue)\b[^\)\]）]*[\)\]）]")
+_FEAT_GROUP = re.compile(r"(?i)\s*[\(\[（]\s*(?:feat\.?|ft\.?|featuring|with)\b[^\)\]）]*[\)\]）]")
+_EDITION_DASH = re.compile(r"(?i)\s+[-–]\s+(?:\d{4}\s+)?(?:remaster(?:ed)?|deluxe|expanded)\b.*$")
+FAN_WORDS = ("skate", "skating", "skateboarding", "montage", "gameplay", "vlog", "trailer", "highlights", "compilation", "interview")
+
+
+def tidy_title(title):
+    """A song title as people search it: "Acapella"/"A Cappella" spelled one way, no tempo or key tag
+    ("99.33 BPM"). The version word stays: an a cappella is not the studio song."""
+    value = _ACAPPELLA.sub("A Cappella", str(title or ""))
+    value = _TEMPO.sub("", value)
+    value = re.sub(r"[\(\[（]\s*[\)\]）]", "", value)
+    return " ".join(value.split()) or " ".join(str(title or "").split())
+
+
+def is_acappella(text):
+    return bool(_ACAPPELLA.search(str(text or "")))
+
+
+def strip_edition(name):
+    """An album name without "(2026 Remaster)", "(Deluxe Edition)", "(feat. X)" or "- 2011 Remaster"."""
+    value = str(name or "")
+    value = _FEAT_GROUP.sub("", value)
+    value = _EDITION.sub("", value)
+    value = _EDITION_DASH.sub("", value)
+    return " ".join(value.split()) or " ".join(str(name or "").split())
+
+
 def same_words(video, artist, title):
     """v70: every word of "artist + title" is in the video title, in any order, and little else is: so
     "Antiheroes - Powdered Water (Neroche Remix)" fits "Neroche - Powdered Water (Antiheroes Remix)"."""
@@ -167,6 +202,9 @@ def score_video(entry, artist, title, want_seconds=0):
     video = str(entry.get("title") or "")
     channel = str(entry.get("channel") or entry.get("uploader") or "")
     seconds = entry.get("duration") or 0
+    title = tidy_title(title)
+    if is_acappella(title) != is_acappella(video):  # fork v94: an a cappella is its own recording
+        return 0.0
     if not video or (seconds and not MIN_SECONDS <= seconds <= MAX_SECONDS):
         return 0.0
     if want_seconds and seconds and abs(seconds - want_seconds) > max(20, want_seconds * 0.2):
@@ -181,6 +219,10 @@ def score_video(entry, artist, title, want_seconds=0):
                                                 mentions(channel, artist) or in_title)
     if not (topic or named):
         return 0.0
+    if not topic:  # fork v94: a skate clip or a montage that uses the song is not the song
+        for word in FAN_WORDS:
+            if has_word(video, word) and not has_word(title, word):
+                return 0.0
     # "Artist - Title (Official Audio)": compare the title part only. v72: 【album】, a track number and
     # "Feat. …" are not part of the title, and the artist may be written in any of its parts.
     cleaned = re.sub(r"(?i)\(?\[?\s*(official\s*)?(audio|video|music video|lyric video|lyrics|visualizer|hd|4k)\s*\)?\]?", " ", clean_video(video))
@@ -244,6 +286,9 @@ class YtdlpWorker(FileWorker):
             if AGE_GATE.search(reason):
                 raise AgeRestricted("Age-restricted on YouTube (sign-in needed). Tagcast tries other sources; "
                                     "to download it from YouTube, set YouTube cookies in Settings.") from None
+            if re.search(r"HTTP Error 403|403: Forbidden", reason):
+                raise DownloadBlocked("YouTube refused the download (HTTP 403). Tagcast tries another upload and other sources. "
+                                      "If it keeps happening: Settings → YouTube → Update yt-dlp, then restart Tagcast.") from None
             raise JobFailed(f"YouTube download failed ({plain_error(reason)[:160]}). Updating yt-dlp often fixes this.") from None
         files = sorted((p for p in folder.glob("audio.*") if p.suffix not in (".part", ".ytdl", ".webp", ".jpg", ".png")),
                        key=lambda p: p.suffix != ".mp3")
@@ -355,7 +400,7 @@ class YouTube(YtdlpWorker):
     def process(self, job):
         try:
             super().process(job)
-        except AgeRestricted as error:
+        except (AgeRestricted, DownloadBlocked) as error:
             jid = job["id"]
             self.manager.update_item(jid, persist=True, state="failed", note=str(error), speed=0, eta=0)
             if self.on_failed:
@@ -470,8 +515,9 @@ class YouTube(YtdlpWorker):
             raise YouTubeError(f"YouTube search failed ({plain_error(error)[:160]})") from None
         return list(info.get("entries") or [])
 
-    def find_song(self, artist, title, seconds=0, exclude=()):
+    def find_song(self, artist, title, seconds=0, exclude=(), album=""):
         skip = set(exclude or ())
+        title = tidy_title(title)
         entries = [e for e in self._search(f"{artist} {title}") if e.get("id") not in skip]
         self._last_entries = entries
         found = best_video(entries, artist, title, seconds)
@@ -483,6 +529,18 @@ class YouTube(YtdlpWorker):
             found = best_video(entries, artist, title, seconds)
             if found:
                 break
+        if not found:  # fork v94: the artist's "Topic" channel, and the album's own name ("Phoenix (feat. …)")
+            queries = [f"{artist} {title} - Topic"]
+            album_name = strip_edition(album) if album else ""
+            if album_name and fold(album_name) != fold(plain_title(title)):
+                queries.append(f"{title} {album_name} {artist}")
+            for query in queries:
+                have = {x.get("id") for x in entries}
+                entries = entries + [e for e in self._try(query) if e.get("id") not in have and e.get("id") not in skip]
+                self._last_entries = entries
+                found = best_video(entries, artist, title, seconds)
+                if found:
+                    break
         return found
 
     def closest(self, artist, title):
@@ -526,6 +584,16 @@ class YouTube(YtdlpWorker):
         return songs
 
     def find_album(self, artist, album, expected=None):
+        """Fork v94: the full name first; when that finds nothing, the name without "(2026 Remaster)", "(Deluxe)"
+        or "(feat. …)", which YouTube playlists rarely carry."""
+        for name in dict.fromkeys([album, strip_edition(album)]):
+            found = self._find_album_once(artist, name, expected)
+            if found:
+                found["title"] = album
+                return found
+        return None
+
+    def _find_album_once(self, artist, album, expected=None):
         """This artist's album: YouTube Music's album search first (v63, it lists "Artist - Topic" albums with
         the artist), then plain YouTube's playlist search. Anything less sure is None so the next source is tried.
         Fork v91: with ``expected`` (how many songs the album has) a playlist that holds far more videos (several
@@ -607,7 +675,7 @@ class YouTube(YtdlpWorker):
         artist, title = match.clean(artist), match.clean(title)
         if not artist or not title:
             raise YouTubeError("Each song needs an artist and a title.")
-        video = self.find_song(artist, title, exclude=exclude)
+        video = self.find_song(artist, title, exclude=exclude, album=album)
         if not video:
             raise YouTubeError(f"query “{artist} {title}”: no official audio")
         return self._submit([self._item(artist, title, match.clean(album), video, query=f"{artist} {title}")])
@@ -676,6 +744,20 @@ class YouTube(YtdlpWorker):
                             + (f", {result['held']} waiting in Needs your decision" if result.get("held") else "")})
             except LibraryError as error:
                 out.append({"line": line, "ok": False, "note": str(error)})
+        return {"results": out}
+
+    def add_songs(self, songs):
+        """Fork v94: songs [{artist, title, album}] (the Galaxy page's "Try YouTube first"): each is looked up and
+        queued or reported, so the caller can send the misses to Galaxy."""
+        out = []
+        for row in (songs if isinstance(songs, list) else [])[:20]:
+            row = row if isinstance(row, dict) else {}
+            artist, title, album = (str(row.get(k) or "") for k in ("artist", "title", "album"))
+            try:
+                result = self.add_song(artist, title, album)
+                out.append({"key": str(row.get("key") or ""), "ok": True, "queued": result.get("queued", 0)})
+            except LibraryError as error:
+                out.append({"key": str(row.get("key") or ""), "ok": False, "note": str(error)})
         return {"results": out}
 
     # -- an artist's albums and singles (v61) ----------------------------------------------------
