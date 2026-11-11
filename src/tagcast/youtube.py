@@ -379,6 +379,17 @@ class YouTube(YtdlpWorker):
         except ImportError:
             return ""
 
+    @staticmethod
+    def installed_version():
+        """The version on disk (the running program keeps the one it loaded until it restarts)."""
+        try:
+            import importlib
+            from importlib import metadata
+            importlib.invalidate_caches()
+            return metadata.version("yt-dlp")
+        except Exception:
+            return YouTube.version()
+
     def enabled(self):
         return bool(self.state.get("enabled")) and (self.installed() or self._search is not self._yt_search)
 
@@ -424,10 +435,11 @@ class YouTube(YtdlpWorker):
                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             if out.returncode != 0:
                 raise OSError((out.stderr or out.stdout or "pip failed").strip()[-200:])
-            for name in [n for n in sys.modules if n == "yt_dlp" or n.startswith("yt_dlp.")]:
-                del sys.modules[name]  # the next download loads the new version
-            after = self.version()
-            self.update_note = f"yt-dlp is up to date ({after})" if after == before else f"yt-dlp updated {before} → {after}"
+            # Fork v93: yt-dlp is NOT reloaded in the running program. Re-importing it (v91) patched urllib3 a second
+            # time and broke every web request until Tagcast was restarted. The new version loads at the next start.
+            after = self.installed_version()
+            self.update_note = (f"yt-dlp is up to date ({after})" if after == before
+                                else f"yt-dlp updated {before} → {after}. Restart Tagcast to use it")
         except (OSError, subprocess.SubprocessError) as error:
             self.update_note = f"Could not update yt-dlp: {error}"
             log.warning(self.update_note)

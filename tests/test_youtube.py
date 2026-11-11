@@ -311,5 +311,27 @@ class V91Tests(unittest.TestCase):
         self.assertEqual((yt._cookie_opts(), view["cookies_ok"]), ({"cookiefile": f.name}, True))
         self.assertTrue(yt.save_settings({"enabled": False}) and not yt.state["enabled"])
 
+class V93Tests(unittest.TestCase):
+    def test_updating_yt_dlp_does_not_reload_it_in_the_running_program(self):
+        import sys
+        import types
+        from unittest import mock
+        studio = LocalStudio()
+        yt = YouTube(studio, search=lambda q, playlists=False: [], fetch_audio=lambda *a: None)
+        marker = types.ModuleType("yt_dlp.fake_marker")
+        sys.modules["yt_dlp.fake_marker"] = marker
+        try:
+            done = types.SimpleNamespace(returncode=0, stdout="", stderr="")
+            with mock.patch("tagcast.youtube.subprocess.run", return_value=done), \
+                    mock.patch.object(YouTube, "installed_version", staticmethod(lambda: "9999.1.1")):
+                yt.updating = True
+                yt._update_ytdlp()
+            self.assertIs(sys.modules.get("yt_dlp.fake_marker"), marker)  # nothing was purged
+            self.assertIn("Restart Tagcast", yt.update_note)
+            self.assertFalse(yt.updating)
+        finally:
+            sys.modules.pop("yt_dlp.fake_marker", None)
+
+
 if __name__ == "__main__":
     unittest.main()
