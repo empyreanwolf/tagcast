@@ -7,7 +7,7 @@ const lyricsEverywhere = {bar: lyricsEverywhereStored("bar", true), float: lyric
   mini: lyricsEverywhereStored("mini", true), card: lyricsEverywhereStored("card", true),
   autosave: lyricsEverywhereStored("autosave", true), translate: lyricsEverywhereStored("translate", true), autotranslate: lyricsEverywhereStored("autotranslate", true), karaoke: lyricsEverywhereStored("karaoke", true),
   karaokereal: lyricsEverywhereStored("karaokereal", false), cardSize: lyricsEverywhereCardSize(), last: "", box: null,
-  cardNode: null, cardKey: "", cardActive: -2, cardFollow: true, cardTimer: 0, saved: new Set(), savedKeys: new Set()};
+  cardNode: null, cardKey: "", cardActive: -2, cardFollow: true, cardTimer: 0, saved: new Set(), savedKeys: new Set(), tries: {}, reasons: {}, pending: {}};
 
 function lyricsEverywhereStored(name, fallback) {
   try { const v = localStorage.getItem(`tagcast-lyrics-${name}`); return v === null ? fallback : v === "true"; }
@@ -238,7 +238,10 @@ function headerLyricsSource(data) {
   if (!source) return data ? "Saved in iBroadcast" : "";
   const link = `<a href="${source[1]}" target="_blank" rel="noopener noreferrer">Lyrics from ${source[0]} ↗</a>`;
   const track = player.queue[player.index];
-  return `${link} · ${track && lyricsEverywhere.saved.has(String(track.id)) ? "Saved in iBroadcast" : "Not stored in iBroadcast"}`;
+  if (track && lyricsEverywhere.saved.has(String(track.id))) return `${link} · Saved in iBroadcast`;
+  const reason = track ? lyricsEverywhere.reasons[String(track.id)] : "";
+  const save = track && lyricsEverywhere.pending[String(track.id)] ? ` <button type="button" class="text-action" data-lyrics-save-now="${escapeHtml(String(track.id))}">Save now</button>` : "";
+  return `${link} · Not stored in iBroadcast${reason ? ` (${escapeHtml(reason)})` : ""}${save}`;
 }
 
 function renderHeaderLyrics(on, position = playerTrackPosition()) {
@@ -280,20 +283,33 @@ function renderHeaderLyrics(on, position = playerTrackPosition()) {
 
 // Fork v86: timed lyrics found online while playing are saved once to the song's iBroadcast lyrics,
 // only when the song has none (the server checks again and never overwrites). Shown in Change history.
-async function lyricsAutosave(selection, entry, result) {
+// Fork v92: plain (untimed) lyrics are saved too; a failed save is tried again (3 times, 30 s apart); the card says
+// why a song is "Not stored" and offers "Save now" (which also works when auto-save is switched off).
+async function lyricsAutosave(selection, entry, result, force = false) {
   const view = lyricsEverywhere;
-  if (!view.autosave || !selection || !result?.timed || !["lrclib", "unison", "gdstudio"].includes(result.source)) return;
-  if (state.connection?.premium === false || entry?.data?.native_text?.trim()) return;
+  if (!selection || !result || !["lrclib", "unison", "gdstudio"].includes(result.source) || !Array.isArray(result.lines)) return;
   const id = String(selection.track_id), key = `${selection.session}|${id}`;
-  if (view.savedKeys.has(key)) return;
-  view.savedKeys.add(key);  // once per song per session, also after an error
-  const lines = result.lines.filter(line => Number.isFinite(line.start)).slice(0, 2000)
-    .map(line => ({start: line.start, text: String(line.text || "").slice(0, 500)}));
-  if (lines.filter(line => line.text.trim()).length < 2) return;
+  view.pending[id] = {selection, entry, result};
+  const why = text => { if (view.reasons[id] !== text) { view.reasons[id] = text; view.cardKey = ""; if (typeof renderLyricsEverywhere === "function") renderLyricsEverywhere(); lyricsRefreshLargeSource(); } };
+  if (view.saved.has(id)) return;
+  if (!view.autosave && !force) { why("auto-save is off"); return; }
+  if (state.connection?.premium === false) { why("needs iBroadcast Premium"); return; }
+  if (entry?.data?.native_text?.trim()) return;
+  if (view.savedKeys.has(key) && !force) return;
+  const tries = view.tries[key] || {n: 0, at: 0};
+  if (!force && (tries.n >= 3 || Date.now() - tries.at < 30000)) return;
+  view.tries[key] = {n: tries.n + 1, at: Date.now()};
+  const timed = result.timed === true;
+  const lines = result.lines.filter(line => !timed || Number.isFinite(line.start)).slice(0, 2000)
+    .map(line => timed ? {start: line.start, text: String(line.text || "").slice(0, 500)} : {text: String(line.text || "").slice(0, 500)});
+  if (lines.filter(line => line.text.trim()).length < 2) { view.savedKeys.add(key); why("too short to save"); return; }
   try {
-    const data = await api("/api/lyrics/autosave", {track_id: id, source: result.source, lines});
-    if (data.status !== "saved") return;
+    const data = await api("/api/lyrics/autosave", {track_id: id, source: result.source, timed, lines});
+    if (data.status === "has") { view.savedKeys.add(key); view.saved.add(id); why(""); return; }
+    if (data.status !== "saved") { why(data.note || "iBroadcast did not take it, trying again"); return; }
+    view.savedKeys.add(key);
     view.saved.add(id);
+    why("");
     if (entry) { entry.data = null; entry.error = ""; }
     const track = player.queue.find(t => String(t.id) === id) || {title: selection.title, artist: selection.artist};
     const album = track.album_id != null && typeof state.albums?.find === "function" ? state.albums.find(a => String(a.id) === String(track.album_id)) : null;
@@ -301,13 +317,25 @@ async function lyricsAutosave(selection, entry, result) {
     state.history.unshift({created: new Date().toISOString(), status: data.confirmed === false ? "unverified" : "saved", source: "ibroadcast",
       selection: [{name: album?.name || label}],
       changes: [{label, status: data.confirmed === false ? "unverified" : "saved",
-        fields: {lyrics: {before: "", after: `Timed lyrics from ${({lrclib: "LRCLIB", unison: "Unison", gdstudio: "GD Studio"})[result.source]} (${lines.length} lines)`}}}]});
+        fields: {lyrics: {before: "", after: `${timed ? "Timed" : "Plain"} lyrics from ${({lrclib: "LRCLIB", unison: "Unison", gdstudio: "GD Studio"})[result.source]} (${lines.length} lines)`}}}]});
     rememberHistory();
     if (typeof updateHistoryControls === "function") updateHistoryControls();
     if (typeof refreshAlbumLyricsLabels === "function") refreshAlbumLyricsLabels();
-    view.cardKey = ""; renderLyricsEverywhere();
-  } catch { /* not Premium, offline or iBroadcast busy: the song keeps playing with temporary lyrics */ }
+    view.cardKey = ""; renderLyricsEverywhere(); lyricsRefreshLargeSource();
+  } catch (error) { why(`save failed (${String(error?.message || "offline").slice(0, 60)}), trying again`); }
 }
+
+function lyricsRefreshLargeSource() {
+  const node = typeof $ === "function" ? $("#visual-lyrics-source") : null, data = playbackLyricsView?.data;
+  if (node && data) node.innerHTML = headerLyricsSource(data);
+}
+
+document.addEventListener("click", event => {
+  const button = event.target.closest("[data-lyrics-save-now]");
+  if (!button) return;
+  const found = lyricsEverywhere.pending[button.dataset.lyricsSaveNow];
+  if (found) void lyricsAutosave(found.selection, found.entry, found.result, true);
+});
 
 
 // Fork v88: Chinese (also Japanese and Korean) lyrics get an English line under each line, from the free web translator

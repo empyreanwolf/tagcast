@@ -242,7 +242,8 @@ function paintPlaybackLyrics() {
   const publicSources = {unison: ["Unison", "https://unison.boidu.dev/"], lrclib: ["LRCLIB", "https://lrclib.net/"], gdstudio: ["GD Studio", "https://music.gdstudio.xyz/"]};
   const source = publicSources[data?.source];
   $("#visual-lyrics-source").innerHTML = source
-    ? `<a href="${source[1]}" target="_blank" rel="noopener noreferrer">Lyrics from ${source[0]} ↗</a> · Temporary display`
+    ? (typeof headerLyricsSource === "function" ? headerLyricsSource(data)
+      : `<a href="${source[1]}" target="_blank" rel="noopener noreferrer">Lyrics from ${source[0]} ↗</a> · Temporary display`)
     : data ? "Lyrics saved in iBroadcast" : "";
   syncPlaybackLyrics(true);
 }

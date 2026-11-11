@@ -311,7 +311,8 @@ function downloadsSettingsHtml() {
       <div class="dl-settings">
         <label>Pause between songs <span><input id="galaxy-track-delay" type="number" min="0" max="600" step="0.5" value="${gs.track_delay}"> s</span></label>
         <label>Pause between API calls <span><input id="galaxy-api-delay" type="number" min="0" max="60" step="0.1" value="${gs.api_delay}"> s</span></label>
-        <label>API quota <span><input id="galaxy-api-quota" type="number" min="5" max="50" step="1" value="${gs.api_quota}"> calls per 5 min</span></label></div>
+        <label>API quota <span><input id="galaxy-api-quota" type="number" min="5" max="50" step="1" value="${gs.api_quota}"> calls per 5 min</span></label>
+        <label class="checkline"><input id="galaxy-gd-lyrics" type="checkbox" ${gs.gd_lyrics === false ? "" : "checked"}> Also ask GD Studio for lyrics when LRCLIB has none (uses API calls; skipped when the limit is busy)</label></div>
       <div class="dl-actions"><button type="button" class="button primary" data-galaxy-settings>Save Galaxy settings</button></div></section>
     <section class="dl-card"><h3>YouTube (yt-dlp)</h3><div id="youtube-settings">${youtubeSettingsHtml()}</div></section>
     <section class="dl-card"><h3>Soulseek</h3><div id="soulseek-settings">${soulseekSettingsHtml()}</div></section>
@@ -429,7 +430,7 @@ document.addEventListener("click", event => {
   if (target.closest("[data-galaxy-settings]")) {
     downloadsRun(async () => {
       downloadsView.galaxy = await api("/api/galaxy/settings", {track_delay: $("#galaxy-track-delay").value,
-        api_delay: $("#galaxy-api-delay").value, api_quota: $("#galaxy-api-quota").value});
+        api_delay: $("#galaxy-api-delay").value, api_quota: $("#galaxy-api-quota").value, gd_lyrics: $("#galaxy-gd-lyrics").checked});
       renderDownloads(); downloadsNote("Galaxy settings saved.");
     });
     return;

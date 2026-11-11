@@ -161,6 +161,16 @@ class LyricsJobTests(unittest.TestCase):
         self.assertEqual(answer["status"], "has")
         self.assertEqual(studio.client.userdata["1"], [{"type": "lyrics", "value": "old words"}])  # never replaced
 
+    def test_autosave_saves_plain_lyrics_without_timing(self):
+        studio = FakeStudio()
+        job = LyricsJob(studio)
+        answer = job.autosave({"track_id": "2", "source": "lrclib", "timed": False,
+                               "lines": [{"text": " first line "}, {"text": "second line"}]})
+        self.assertEqual(answer["status"], "saved")
+        self.assertEqual(studio.client.userdata["2"], [{"type": "lyrics", "value": "first line\nsecond line"}])
+        with self.assertRaises(lyrics_job.LibraryError):
+            job.autosave({"track_id": "2", "source": "lrclib", "timed": False, "lines": [{"text": ""}, {"text": " "}]})
+
     def test_autosave_refuses_bad_input(self):
         job = LyricsJob(FakeStudio())
         good = [{"start": 1, "text": "a"}, {"start": 2, "text": "b"}]

@@ -420,7 +420,7 @@ class MusicBrainzTests(unittest.TestCase):
         self.assertEqual(studio.galaxy.album_years("Coldplay", ["Ghost Stories", "Unknown Album", "X"])["years"],
                          {"Ghost Stories": "2014", "X": ""})
         status = studio.galaxy.save_settings({"track_delay": 10, "api_delay": "2.5", "api_quota": 30})
-        self.assertEqual(status["settings"], {"track_delay": 10.0, "api_delay": 2.5, "api_quota": 30})
+        self.assertEqual(status["settings"], {"track_delay": 10.0, "api_delay": 2.5, "api_quota": 30, "gd_lyrics": True})
         self.assertEqual((studio.galaxy.limiter.max_calls, studio.galaxy.limiter.interval, studio.galaxy.track_delay),
                          (30, 2.5, 10.0))
         for bad in ({"api_quota": 60}, {"track_delay": -1}, {"api_delay": "x"}):
@@ -532,7 +532,7 @@ class LyricsDownloadTests(unittest.TestCase):
         def __init__(self, text=None, error=None):
             self.text, self.error, self.calls = text, error, []
 
-        def lyric(self, source, lyric_id, low=True):
+        def lyric(self, source, lyric_id, low=True, block=True):
             self.calls.append((source, lyric_id))
             if self.error:
                 raise self.error
@@ -681,3 +681,58 @@ class V90PrefetchTests(unittest.TestCase):
         states = {i["title"]: i["state"] for i in studio.download_manager.state["queue"]}
         self.assertEqual(states, {"Magic": "done", "Midnight": "done"})
         self.assertEqual(galaxy._pre, {})  # nothing is left behind
+
+
+class V92Tests(unittest.TestCase):
+    """Fork v92: lyric calls never hold the queue, one cover per album, memory of bitrate misses."""
+
+    def test_has_room_respects_the_low_priority_reserve(self):
+        now = [0.0]
+        limiter = QuotaLimiter(interval=0, max_calls=10, period=300, reserve=4, clock=lambda: now[0])
+        for _ in range(6):
+            limiter.wait(True)
+        self.assertFalse(limiter.has_room(True))   # 6 used, low priority may use at most 6
+        self.assertTrue(limiter.has_room(False))   # downloads still have 4 slots
+
+    def test_lyric_call_is_skipped_not_waited_for_when_the_quota_is_busy(self):
+        from types import SimpleNamespace
+        import tagcast.galaxy as gx
+
+        class Busy:
+            def lyric(self, source, lyric_id, low=True, block=True):
+                self.block = block
+                raise gx.GalaxyQuotaBusy("no room")
+
+        api = Busy()
+        skipped = set()
+        fake = SimpleNamespace(api=api, _lyrics_skipped=skipped, gd_lyrics=True)
+        text = Galaxy.fetch_lyrics(fake, {"source": "netease", "id": "5"}, {"source": "netease", "id": "5", "artists": []}, "T", 0, "job1")
+        self.assertEqual(text, "")
+        self.assertFalse(api.block)
+        self.assertEqual(skipped, {"job1"})
+
+    def test_gd_lyrics_can_be_switched_off(self):
+        from types import SimpleNamespace
+
+        class Api:
+            called = False
+
+            def lyric(self, *a, **k):
+                Api.called = True
+                return "[00:01.0]a\n[00:02.0]b"
+
+        fake = SimpleNamespace(api=Api(), gd_lyrics=False)
+        self.assertEqual(Galaxy.fetch_lyrics(fake, {"source": "netease", "id": "5"}, {"source": "netease", "id": "5", "artists": []}, "T"), "")
+        self.assertFalse(Api.called)
+
+    def test_cover_is_fetched_once_per_picture(self):
+        import collections
+        import threading
+        from types import SimpleNamespace
+        calls = []
+        fake = SimpleNamespace(_dl_covers=collections.OrderedDict(), _dl_cover_lock=threading.Lock())
+        fake._fetch_cover = lambda p, size=500: calls.append(p["pic_id"]) or b"img"
+        p = {"source": "joox", "pic_id": "77"}
+        self.assertEqual(Galaxy.fetch_cover(fake, p), b"img")
+        self.assertEqual(Galaxy.fetch_cover(fake, dict(p)), b"img")
+        self.assertEqual(calls, ["77"])

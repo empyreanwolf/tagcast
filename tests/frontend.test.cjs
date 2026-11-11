@@ -11086,7 +11086,7 @@ test('LRCLIB fallback is explicitly requested, attributed and remains display-on
   const request=p.requests.find(r=>r.url==='/api/lyrics/display');
   assert.equal(JSON.parse(request.options.body).fallback_lrclib,true);
   assert.match(p.nodes.get('#visual-lyrics-source').innerHTML,/https:\/\/lrclib.net\//);
-  assert.match(p.nodes.get('#visual-lyrics-source').innerHTML,/Temporary display/);
+  assert.match(p.nodes.get('#visual-lyrics-source').innerHTML,/Not stored in iBroadcast/);
   assert.doesNotMatch(p.nodes.get('#visual-lyrics-source').innerHTML,/Unison/);
   assert.match(p.nodes.get('#visual-lyrics-lines').innerHTML,/&lt;script&gt;/);
   p.run('gaplessPosition=()=>4;syncPlaybackLyrics()');
@@ -11452,7 +11452,7 @@ test("fork v78: hip hop albums get the rapper, the computer, phone, speaker and 
 test("fork v78: the device stays in the left column beside the lyrics and has no caption over the title", async () => {
   const css = require("node:fs").readFileSync(require("node:path").join(__dirname, "../src/tagcast/static/player-styles.css"), "utf8");
   assert.doesNotMatch(css, /\.ps-name\{position:absolute/);
-  assert.match(css, /lyrics-visible \.ps-stage[^{]*\{grid-column:1;grid-row:1;width:100%/);
+  assert.match(css, /lyrics-visible \.ps-stage[^{]*\{grid-column:1;grid-row:1;width:min\(100%,calc\(\(100dvh - 330px\)\*4\/3\)\)/);
 });
 
 test("fork v78: the visualizer picks where it shows, saves it and the engine can pretend to hear music", async () => {
@@ -11734,4 +11734,27 @@ test('fork v91: the Track numbers page lists outcomes and the Upload tools no lo
   assert.match(html,/Not on that release: Intro/);
   assert.match(html,/Discogs is off/);
   assert.doesNotMatch(p.run("uploaderToolsHtml()"),/Auto-number/);
+});
+
+test('fork v92: Queue missing skips what you have or queued; albums queue together; the queue shows an ETA', async () => {
+  const p = livePage(); await settle();
+  const t = (title, status, extra = {}) => ({source: "netease", id: title, title, artists: ["A"], album: "Alb", status, ...extra});
+  const tracks = [t("New one", "new"), t("Have", "have"), t("Before", "downloaded"), t("Queued", "new", {queued: "queued"}), t("Folder", "folder", {on_disk: "x.mp3"}), t("Karaoke (Instrumental)", "new"), t("Unmarked", undefined)];
+  assert.deepEqual(JSON.parse(JSON.stringify(p.run(`galaxyMissing(${JSON.stringify(tracks)}).map(x => x.title)`))), ["New one", "Unmarked"]);
+  const mixed = [{title: "b2", album: "B", track_no: 2}, {title: "a1", album: "A", track_no: 1}, {title: "b1", album: "B", track_no: 1}];
+  assert.deepEqual(JSON.parse(JSON.stringify(p.run(`galaxyByAlbum(${JSON.stringify(mixed)}).map(x => x.title)`))), ["a1", "b1", "b2"]);
+  p.run(`downloadsView.galaxy = {api: {used: 49, quota: 49, wait: 204}, paused: false, running: true}; downloadsView.queue = Array.from({length: 98}, (_, i) => ({id: "q" + i, state: "queued", payload: {}, source: "galaxy"}))`);
+  assert.match(p.run("galaxyStatusHtml()"), /waiting 204 s for the API limit · about 15 min left at this limit/);
+});
+
+test('fork v92: a lyrics card says why a song is not stored and offers Save now', async () => {
+  const p = livePage(); await settle();
+  p.run(`player.queue = [{id: "9", title: "T", artist: "A"}]; player.index = 0; lyricsEverywhere.saved = new Set(); lyricsEverywhere.reasons = {"9": "needs iBroadcast Premium"}; lyricsEverywhere.pending = {"9": {}}`);
+  const html = p.run(`headerLyricsSource({source: "lrclib"})`);
+  assert.match(html, /Not stored in iBroadcast \(needs iBroadcast Premium\)/);
+  assert.match(html, /data-lyrics-save-now="9"/);
+  p.run(`lyricsEverywhere.saved.add("9")`);
+  const saved = p.run(`headerLyricsSource({source: "lrclib"})`);
+  assert.match(saved, /Saved in iBroadcast/);
+  assert.doesNotMatch(saved, /Save now/);
 });

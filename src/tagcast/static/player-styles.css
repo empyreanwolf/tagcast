@@ -4,7 +4,7 @@
 .ps-stage{flex:none;width:min(78vw,calc(100dvh - 360px),600px);aspect-ratio:4/3;position:relative}
 /* Beside the lyrics the device keeps to the left column (it used to spill over the lyrics), centred above the title. */
 .ps-stage{margin-inline:auto}
-.player-stage .lyrics-visible .ps-stage,.player-stage .lyrics-visible .bv-stage{grid-column:1;grid-row:1;width:100%;max-width:100%;justify-self:center}
+.player-stage .lyrics-visible .ps-stage,.player-stage .lyrics-visible .bv-stage{grid-column:1;grid-row:1;width:min(100%,calc((100dvh - 330px)*4/3));max-width:100%;justify-self:center}
 .player-stage .visual-player-info{text-align:center}
 .player-stage .lyrics-visible .visual-player-info{text-align:center}
 .ps-mini{display:none}

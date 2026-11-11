@@ -30,7 +30,9 @@ function galaxyStatusHtml() {
   const mine = queue.filter(i => (i.source || "galaxy") === "galaxy");
   const active = mine.find(i => i.state === "active");
   const waiting = mine.filter(i => i.state === "queued" && i.payload).length;
-  const api = `API ${g.api.used}/${g.api.quota} in 5 min${g.api.wait ? ` · waiting ${g.api.wait} s for the API limit` : ""}`;
+  // fork v92: roughly 1.5 API calls a song, so a long queue shows how long the limit alone will take
+  const left = waiting + (active ? 1 : 0), eta = g.api.quota > 0 && left >= 5 ? Math.ceil(left * 1.5 / g.api.quota) * 5 : 0;
+  const api = `API ${g.api.used}/${g.api.quota} in 5 min${g.api.wait ? ` · waiting ${g.api.wait} s for the API limit` : ""}${eta ? ` · about ${eta >= 90 ? `${Math.round(eta / 6) / 10} h` : `${eta} min`} left at this limit` : ""}`;
   // "running" is the backend thread's own pulse (fork v29): false here, with work still
   // waiting, means it died -- the server's watchdog restarts it within a few seconds on its
   // own, but Restart forces that right away instead of waiting for the next poll.
@@ -77,6 +79,11 @@ function galaxyIntroHtml() {
 const galaxyInstrumentalWords = /strumental|karaoke|off[\s-]?vocal|backing[\s-]?track|伴奏|纯音乐|純音樂|无人声|無人聲|消音|卡拉\s?ok/i;
 const galaxyIsInstrumental = t => galaxyInstrumentalWords.test(t?.title || "");
 const galaxyWanted = tracks => tracks.filter(t => !galaxyIsInstrumental(t));
+// Fork v92: "Queue missing" leaves out what is already in iBroadcast, downloaded before, in your download folder,
+// partly owned, or already in the queue; only songs marked New are added.
+const galaxyMissing = tracks => galaxyWanted(tracks).filter(t => !t.queued && !t.on_disk && (!t.status || t.status === "new"));
+// Songs of one album are queued together, in track order, so they share one cover and one MusicBrainz lookup.
+const galaxyByAlbum = tracks => tracks.map((t, i) => [t, i]).sort((a, b) => String(a[0].album || "").localeCompare(String(b[0].album || ""), undefined, {sensitivity: "base"}) || (Number(a[0].track_no) || 0) - (Number(b[0].track_no) || 0) || a[1] - b[1]).map(x => x[0]);
 
 function galaxyFiltered() {
   const view = galaxyView, data = view.data;
@@ -99,7 +106,7 @@ function galaxyResultsHtml() {
   return `${data.mode === "artist" ? galaxyCardsHtml() : ""}
     <div class="dl-actions"><strong>${tracks.length} ${tracks.length === 1 ? "song" : "songs"}${data.mode === "artist" ? ` by “${escapeHtml(data.query)}”` : ` for “${escapeHtml(data.query)}”`}</strong>
       <button type="button" class="button small" data-galaxy-dl-selected ${picked ? "" : "disabled"}>⬇ Download selected (${picked})</button>
-      <button type="button" class="button small primary" data-galaxy-dl-all ${galaxyWanted(tracks).length ? "" : "disabled"}>⬇ Queue all ${galaxyWanted(tracks).length}</button>${galaxyWanted(tracks).length < tracks.length ? `<span class="muted">${tracks.length - galaxyWanted(tracks).length} instrumental left out</span>` : ""}
+      <button type="button" class="button small primary" data-galaxy-dl-all ${galaxyMissing(tracks).length ? "" : "disabled"} title="Queues only the songs marked New: not in iBroadcast, not downloaded before, not already queued">⬇ Queue missing ${galaxyMissing(tracks).length}</button>${galaxyWanted(tracks).length < tracks.length ? `<span class="muted">${tracks.length - galaxyWanted(tracks).length} instrumental left out</span>` : ""}
       <span class="muted">Click an album to open it, an artist to search them.</span></div>
     ${tracks.length ? `<div class="galaxy-table-wrap"><table class="dl-table galaxy-table"><thead><tr><th><input type="checkbox" data-galaxy-select-all aria-label="Select all" ${tracks.every(t => view.selected.has(galaxyKey(t))) ? "checked" : ""}></th>
       <th aria-label="Cover"></th>${head("title", "Title")}${head("artists", "Artists")}${head("album", "Album")}<th>Status</th><th></th></tr></thead><tbody>${tracks.map(t => `<tr>
@@ -249,6 +256,7 @@ async function galaxyOpenAlbum(album, artist) {
 
 async function galaxyAdd(tracks, album) {
   if (!tracks.length) return;
+  tracks = galaxyByAlbum(tracks);
   const body = album ? {tracks: tracks.map(t => ({...t, track_no: t.track_no})), album_artist: album.album_artist, total: album.tracks.length}
     : {tracks: tracks.map(({track_no, ...t}) => t)};
   const result = await api("/api/galaxy/add", body);
@@ -305,7 +313,7 @@ document.addEventListener("click", event => {
     const list = view.album ? view.album.tracks : view.data.tracks;
     downloadsRun(() => galaxyAdd(list.filter(t => view.selected.has(galaxyKey(t))), view.album)); return;
   }
-  if (target.closest("[data-galaxy-dl-all]")) { downloadsRun(() => galaxyAdd(galaxyWanted(galaxyFiltered()), null)); return; }
+  if (target.closest("[data-galaxy-dl-all]")) { downloadsRun(() => galaxyAdd(galaxyMissing(galaxyFiltered()), null)); return; }
   if (target.closest("[data-galaxy-album-all]")) { downloadsRun(() => galaxyAdd(galaxyWanted(view.album.tracks), view.album)); return; }
   const albumDl = target.closest("[data-galaxy-album-dl]");
   if (albumDl) downloadsRun(() => galaxyDownloadAlbum(albumDl.dataset.galaxyAlbumDl, albumDl.dataset.artist));

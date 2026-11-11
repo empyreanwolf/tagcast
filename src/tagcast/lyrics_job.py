@@ -593,15 +593,18 @@ class LyricsJob:
         track_id = str(body.get("track_id") or "")
         source = body.get("source")
         lines = body.get("lines")
+        timed = body.get("timed") is not False  # fork v92: plain lyrics (no timing) are saved too
         if not track_id.isdigit() or source not in ("lrclib", "unison", "gdstudio") or not isinstance(lines, list) or not 2 <= len(lines) <= 2000:
             raise LibraryError("These lyrics cannot be saved.")
         rows = []
         for line in lines:
             start = line.get("start") if isinstance(line, dict) else None
             text = line.get("text") if isinstance(line, dict) else None
-            if isinstance(start, bool) or not isinstance(start, (int, float)) or not isinstance(text, str) or not 0 <= start < 6 * 3600:
+            if not isinstance(text, str):
                 raise LibraryError("These lyrics cannot be saved.")
-            rows.append({"start": float(start), "text": " ".join(text.split())[:500]})
+            if timed and (isinstance(start, bool) or not isinstance(start, (int, float)) or not 0 <= start < 6 * 3600):
+                raise LibraryError("These lyrics cannot be saved.")
+            rows.append({"start": float(start) if timed else None, "text": " ".join(text.split())[:500] if timed else text.strip()[:500]})
         if sum(1 for row in rows if row["text"]) < 2:
             raise LibraryError("These lyrics are empty.")
         library, user = self.studio._library()
@@ -610,9 +613,9 @@ class LyricsJob:
         except LibraryError:
             raise LibraryError("This song is no longer in the library.")
         length = float(track.get("length") or 0)
-        if length and max(row["start"] for row in rows) > length + 10:
+        if timed and length and max(row["start"] for row in rows) > length + 10:
             raise LibraryError("These lyrics are longer than the song.")
-        text = lrc_from_lines({"timed": True, "lines": sorted(rows, key=lambda row: row["start"])})
+        text = lrc_from_lines({"timed": True, "lines": sorted(rows, key=lambda row: row["start"])} if timed else {"timed": False, "lines": rows})
         status, note = self._write(client, library, number(track_id), track, text, interruptible=False)
         label = {"lrclib": "LRCLIB", "unison": "Unison", "gdstudio": "GD Studio"}[source]
         with self.lock:

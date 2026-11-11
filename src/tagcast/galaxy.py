@@ -63,6 +63,10 @@ class GalaxyError(LibraryError):
     pass
 
 
+class GalaxyQuotaBusy(GalaxyError):
+    """A low-priority call was skipped because the API quota has no room right now (fork v92)."""
+
+
 class GalaxyBlocked(GalaxyError):
     """GD Studio answered with its firewall's 403 web page instead of data (fork v54)."""
 
@@ -331,6 +335,14 @@ class QuotaLimiter:
                 wait = max(wait, self._calls[0] + self.period - now)
             return {"used": len(self._calls), "quota": self.max_calls, "wait": round(wait)}
 
+    def has_room(self, low=False):
+        """Fork v92: would a call (of this priority) start now without waiting for the quota?"""
+        with self._lock:
+            now = self.clock()
+            self._prune(now)
+            cap = max(1, self.max_calls - (self.reserve if low else 0))
+            return len(self._calls) < cap and now >= self.blocked_until
+
     def wait(self, low=False):
         while True:
             with self._lock:
@@ -436,7 +448,10 @@ class GDApi:
         self.limiter = limiter
         self.get = get or (lambda params, timeout: _session().get(API_BASE, params=params, timeout=timeout))
 
-    def _get(self, params, low=False):
+    def _get(self, params, low=False, block=True):
+        if not block and not self.limiter.has_room(low):
+            raise GalaxyQuotaBusy("The API limit has no room for this call right now.")
+
         def call():
             self.limiter.wait(low)
             return self.get(params, 20)
@@ -480,9 +495,9 @@ class GDApi:
             return {}
         return {"url": str(data.get("url") or "").strip(), "br": to_int(data.get("br"), 0), "size": to_float(data.get("size"))}
 
-    def lyric(self, source, lyric_id, low=True):
+    def lyric(self, source, lyric_id, low=True, block=True):
         """The song's LRC text (timed lines) from the GD Studio lyric call, or ""."""
-        data = self._get({"types": "lyric", "source": source, "id": lyric_id}, low=low)
+        data = self._get({"types": "lyric", "source": source, "id": lyric_id}, low=low, block=block)
         text = data.get("lyric") if isinstance(data, dict) else ""
         return text if isinstance(text, str) else ""
 
@@ -989,6 +1004,10 @@ class Galaxy:
         self._pre, self._pre_lock = {}, threading.Lock()  # fork v90: the next song's lookups, done while this one downloads
         self._mb_lock = threading.Lock()  # one MusicBrainz lookup at a time, so an album is asked for once
         self._cover_gate = threading.Semaphore(2)
+        self.gd_lyrics = True
+        self._dl_covers, self._dl_cover_lock = collections.OrderedDict(), threading.Lock()  # fork v92: one cover per album, not per song
+        self._hq_miss, self._dead = {}, {}  # fork v92: albums without 320, songs with no link anywhere
+        self._lyrics_skipped = set()
         self._cover_memory, self._cover_misses = {}, {}
         manager = studio.download_manager
         manager.register("galaxy", self)
@@ -1204,7 +1223,7 @@ class Galaxy:
         _tls.sleep = self._sleep
         _tls.on_quota_wait = lambda secs: self.active and self._step(
             self.active, self.manager.item(self.active).get("step", 0) if self.manager.item(self.active) else 0,
-            f"API limit reached (45 per 5 min) - waiting {secs:.0f} s")
+            f"Waiting for the API limit ({self.limiter.max_calls} per 5 min) - {secs:.0f} s")
         self._start_finisher()
         while not self.stopping:
             # Everything in here used to run unguarded ahead of each song's own try/except
@@ -1410,7 +1429,7 @@ class Galaxy:
         t1 = time.monotonic()
         self._step(jid, 3, "Fetching cover…")
         cover = pre["cover"] if pre.get("cover_done") else self.fetch_cover(p)
-        lyrics = self.fetch_lyrics(link, p, job["title"], real)
+        lyrics = self.fetch_lyrics(link, p, job["title"], real, jid)
         t2 = time.monotonic()
         self._step(jid, 3, {"flac": "Writing FLAC tags…", "m4a": "Writing M4A tags…"}.get(fmt, "Writing ID3v2.4…"))
         write_tags(part, fmt, title=job["title"], artists=p["artists"], album_artist=p["album_artist"],
@@ -1432,6 +1451,10 @@ class Galaxy:
                     pass
         missing = [name for name, value in (("year", year), ("genre", genre)) if not value]
         extras = ([f"{'/'.join(missing)} missing"] if missing else []) + (["no cover"] if not cover else [])
+        if jid in self._lyrics_skipped:
+            self._lyrics_skipped.discard(jid)
+            if not lyrics:
+                extras.append("lyrics skipped (API limit) - Find lyrics can add them")
         # fork v83: seconds per step, to compare speeds (also in the log)
         timing = {**timing, "musicbrainz": t1 - t0, "cover_lyrics": t2 - t1, "tags": time.monotonic() - t2}
         timing_text = " · ".join(f"{k.replace('_', '+')} {v:.1f}s" for k, v in timing.items())
@@ -1456,9 +1479,11 @@ class Galaxy:
 
     def get_link(self, job):
         p = job["payload"]
-        rates = [BITRATE, 128]
+        album_key = (p["source"], str(p.get("album") or "").casefold())
 
         def try_rates(source, tid):
+            # fork v92: after two songs of an album had no 320, the rest ask for 128 first (one call, not two)
+            rates = [128, BITRATE] if self._hq_miss.get(album_key, 0) >= 2 else [BITRATE, 128]
             for b in rates:
                 try:
                     info = self.api.url(source, tid, b)
@@ -1470,12 +1495,20 @@ class Galaxy:
                 if info.get("url"):
                     info["source"], info["id"] = source, tid
                     info["br"] = info.get("br") or b
+                    if source == p["source"]:
+                        if b == 128 and rates[0] == BITRATE:
+                            self._hq_miss[album_key] = self._hq_miss.get(album_key, 0) + 1
+                        elif b == BITRATE:
+                            self._hq_miss[album_key] = 0
                     return info
             return None
 
         info = try_rates(p["source"], p["id"])
         if info:
             return info
+        dead_key = (p["source"], str(p["id"]))
+        if time.time() - self._dead.get(dead_key, 0) < 3600:  # fork v92: it had no link anywhere a moment ago
+            raise JobFailed("No download link (other sources were tried less than an hour ago; skipped to save API calls)")
         query = f"{(p['artists'] or [''])[0]} {job['title']}".strip()
         for alt in [s for s in FALLBACK_SOURCES if s != p["source"]]:
             self._step(job["id"], 0, f"Trying {alt}…")
@@ -1496,6 +1529,9 @@ class Galaxy:
                 info = try_rates(alt, best["id"])
                 if info:
                     return info
+        self._dead[dead_key] = time.time()
+        if len(self._dead) > 2000:
+            self._dead.clear()
         raise JobFailed("No download link (tried 320 and 128 kbps and other sources)")
 
     def download(self, jid, url, part):
@@ -1588,7 +1624,7 @@ class Galaxy:
         self.manager.update_item(jid, short_seconds=round(real))
         raise JobFailed(f"Maybe a preview ({real:.0f}s) - if it really is a short track, press Keep it")
 
-    def fetch_lyrics(self, link, p, title="", duration=0.0):
+    def fetch_lyrics(self, link, p, title="", duration=0.0, job_id=None):
         """Fork v79: the song's timed lyrics (credit lines removed), "" when there are none. Never fails a download.
         Fork v83: LRCLIB first (no GD Studio quota); the GD Studio lyric call only when LRCLIB has nothing."""
         from .playback_lyrics import MAX_TEXT, gdstudio_clean_lrc
@@ -1600,12 +1636,18 @@ class Galaxy:
             text = gdstudio_clean_lrc(text).strip()
             if text and len(text) <= MAX_TEXT and "\x00" not in text and len(text.splitlines()) >= 2:
                 return text + "\n"
+        if getattr(self, "gd_lyrics", True) is False:
+            return ""
         lyric_id = p.get("lyric_id") if link.get("source") == p.get("source") else ""
         lyric_id = str(lyric_id or link.get("id") or p.get("id") or "")
         try:
-            text = gdstudio_clean_lrc(self.api.lyric(link.get("source") or p["source"], lyric_id)).strip()
+            text = gdstudio_clean_lrc(self.api.lyric(link.get("source") or p["source"], lyric_id, block=False)).strip()
         except (StopRequested, JobCancelled):
             raise
+        except GalaxyQuotaBusy:  # fork v92: never hold the queue for a lyric call; "Find lyrics" can add them later
+            if job_id is not None and hasattr(self, "_lyrics_skipped"):
+                self._lyrics_skipped.add(job_id)
+            return ""
         except Exception as e:
             log.info("Galaxy lyrics fetch failed: %s", e)
             return ""
@@ -1614,8 +1656,23 @@ class Galaxy:
         return text + "\n"
 
     def fetch_cover(self, p, size=500):
+        """Fork v92: kept per (source, picture), so the songs of an album share one cover and one API call."""
         if not p.get("pic_id"):
             return None
+        key = (p["source"], str(p["pic_id"]), size)
+        with self._dl_cover_lock:
+            hit = self._dl_covers.get(key)
+            if hit:
+                self._dl_covers.move_to_end(key)
+                return hit
+            cover = self._fetch_cover(p, size)
+            if cover:
+                self._dl_covers[key] = cover
+                while len(self._dl_covers) > 30:
+                    self._dl_covers.popitem(last=False)
+            return cover
+
+    def _fetch_cover(self, p, size=500):
         urls = []
         if p["source"] == "netease":
             urls.append(netease_pic_url(p["pic_id"], size))
@@ -1640,7 +1697,8 @@ class Galaxy:
         saved = self.state["settings"]
         return {"track_delay": float(saved.get("track_delay", TRACK_DELAY)),
                 "api_delay": float(saved.get("api_delay", API_DELAY)),
-                "api_quota": int(saved.get("api_quota", API_QUOTA))}
+                "api_quota": int(saved.get("api_quota", API_QUOTA)),
+                "gd_lyrics": saved.get("gd_lyrics", True) is not False}
 
     def apply_settings(self):
         saved = self.state["settings"]
@@ -1651,6 +1709,7 @@ class Galaxy:
         s = self.settings()
         self.track_delay = s["track_delay"]
         self.limiter.interval, self.limiter.max_calls = s["api_delay"], s["api_quota"]
+        self.gd_lyrics = s["gd_lyrics"]
 
     def save_settings(self, body):
         if not isinstance(body, dict):
@@ -1668,6 +1727,10 @@ class Galaxy:
                           "api_quota": "The API quota"}
                 raise GalaxyError(f"{labels[key]} must be between {low} and {high}.")
             new[key] = int(value) if key == "api_quota" else round(value, 1)
+        if "gd_lyrics" in body:  # fork v92: GD Studio's own lyric call costs quota; LRCLIB does not
+            if not isinstance(body["gd_lyrics"], bool):
+                raise GalaxyError("Choose on or off for GD Studio lyrics.")
+            new["gd_lyrics"] = body["gd_lyrics"]
         with self.lock:
             self.state["settings"] = new
             self.apply_settings()
