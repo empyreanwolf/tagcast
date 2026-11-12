@@ -42,7 +42,7 @@ document.addEventListener("click", event => {
 
 const colors = ["#627b70", "#ab7555", "#6c7b89", "#a98a56", "#836d7b", "#71856b"];
 // state.albums holds small album summaries (no tracks); full albums live in state.details.
-const state = {albums: [], details: new Map(), albumFavourites: new Set(), albumFavouriteError: "", artistFavourites: new Set(), artistFavouriteError: "", artistNames: [], editorNames: {genres: [], composers: []}, artist: null, view: storedView(), perPage: storedPageSize("tagcast-per-page"), history: storedHistory(), selected: new Set(), page: 0, mode: "demo", loading: false, connection: {connected: false, configured: false, account: ""}};
+const state = {albums: [], details: new Map(), albumFavourites: new Set(), albumFavouriteError: "", artistFavourites: new Set(), artistFavouriteError: "", artistNames: [], editorNames: {genres: [], composers: []}, artist: null, view: storedView(), perPage: storedPageSize("tagcast-per-page"), history: storedHistory(), selected: new Set(), releaseKind: storedReleaseKind(), singlesOpen: storedSinglesOpen(), page: 0, mode: "demo", loading: false, connection: {connected: false, configured: false, account: ""}};
 const libraryNotice = {visible: document.documentElement.dataset.libraryNotice !== "hidden"};
 let libraryLoadRequest = 0;
 const libraryLoadingMessages = [
@@ -546,7 +546,56 @@ function filteredAlbums() {
   const random = $("#sort").value === "random", all = albumShelf();
   const items = (random ? randomAlbumSummaries(all) : all).filter(a => (!state.artist || albumHasArtist(a, state.artist)) && keep(a)
     && (!query || [a.name, albumArtistsText(a), ...a.genres].join(" ").toLocaleLowerCase().includes(query)));
-  return random ? items : items.sort(SORTS[$("#sort").value] || SORTS.artist);
+  const kind = state.releaseKind || "all";
+  const chosen = kind === "all" ? items : items.filter(a => releaseKind(a) === kind);
+  if (random) return chosen;
+  const order = {album: 0, ep: 1, single: 2}, sort = SORTS[$("#sort").value] || SORTS.artist;
+  return chosen.sort((a, b) => (kind === "all" ? order[releaseKind(a)] - order[releaseKind(b)] : 0) || sort(a, b));
+}
+
+// Fork v95: albums (7+ songs), EPs (4–6) and singles (1–3) as their own groups, everywhere albums are listed.
+// The chips show one kind; with "All" the groups follow each other and the singles fold into one bar.
+const RELEASE_KINDS = [["all", "All"], ["album", "Albums"], ["ep", "EPs"], ["single", "Singles"]];
+const releaseKind = a => (a.track_count || 0) >= 7 ? "album" : (a.track_count || 0) >= 4 ? "ep" : "single";
+function storedReleaseKind() {
+  try { const v = localStorage.getItem("tagcast-release-kind"); return ["album", "ep", "single"].includes(v) ? v : "all"; } catch { return "all"; }
+}
+function storedSinglesOpen() {
+  try { return localStorage.getItem("tagcast-singles-open") === "1"; } catch { return false; }
+}
+function rememberRelease(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* private window: kept for this visit only */ }
+}
+const releaseGrouped = () => $("#sort").value !== "random";
+
+// What the page lists: with "All" and the singles folded, the singles are left out of the pages.
+function shownAlbums(items = filteredAlbums()) {
+  return state.releaseKind === "all" && releaseGrouped() && !state.singlesOpen ? items.filter(a => releaseKind(a) !== "single") : items;
+}
+
+function releaseKindsHtml(base) {
+  const count = {all: base.length, album: 0, ep: 0, single: 0};
+  for (const a of base) count[releaseKind(a)] += 1;
+  return RELEASE_KINDS.map(([kind, label]) => `<button type="button" class="chip${state.releaseKind === kind ? " active" : ""}" data-release-kind="${kind}" aria-pressed="${state.releaseKind === kind}">${label} <span class="muted">${count[kind].toLocaleString("en")}</span></button>`).join("");
+}
+
+// One page cut into its groups, each with a heading; the folded singles become one bar after the last page.
+function releaseGroupsHtml(page, allItems, lastPage) {
+  const view = items => state.view === "list" ? listView(items) : gridView(items);
+  if (state.releaseKind !== "all" || !releaseGrouped()) return page.length ? view(page) : "";
+  const totals = {album: 0, ep: 0, single: 0};
+  for (const a of allItems) totals[releaseKind(a)] += 1;
+  const names = {album: "Albums", ep: "EPs", single: "Singles"};
+  const heading = kind => `<h3 class="release-group-title">${kind === "single" ? `<button type="button" class="release-fold" data-singles-toggle aria-expanded="true">▾ ${names[kind]} (${totals[kind].toLocaleString("en")})</button>` : `${names[kind]} <span class="muted">(${totals[kind].toLocaleString("en")})</span>`}</h3>`;
+  let html = "";
+  for (const kind of ["album", "ep", "single"]) {
+    const part = page.filter(a => releaseKind(a) === kind);
+    if (part.length) html += `<section class="release-group" data-release-group="${kind}">${heading(kind)}<div class="${state.view === "list" ? "album-list" : "album-grid"}">${view(part)}</div></section>`;
+  }
+  if (!state.singlesOpen && totals.single && lastPage) {
+    html += `<section class="release-group" data-release-group="single"><h3 class="release-group-title"><button type="button" class="release-fold" data-singles-toggle aria-expanded="false">▸ Singles (${totals.single.toLocaleString("en")})</button></h3></section>`;
+  }
+  return html;
 }
 
 function badge(a) {
@@ -613,13 +662,21 @@ function render() {
   $("#selection-help").textContent = state.artist ? "Selection is limited to this artist" : live() ? "Select albums to tag, merge or move to the trash together" : "Open an album to see its tracks and listen";
   $("#all-albums").classList.toggle("active", !state.artist && (!state.screen || state.screen === "albums"));
   for (const button of document.querySelectorAll("[data-view]")) button.setAttribute("aria-pressed", String(button.dataset.view === state.view));
-  const items = filteredAlbums(), size = pageSize(), maxPage = Math.max(0, Math.ceil(items.length / size) - 1);
+  const allItems = filteredAlbums(), items = shownAlbums(allItems), size = pageSize(), maxPage = Math.max(0, Math.ceil(items.length / size) - 1);
   $("#per-page").value = String(size);
   state.page = Math.min(state.page, maxPage);
-  $("#results-count").textContent = `${items.length.toLocaleString("en")} ${items.length === 1 ? "album" : "albums"}${state.artist ? ` by ${state.artist}` : " in your collection"}`;
+  const kindWord = {all: ["album", "albums"], album: ["album", "albums"], ep: ["EP", "EPs"], single: ["single", "singles"]}[state.releaseKind || "all"];
+  $("#results-count").textContent = `${allItems.length.toLocaleString("en")} ${allItems.length === 1 ? kindWord[0] : kindWord[1]}${state.artist ? ` by ${state.artist}` : " in your collection"}`;
   const page = items.slice(state.page * size, (state.page + 1) * size);
-  $("#albums").className = state.view === "list" ? "album-list" : "album-grid";
-  $("#albums").innerHTML = (page.length ? (state.view === "list" ? listView(page) : gridView(page)) : "") || (state.loading ? '<div class="empty"><span class="spinner"></span>Checking your iBroadcast library… A full download of a large library can take half a minute.</div>' : '<div class="empty">No albums match your filters. Try another artist or search.</div>');
+  const kinds = $("#release-kinds");
+  if (kinds) {
+    const keep = (FILTERS[$("#filter").value] || FILTERS.all)[1], query = $("#search").value.toLocaleLowerCase().trim();
+    kinds.innerHTML = releaseKindsHtml(albumShelf().filter(a => (!state.artist || albumHasArtist(a, state.artist)) && keep(a)
+      && (!query || [a.name, albumArtistsText(a), ...a.genres].join(" ").toLocaleLowerCase().includes(query))));
+  }
+  const grouped = state.releaseKind === "all" && releaseGrouped();
+  $("#albums").className = grouped ? "album-groups" : state.view === "list" ? "album-list" : "album-grid";
+  $("#albums").innerHTML = releaseGroupsHtml(page, allItems, state.page === maxPage) || (state.loading ? '<div class="empty"><span class="spinner"></span>Checking your iBroadcast library… A full download of a large library can take half a minute.</div>' : '<div class="empty">No albums match your filters. Try another artist or search.</div>');
   $("#select-page").checked = page.length > 0 && page.every(isSelected);
   $("#select-page").indeterminate = page.some(isSelected) && !page.every(isSelected);
   $("#select-page").disabled = !page.length || saving || checking > 0;
@@ -1203,6 +1260,9 @@ document.addEventListener("click", event => {
   if (track) { editTrack(track.dataset.track); return; }
   const page = event.target.closest("[data-page]");
   if (page) { state.page += Number(page.dataset.page); render(); return; }
+  const kindChip = event.target.closest("[data-release-kind]");
+  if (kindChip) { state.releaseKind = kindChip.dataset.releaseKind; state.page = 0; rememberRelease("tagcast-release-kind", state.releaseKind); render(); return; }
+  if (event.target.closest("[data-singles-toggle]")) { state.singlesOpen = !state.singlesOpen; rememberRelease("tagcast-singles-open", state.singlesOpen ? "1" : "0"); render(); return; }
   if (event.target.closest("#review-button")) buildReview();
 });
 document.addEventListener("keydown", event => {
@@ -1215,7 +1275,7 @@ document.addEventListener("keydown", event => {
 });
 document.addEventListener("change", event => {
   if (event.target.id === "select-page") {
-    const page = filteredAlbums().slice(state.page * pageSize(), (state.page + 1) * pageSize());
+    const page = shownAlbums().slice(state.page * pageSize(), (state.page + 1) * pageSize());
     for (const album of page) for (const id of itemIds(album)) {
       if (event.target.checked) state.selected.add(id); else state.selected.delete(id);
     }

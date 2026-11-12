@@ -238,6 +238,38 @@ def score_video(entry, artist, title, want_seconds=0):
     return ratio + (1.0 if topic else 0.0) + (0.5 if match.match_key(channel) == match.match_key(artist) else 0.0)
 
 
+def title_versions_differ(video, title):
+    """A remix, live take or other version word on one side only."""
+    return any(has_word(video, w) != has_word(title, w) for w in OTHER_VERSIONS)
+
+
+def music_fit(info, artist, title, want_seconds=0):
+    """Fork v95: a YouTube Music track's own details fit this song: one of its artists is this artist, the
+    track name is this title and the length fits. Returns a search-result-like entry, or None."""
+    if not isinstance(info, dict):
+        return None
+    names = info.get("artists") or ([info["artist"]] if info.get("artist") else []) or info.get("creators") or []
+    if isinstance(names, str):
+        names = [names]
+    channel = str(info.get("channel") or info.get("uploader") or "")
+    names = [str(n) for n in names] + ([channel[: -len(" - Topic")]] if fold(channel).endswith(" topic") else [])
+    if not any(match.match_key(n) == match.match_key(artist) or mentions(n, artist) for n in names if n):
+        return None
+    track = str(info.get("track") or info.get("title") or "")
+    wanted = plain_title(title)
+    if is_acappella(track) != is_acappella(title) or title_versions_differ(track, title):
+        return None
+    if max(sim(plain_title(track), wanted), sim(track, title)) < 0.85:
+        return None
+    seconds = info.get("duration") or 0
+    if seconds and not MIN_SECONDS <= seconds <= MAX_SECONDS:
+        return None
+    if want_seconds and seconds and abs(seconds - want_seconds) > max(20, want_seconds * 0.2):
+        return None
+    return {"id": info.get("id"), "title": f"{names[0]} - {track}" if names else track, "duration": seconds,
+            "channel": channel or f"{names[0]} - Topic", "music": True}
+
+
 def best_video(entries, artist, title, want_seconds=0):
     best, top = None, 0.0
     for entry in entries or []:
@@ -376,12 +408,14 @@ class YouTube(YtdlpWorker):
     source = "youtube"
     track_delay = 2.0
 
-    def __init__(self, studio, search=None, fetch_audio=None):
+    def __init__(self, studio, search=None, fetch_audio=None, info=None):
         data = studio._read(STATE_FILE)
         self.state = data if isinstance(data, dict) else {}
         self.state.setdefault("enabled", True)
         self._search = search or self._yt_search
         self._fetch_audio = fetch_audio or self._yt_fetch
+        # A test with its own search and no details source never reaches the real YouTube.
+        self._info = info or (self._yt_info if search is None else (lambda url: {}))
         self.on_failed = None  # fork v91: set by Discography: an age-restricted video tries another upload, then other sources
         self.updating = False
         self.update_note = ""
@@ -515,10 +549,55 @@ class YouTube(YtdlpWorker):
             raise YouTubeError(f"YouTube search failed ({plain_error(error)[:160]})") from None
         return list(info.get("entries") or [])
 
+    def _yt_info(self, url):
+        """Fork v95: one video's full details (YouTube Music fills artist, track, album and duration)."""
+        import yt_dlp
+        opts = {"quiet": True, "no_warnings": True, "no_color": True, "skip_download": True, "socket_timeout": 20,
+                **self._cookie_opts()}
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info(url, download=False, process=False) or {}
+        except Exception as error:
+            raise YouTubeError(f"YouTube details failed ({plain_error(error)[:160]})") from None
+
+    def _music_song(self, artist, title, seconds=0, skip=()):
+        """Fork v95: YouTube Music's Songs tab first. Its results are the official tracks; the one taken must
+        say on YouTube Music itself that it is this artist's song (artist, track and length checked)."""
+        results = [e for e in self._try(f"https://music.youtube.com/search?q={quote(f'{artist} {title}')}#songs")
+                   if e.get("id") and e.get("id") not in skip]
+        wanted = plain_title(title)
+        tried = 0
+        for entry in results[:SEARCH_RESULTS]:
+            if entry.get("channel") or entry.get("uploader"):  # a result that already names its channel
+                if score_video(entry, artist, title, seconds):
+                    return entry
+                continue
+            name = str(entry.get("title") or "")
+            if is_acappella(name) != is_acappella(title) or sim(plain_title(name), wanted) < 0.8 \
+                    or title_versions_differ(name, title) or tried >= 2:
+                continue
+            tried += 1
+            try:
+                info = self._info(entry.get("url") or f"https://music.youtube.com/watch?v={entry['id']}")
+            except Exception as error:
+                log.info("YouTube Music details skipped (%s): %s", name, error)
+                continue
+            found = music_fit(info, artist, title, seconds)
+            if found:
+                return {**found, "id": entry["id"]}
+        return None
+
     def find_song(self, artist, title, seconds=0, exclude=(), album=""):
         skip = set(exclude or ())
         title = tidy_title(title)
-        entries = [e for e in self._search(f"{artist} {title}") if e.get("id") not in skip]
+        # Fork v95: search with the main artist and without "(feat. …)"; a long guest list buries the song.
+        artist = match.main_artist(artist) or artist
+        query_title = _FEAT_GROUP.sub("", title).strip() or title
+        found = self._music_song(artist, query_title, seconds, skip)
+        if found:
+            self._last_entries = [found]
+            return found
+        entries = [e for e in self._search(f"{artist} {query_title}") if e.get("id") not in skip]
         self._last_entries = entries
         found = best_video(entries, artist, title, seconds)
         parts = artist_parts(artist)
@@ -677,7 +756,8 @@ class YouTube(YtdlpWorker):
             raise YouTubeError("Each song needs an artist and a title.")
         video = self.find_song(artist, title, exclude=exclude, album=album)
         if not video:
-            raise YouTubeError(f"query “{artist} {title}”: no official audio")
+            shown = f"{match.main_artist(artist) or artist} {_FEAT_GROUP.sub('', tidy_title(title)).strip() or title}"
+            raise YouTubeError(f"query “{shown}” (YouTube Music songs, then YouTube): no official audio")
         return self._submit([self._item(artist, title, match.clean(album), video, query=f"{artist} {title}")])
 
     def add_album(self, artist, album, expected=None):

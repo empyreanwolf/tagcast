@@ -21,6 +21,7 @@ function page({hash = "", storage = {}, server = true, browserNavigator = {}, me
   if (!("tagcast-gapless-v80" in storage)) storage["tagcast-gapless-v80"] = "done";   // fork v80 resets gapless once
   if (!("tagcast-heart-playlist" in storage)) storage["tagcast-heart-playlist"] = "off";   // fork v53 tests turn it on
   if (!("tagcast-preload" in storage)) storage["tagcast-preload"] = "off";   // fork v50 tests turn it on
+  if (!("tagcast-singles-open" in storage)) storage["tagcast-singles-open"] = "1";   // fork v95 tests fold the singles
   if (!freshPageSizes && !("tagcast-page-size-v33" in storage)) {
     storage["tagcast-page-size-v33"] = "1";
     for (const [key, value] of Object.entries(LEGACY_PAGE_SIZES)) if (!(key in storage)) storage[key] = value;
@@ -2791,6 +2792,12 @@ test("an address of an album opens that album once the library is there", async 
 
 // The demo library plus a set of three discs, as iBroadcast sends it while
 // "Combine Multi-Disc Album Sets" is off: one album per disc, with the same title.
+// Fork v95: with "All", albums come first, then EPs, then singles; each group keeps the chosen sort.
+function grouped(p, ids) {
+  return p.json(`(() => { const rank = {album: 0, ep: 1, single: 2}, shelf = new Map(albumShelf().map(a => [String(a.id), a]));
+    return ${JSON.stringify(ids)}.map((id, i) => [id, i]).sort((a, b) => rank[releaseKind(shelf.get(a[0]))] - rank[releaseKind(shelf.get(b[0]))] || a[1] - b[1]).map(x => x[0]); })()`);
+}
+
 function setPage() {
   const p = page();
   p.run(`const discs = [1, 2, 3].map(n => ({id: 70 + n, artist: "Pink Floyd", name: "The Wall", year: 0,
@@ -2818,14 +2825,14 @@ test("album sorting keeps sets together, missing years last and restores the cho
     p.run("state.page = 9");
     await p.nodes.get("#sort").emit("change");
     assert.equal(p.run("state.page"), 0);
-    assert.deepEqual(p.json("filteredAlbums().map(a => a.id)"), ids, sort);
+    assert.deepEqual(p.json("filteredAlbums().map(a => a.id)"), grouped(p, ids), sort);
   }
   assert.deepEqual(p.json("state.albums.map(a => a.id)"), summaries, "Sorting preserves the library summaries");
   await p.click({"[data-album]": {dataset: {album: "71"}}});
   p.nodes.get("#sort").value = "artist";
   p.history.back();
   assert.equal(p.nodes.get("#sort").value, "newest");
-  assert.deepEqual(p.json("filteredAlbums().map(a => a.id)"), orders.newest);
+  assert.deepEqual(p.json("filteredAlbums().map(a => a.id)"), grouped(p, orders.newest));
 });
 
 test("the discs of a set are one album in the lists, with their numbers added up", async () => {
@@ -5868,15 +5875,15 @@ test('confirmed multi-disc ratings refresh cached set values and the visible rat
   await p.run('rateAlbum(["d1","d2"],5)');
   assert.equal(p.run('albumShelf().find(a=>a.id==="d1").rating'),5);
   assert.equal(p.run('albumShelf().find(a=>a.id==="d1").ratingMixed'),false);
-  assert.deepEqual(p.json('filteredAlbums().map(a=>a.id)'),['d1','x']);
+  assert.deepEqual(p.json('filteredAlbums().map(a=>a.id)'),grouped(p,['d1','x']));
   const html=p.nodes.get('#albums').innerHTML;
   assert.ok(html.indexOf('Rated set')<html.indexOf('Other album'),'Visible results repaint after read-back');
   p.run('$("#sort").value="rating_low"; render()');
-  assert.deepEqual(p.json('filteredAlbums().map(a=>a.id)'),['x','d1']);
+  assert.deepEqual(p.json('filteredAlbums().map(a=>a.id)'),grouped(p,['x','d1']));
   rating=0;
   await p.run('rateAlbum(["d1","d2"],0)');
   assert.equal(p.run('albumShelf().find(a=>a.id==="d1").rating'),0);
-  assert.deepEqual(p.json('filteredAlbums().map(a=>a.id)'),['x','d1']);
+  assert.deepEqual(p.json('filteredAlbums().map(a=>a.id)'),grouped(p,['x','d1']));
   assert.equal(p.requests.length,requests+4,'Only the two explicit writes and their read-backs are requested');
   partial=true; rating=5;
   await p.run('rateAlbum(["d1","d2"],5)');
@@ -11766,4 +11773,27 @@ test('fork v94: the Galaxy page has a Try YouTube first box that is remembered',
   assert.equal(p.run("galaxyYoutubeFirst()"), true);
   p.run(`galaxyView.data = {mode: "search", query: "x", tracks: [{source: "netease", id: "1", title: "T", artists: ["A"], album: "B", status: "new"}], albums: []}; galaxyView.cards = null; galaxyView.cardFilter = "all"`);
   assert.match(p.run("galaxyResultsHtml()"), /data-galaxy-ytfirst checked> Try YouTube first/);
+});
+
+test("fork v95: albums, EPs and singles are grouped, singles fold into one bar, and chips show one kind", async () => {
+  const p = page();
+  p.run(`const singles = [1, 2].map(n => ({id: 90 + n, artist: "Connor Price", name: "Single " + n, year: 2024, color: colors[0],
+      tracks: [{id: (90 + n) * 100, title: "Single " + n, artist: "Connor Price", year: 2024, genre: "Hip Hop", track: 1, length: 150}]}));
+    useLocal([...demoLibrary(), ...singles], "demo"); render()`);
+  await settle();
+  const kinds = p.json("filteredAlbums().map(releaseKind)");
+  assert.ok(kinds.includes("single") && kinds.includes("album"), JSON.stringify(kinds));
+  assert.deepEqual(kinds, [...kinds].sort((a, b) => ({album: 0, ep: 1, single: 2})[a] - ({album: 0, ep: 1, single: 2})[b]));
+  p.run("state.singlesOpen = false; render()");
+  assert.ok(p.json("shownAlbums().every(a => releaseKind(a) !== 'single')"));
+  assert.match(p.nodes.get("#albums").innerHTML, /data-singles-toggle aria-expanded="false">▸ Singles \(\d+\)/);
+  await p.click({"[data-singles-toggle]": {}});
+  assert.equal(p.run("state.singlesOpen"), true);
+  assert.match(p.nodes.get("#albums").innerHTML, /▾ Singles/);
+  assert.match(p.nodes.get("#release-kinds").innerHTML, /data-release-kind="single"/);
+  await p.click({"[data-release-kind]": {dataset: {releaseKind: "single"}}});
+  assert.ok(p.json("filteredAlbums().length > 0 && filteredAlbums().every(a => releaseKind(a) === 'single')"));
+  assert.match(p.nodes.get("#results-count").textContent, /singles?/);
+  assert.doesNotMatch(p.nodes.get("#albums").innerHTML, /release-group-title/);
+  assert.equal(p.json("[1, 3, 4, 6, 7].map(n => releaseKind({track_count: n})).join()"), "single,single,ep,ep,album");
 });

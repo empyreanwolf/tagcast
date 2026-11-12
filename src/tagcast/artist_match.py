@@ -454,3 +454,13 @@ def featured(title, duos=()):
     if not out:
         return [], "no name after feat/ft"
     return out, None
+
+
+# Fork v95: "Abstract Rude feat. Busdriver, Myka 9" -> "Abstract Rude": the main artist, for searching
+# (a long guest list buries the name) and for a sure library match.
+_FEAT_SPLIT = re.compile(r"\s+(?:feat|ft|featuring)\.?\s|\s*[(\[（]\s*(?:feat|ft|featuring)\b", re.I)
+
+
+def main_artist(artist):
+    value = str(artist or "")
+    return _FEAT_SPLIT.split(value, 1)[0].strip() or value.strip()

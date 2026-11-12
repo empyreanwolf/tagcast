@@ -493,6 +493,8 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/digest/mark-found-seen": lambda b: self.studio.digest.mark_found_seen(),
             "/api/wishlist/retry": lambda b: self.studio.wishlist.retry(b.get("ids")),
             "/api/wishlist/remove": lambda b: self.studio.wishlist.remove(b.get("ids")),
+            "/api/wishlist/check-library": lambda b: self.studio.wishlist.check_library(),
+            "/api/wishlist/keep": lambda b: self.studio.wishlist.keep(b.get("ids")),
             "/api/wishlist/search-as": lambda b: self.studio.wishlist.search_as(b),
             "/api/wishlist/settings": lambda b: self.studio.wishlist.save_settings(b),
             "/api/wishlist/add": lambda b: self.studio.wishlist.add(b.get("kind"), b.get("artist"), b.get("title"), b.get("album") or ""),

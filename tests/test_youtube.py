@@ -2,7 +2,8 @@ import unittest
 from pathlib import Path
 
 from test_discography import LocalStudio
-from tagcast.youtube import YouTube, YouTubeError, best_video, score_video
+from tagcast.youtube import YouTube, YouTubeError, best_video, music_fit, score_video
+from tagcast.artist_match import main_artist
 
 
 def video(title, channel, seconds=200, vid="abc"):
@@ -24,6 +25,56 @@ class ScoringTests(unittest.TestCase):
 
     def test_a_remix_is_fine_when_it_is_what_you_asked_for(self):
         self.assertGreater(score_video(video("Yellow (Remix)", "Coldplay - Topic"), "Coldplay", "Yellow (Remix)"), 0)
+
+
+class MusicSongTests(unittest.TestCase):
+    """Fork v95: YouTube Music's Songs tab first, checked on its own artist/track/length details."""
+
+    def test_main_artist(self):
+        self.assertEqual(main_artist("Abstract Rude feat. Busdriver, Myka 9 & Aceyalone"), "Abstract Rude")
+        self.assertEqual(main_artist("Analog Dive (feat. Scarub)"), "Analog Dive")
+        self.assertEqual(main_artist("Coldplay"), "Coldplay")
+        self.assertEqual(main_artist("Featurecast"), "Featurecast")
+
+    def test_music_fit(self):
+        info = {"id": "m1", "artists": ["Abstract Rude", "Del The Funky Homosapien"], "track": "From Conception to 2 Cremation",
+                "channel": "Abstract Rude - Topic", "duration": 240}
+        self.assertEqual(music_fit(info, "Abstract Rude", "From Conception to 2 Cremation")["id"], "m1")
+        self.assertIsNone(music_fit(info, "Busdriver", "From Conception to 2 Cremation"))
+        self.assertIsNone(music_fit(info, "Abstract Rude", "Another Song"))
+        self.assertIsNone(music_fit(info, "Abstract Rude", "From Conception to 2 Cremation", want_seconds=120))
+        self.assertIsNone(music_fit({**info, "track": "From Conception to 2 Cremation (Remix)"}, "Abstract Rude", "From Conception to 2 Cremation"))
+
+    def test_find_song_tries_youtube_music_first_with_the_main_artist(self):
+        queries, details = [], []
+
+        def search(query, playlists=False):
+            queries.append(query)
+            if "music.youtube.com" in query:
+                return [{"id": "x1", "title": "Something Else"}, {"id": "m1", "title": "The Media"}]
+            return []
+
+        def info(url):
+            details.append(url)
+            return {"id": "m1", "artists": ["Abstract Rude"], "track": "The Media", "channel": "Abstract Rude - Topic", "duration": 230}
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=search, fetch_audio=lambda *a: None, info=info)
+        found = studio.youtube.find_song("Abstract Rude feat. Busdriver, Myka 9 & Aceyalone", "The Media (feat. Busdriver)")
+        self.assertEqual((found["id"], found["duration"]), ("m1", 230))
+        self.assertEqual(len(details), 1)  # "Something Else" is not even looked at
+        self.assertIn("q=Abstract%20Rude%20The%20Media#songs", queries[0])
+        self.assertNotIn("Busdriver", queries[0])
+
+    def test_find_song_falls_back_to_normal_search(self):
+        queries = []
+
+        def search(query, playlists=False):
+            queries.append(query)
+            return [] if "music.youtube.com" in query else [video("The Media", "Abstract Rude - Topic", vid="v5")]
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=search, fetch_audio=lambda *a: None)
+        self.assertEqual(studio.youtube.find_song("Abstract Rude feat. Busdriver", "The Media")["id"], "v5")
+        self.assertEqual(queries[1], "Abstract Rude The Media")
 
 
 class QueueTests(unittest.TestCase):

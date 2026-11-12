@@ -241,6 +241,8 @@
 :root[data-theme="dark"] .upl-pop{background:#d7efe088}
 :root[data-theme="dark"] .upl-pop-box{box-shadow:0 24px 100px #0a1c2440}
 :root[data-theme="dark"] .upl-pop .upl-fields input{background:var(--palette-surface,#1b2520)}
+:root[data-theme="dark"] .release-kinds .chip.active{color:#1b2520}
+:root[data-theme="dark"] .release-kinds .chip.active .muted{color:#1f1f1fc0}
 
 /* set by hand */
 :root[data-theme="dark"]{color-scheme:dark}
@@ -497,6 +499,8 @@
 :root:not([data-theme="light"]) .upl-pop{background:#d7efe088}
 :root:not([data-theme="light"]) .upl-pop-box{box-shadow:0 24px 100px #0a1c2440}
 :root:not([data-theme="light"]) .upl-pop .upl-fields input{background:var(--palette-surface,#1b2520)}
+:root:not([data-theme="light"]) .release-kinds .chip.active{color:#1b2520}
+:root:not([data-theme="light"]) .release-kinds .chip.active .muted{color:#1f1f1fc0}
 
 /* set by hand */
 :root:not([data-theme="light"]){color-scheme:dark}

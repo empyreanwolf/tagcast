@@ -57,7 +57,7 @@ function renderArtistTabs() {
     const selected = button.dataset.artistTab === (tracks ? "tracks" : "albums");
     button.setAttribute("aria-selected", String(selected)); button.setAttribute("aria-pressed", String(selected));
   }
-  for (const id of ["#albums-toolbar", "#albums-results-line", "#albums", "#pagination"]) $(id).hidden = tracks;
+  for (const id of ["#albums-toolbar", "#release-kinds", "#albums-results-line", "#albums", "#pagination"]) { const el = $(id); if (el) el.hidden = tracks; }
   $("#artist-tracks").hidden = !tracks;
   if (!tracks) return;
   if (artistTracks.artist !== state.artist || artistTracks.details !== state.details) loadArtistTracks();

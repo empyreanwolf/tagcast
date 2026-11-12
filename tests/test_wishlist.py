@@ -51,13 +51,45 @@ class WishlistTests(unittest.TestCase):
         again = studio.wishlist.view()["items"][0]
         self.assertEqual((again["tries"], again["note"]), (2, "Not found on Galaxy, Bandcamp or Soulseek (Galaxy · query “Coldplay Unreleased Demo”: not found)"))
 
-    def test_something_you_have_now_is_removed(self):
+    def test_something_you_have_now_waits_for_you(self):
+        # Fork v95: a wish you meanwhile have is tagged, not searched, and leaves only when you confirm.
         studio = LocalStudio()
         studio.wishlist.add("song", "Coldplay", "Yellow")
         view = (studio.wishlist.retry(), wait(studio.wishlist))[1]  # only what is due: nothing yet
         self.assertEqual(len(view["items"]), 1)
-        view = (studio.wishlist.retry([view["items"][0]["id"]]), wait(studio.wishlist))[1]
-        self.assertEqual((view["items"], view["found"][0]["note"]), ([], "You have it now"))
+        item_id = view["items"][0]["id"]
+        view = (studio.wishlist.retry([item_id]), wait(studio.wishlist))[1]
+        self.assertEqual(len(view["items"]), 1)
+        self.assertTrue(view["items"][0]["owned"]["sure"])
+        self.assertEqual(view["items"][0]["owned"]["you_have"][0]["title"], "Yellow")
+        self.assertEqual(view["found"], [])
+        # "Not the same, keep": the check leaves it alone from now on.
+        view = studio.wishlist.keep([item_id])
+        self.assertNotIn("owned", view["items"][0])
+        self.assertEqual(studio.wishlist.check_library()["checked"], {"total": 0, "found": 0})
+
+    def test_check_my_library(self):
+        studio = LocalStudio()
+        sure = studio.wishlist.add("song", "Coldplay feat. Somebody Else", "Yellow (feat. Somebody Else)")
+        guest = studio.wishlist.add("song", "Somebody Else feat. Coldplay", "Yellow")
+        missing = studio.wishlist.add("song", "Coldplay", "Unreleased Demo")
+        view = studio.wishlist.check_library()
+        self.assertEqual(view["checked"], {"total": 3, "found": 2})
+        owned = {i["id"]: i.get("owned") for i in view["items"]}
+        self.assertTrue(owned[sure["id"]]["sure"])
+        self.assertFalse(owned[guest["id"]]["sure"])  # only a guest matches: you tick it yourself
+        self.assertIsNone(owned[missing["id"]])
+        self.assertNotIn(sure["id"], [i["id"] for i in studio.wishlist.remove([sure["id"]])["items"]])
+
+    def test_owned_from(self):
+        from tagcast.wishlist import owned_from
+        item = {"kind": "album", "artist": "Coldplay", "title": "Viva"}
+        self.assertIsNone(owned_from(item, {"status": "partly", "you_have": [{"where": "ibroadcast", "artist": "Coldplay"}]}))
+        self.assertIsNone(owned_from(item, {"status": "have", "you_have": [{"where": "history", "artist": "Coldplay"}]}))
+        edition = owned_from(item, {"status": "have", "other_edition": True, "you_have": [{"where": "ibroadcast", "title": "Viva (Deluxe)", "artist": "Coldplay", "edition": True}]})
+        self.assertFalse(edition["sure"])
+        close = owned_from({"kind": "song", "artist": "Coldplay", "title": "Yelow"}, {"status": "have", "you_have": [{"where": "ibroadcast", "title": "Yellow", "artist": "Coldplay", "close": True}]})
+        self.assertFalse(close["sure"])
 
     def test_soulseek_failure_with_nothing_on_galaxy(self):
         studio = LocalStudio(soulseek=True)

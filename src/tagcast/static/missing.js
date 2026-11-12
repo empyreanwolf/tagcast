@@ -147,6 +147,29 @@ function wishlistSearchAsHtml(i) {
       <button type="button" class="button primary" data-wishlist="searchas" data-wish-id="${escapeHtml(i.id)}" ${busy}>Search now</button>` : ""}</div>`;
 }
 
+// Fork v95: wishes the library check found. Sure matches start ticked, maybes do not; nothing leaves without a click.
+function wishlistOwnTicked(i) {
+  const own = missingView.ownTicked || (missingView.ownTicked = new Map());
+  return own.has(i.id) ? own.get(i.id) : !!i.owned?.sure;
+}
+
+function wishlistOwnedHtml(w) {
+  const rows = (w.items || []).filter(i => i.owned);
+  const checked = w.checked ? `<p class="muted" role="status">Checked ${w.checked.total} ${w.checked.total === 1 ? "wish" : "wishes"} against your library: ${w.checked.found ? `${w.checked.found} found.` : "none found."}</p>` : "";
+  if (!rows.length) return checked;
+  const ticked = rows.filter(wishlistOwnTicked).length;
+  return `${checked}<div class="wishlist-owned"><h3>Found in your library (${rows.length})</h3>
+    <ul class="dl-list">${rows.map(i => {
+      const have = (i.owned.you_have || []).map(h => `${escapeHtml(h.title || "")} · ${escapeHtml(h.artist || "")}${h.album ? ` · ${escapeHtml(h.album)}` : ""}${h.tracks ? ` (${h.tracks} songs)` : ""}`).join("; ");
+      return `<li><input type="checkbox" data-wishlist-own="${escapeHtml(i.id)}" aria-label="Remove ${escapeHtml(i.title)}" ${wishlistOwnTicked(i) ? "checked" : ""}>
+        <span class="dl-badge ${i.owned.sure ? "have" : "partly"}">${i.owned.sure ? "Sure" : "Maybe"}</span>
+        <div><b>${escapeHtml(i.title)}</b> <span class="muted">· ${escapeHtml(i.artist)}</span>
+          <div class="muted">You have: ${have}</div></div></li>`;
+    }).join("")}</ul>
+    <div class="dl-actions"><button type="button" class="button primary" data-wishlist="own-remove" ${ticked ? "" : "disabled"}>Remove ticked (${ticked})</button>
+      <button type="button" class="button" data-wishlist="own-keep" ${rows.length > ticked ? "" : "disabled"} title="Keep the unticked ones on the wishlist; the check leaves them alone">Not the same, keep (${rows.length - ticked})</button></div></div>`;
+}
+
 function wishlistHtml() {
   const w = missingView.wishlist;
   if (!w) { wishlistLoad(); return '<p class="muted">Loading…</p>'; }
@@ -161,9 +184,11 @@ function wishlistHtml() {
     ${w.items.length ? `<div class="dl-actions">
         <label><input type="checkbox" data-wishlist-all ${w.items.every(i => missingView.picked.has(i.id)) ? "checked" : ""}> Select all (${w.items.length})</label>
         <button type="button" class="button primary" data-wishlist="retry" ${picked && !p ? "" : "disabled"}>Try selected now (${picked})</button>
-        <button type="button" class="button" data-wishlist="remove" ${picked ? "" : "disabled"}>Remove</button></div>
+        <button type="button" class="button" data-wishlist="remove" ${picked ? "" : "disabled"}>Remove</button>
+        <button type="button" class="button" data-wishlist="check-library" ${p ? "disabled" : ""} title="Compare the wishlist with your iBroadcast library">Check my library</button></div>
+      ${wishlistOwnedHtml(w)}
       <ul class="dl-list">${w.items.map(i => `<li><input type="checkbox" data-wishlist-pick="${i.id}" aria-label="Select ${escapeHtml(i.title)}" ${missingView.picked.has(i.id) ? "checked" : ""}>
-        <span class="dl-badge new">${i.kind === "album" ? "Album" : "Song"}</span>
+        <span class="dl-badge new">${i.kind === "album" ? "Album" : "Song"}</span>${i.owned ? ' <span class="dl-badge have">In your library?</span>' : ""}
         <div><b>${escapeHtml(i.title)}</b> <span class="muted">· ${escapeHtml(i.artist)}${i.album ? ` · ${escapeHtml(i.album)}` : ""}</span>
           <div class="muted">${i.tries} ${i.tries === 1 ? "try" : "tries"} · ${escapeHtml(i.note || "")} · next try ${missingDate(i.next_try)}</div>
           ${wishlistSearchAsHtml(i)}
@@ -263,6 +288,13 @@ document.addEventListener("click", event => {
       downloadsRun(async () => { view.wishlist = await api("/api/wishlist/retry", {ids: [...view.picked]}); view.picked.clear(); missingRefresh(); wishlistLoad(); });
     } else if (action === "remove") {
       downloadsRun(async () => { view.wishlist = await api("/api/wishlist/remove", {ids: [...view.picked]}); view.picked.clear(); missingRefresh(); });
+    } else if (action === "check-library") {
+      downloadsRun(async () => { view.wishlist = await api("/api/wishlist/check-library", {}); view.ownTicked = new Map(); missingRefresh(); });
+    } else if (action === "own-remove" || action === "own-keep") {
+      const rows = (view.wishlist?.items || []).filter(i => i.owned);
+      const ids = rows.filter(i => wishlistOwnTicked(i) === (action === "own-remove")).map(i => i.id);
+      if (!ids.length) return;
+      downloadsRun(async () => { view.wishlist = await api(action === "own-remove" ? "/api/wishlist/remove" : "/api/wishlist/keep", {ids}); ids.forEach(id => { view.ownTicked?.delete(id); view.picked.delete(id); }); missingRefresh(); });
     } else if (action === "searchas-open") {
       view.searchAs = view.searchAs === wish.dataset.wishId ? null : wish.dataset.wishId; missingRefresh();
     } else if (action === "suggest" || action === "searchas") {
@@ -302,6 +334,7 @@ document.addEventListener("change", event => {
   else if (target.matches("[data-complete-pick]")) { view.picked[target.checked ? "add" : "delete"](target.dataset.completePick); missingRefresh(); }
   else if (target.matches("[data-complete-all]")) { view.picked = new Set(target.checked ? completeRows().map(a => a.key) : []); missingRefresh(); }
   else if (target.matches("[data-wishlist-pick]")) { view.picked[target.checked ? "add" : "delete"](target.dataset.wishlistPick); missingRefresh(); }
+  else if (target.matches("[data-wishlist-own]")) { (view.ownTicked || (view.ownTicked = new Map())).set(target.dataset.wishlistOwn, target.checked); missingRefresh(); }
   else if (target.matches("[data-wishlist-all]")) { view.picked = new Set(target.checked ? view.wishlist.items.map(i => i.id) : []); missingRefresh(); }
   else if (target.id === "wishlist-kind") { view.wishKind = target.value; }
   else if (target.id === "wishlist-days") downloadsRun(async () => { view.wishlist = await api("/api/wishlist/settings", {every_days: target.value}); missingRefresh(); });

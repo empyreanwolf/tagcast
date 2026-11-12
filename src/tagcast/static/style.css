@@ -1346,3 +1346,12 @@ th.sortable-th .sort-arrow{font-size:calc(10px*var(--ts));color:var(--accent,cur
 .upl-pop-dupe{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px}
 .upl-pop-foot{margin-top:16px}.upl-pop-gap{flex:1}
 @media(max-width:560px){.upl-pop .upl-fields{grid-template-columns:1fr}}
+/* Fork v95: albums, EPs and singles as their own groups, with chips to show one kind */
+.release-kinds{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.release-kinds .chip{padding:6px 13px}
+.release-kinds .chip.active{background:var(--palette-primary,var(--green));border-color:var(--palette-primary,var(--green));color:#fff}
+.release-kinds .chip.active .muted{color:#ffffffc0}
+.album-groups{display:flex;flex-direction:column;gap:26px}
+.release-group-title{font-size:calc(15px*var(--ts));font-weight:600;margin:0 0 12px;color:var(--ink)}
+.release-fold{border:0;background:none;color:inherit;font:inherit;padding:0;cursor:pointer}
+.release-fold:hover{color:var(--palette-link,var(--green))}
