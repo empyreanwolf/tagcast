@@ -393,6 +393,27 @@ class YtdlpWorker(FileWorker):
             raise box["error"]
         return box["got"]
 
+    def _spotsaver_on(self):
+        yt = getattr(self.studio, "youtube", None)
+        state = getattr(yt, "state", None)
+        return bool(state.get("spotsaver", True)) if isinstance(state, dict) else True
+
+    def _spotsaver_backup(self, job, folder, hook, error):
+        """Fork v96: yt-dlp failed (hang, 403, age gate, error): ask SpotSaver for the same YouTube video once.
+        Returns (file, info) or raises the original error so the other sources are tried as before."""
+        from . import spotsaver
+        p = job["payload"]
+        if not self._spotsaver_on() or not spotsaver.video_id(p.get("url")):
+            raise error
+        self._step(job["id"], 0, "yt-dlp failed; trying SpotSaver…")
+        try:
+            got = spotsaver.fetch(p["url"], folder, hook, job["title"], ", ".join(p.get("artists") or []))
+        except spotsaver.SpotSaverError as backup:
+            log.info("SpotSaver back-up for %s failed: %s", job["title"], backup)
+            raise error from None
+        self.manager.update_item(job["id"], note="Downloaded through SpotSaver (yt-dlp failed)")
+        return got
+
     def _failover(self, job, error):
         """Fork v96: a song yt-dlp cannot serve is marked failed and tried elsewhere (see Discography.youtube_fallback)."""
         jid = job["id"]
@@ -416,7 +437,10 @@ class YtdlpWorker(FileWorker):
                 self._progress(jid, done, total)
 
         folder = self._part_path(jid).parent / f"yt-{jid}"
-        got = self._fetch_watched(p["url"], folder, hook)
+        try:
+            got = self._fetch_watched(p["url"], folder, hook)
+        except JobFailed as error:
+            got = self._spotsaver_backup(job, folder, hook, error)
         file, info = got if isinstance(got, tuple) else (got, {})
         try:
             part = self._part_path(jid)
@@ -530,13 +554,16 @@ class YouTube(YtdlpWorker):
                 "cookies_browser": str(self.state.get("cookies_browser") or ""),
                 "cookies_file": str(self.state.get("cookies_file") or ""),
                 "cookies_ok": bool(self._cookie_opts()), "browsers": list(COOKIE_BROWSERS),
+                "spotsaver": bool(self.state.get("spotsaver", True)),
                 "updating": self.updating, "update_note": self.update_note}
 
     def save_settings(self, body):
-        if not isinstance(body, dict) or not any(k in body for k in ("enabled", "cookies_browser", "cookies_file")):
+        if not isinstance(body, dict) or not any(k in body for k in ("enabled", "cookies_browser", "cookies_file", "spotsaver")):
             raise YouTubeError("Choose whether to use YouTube.")
         if "enabled" in body:
             self.state["enabled"] = body["enabled"] is True
+        if "spotsaver" in body:
+            self.state["spotsaver"] = body["spotsaver"] is True
         if "cookies_browser" in body:
             browser = str(body["cookies_browser"] or "").strip().lower()
             if browser and browser not in COOKIE_BROWSERS:

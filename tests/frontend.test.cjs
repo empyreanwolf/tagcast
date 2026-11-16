@@ -11797,3 +11797,11 @@ test("fork v95: albums, EPs and singles are grouped, singles fold into one bar, 
   assert.doesNotMatch(p.nodes.get("#albums").innerHTML, /release-group-title/);
   assert.equal(p.json("[1, 3, 4, 6, 7].map(n => releaseKind({track_count: n})).join()"), "single,single,ep,ep,album");
 });
+
+test('fork v96: YouTube settings have a SpotSaver back-up checkbox, on unless turned off', async () => {
+  const p=page(); await settle();
+  p.run('youtubeView.status = {enabled:true, installed:true, version:"2026.1.1", cookies_browser:"", cookies_file:"", cookies_ok:false, browsers:["firefox"], updating:false, update_note:"", spotsaver:true}');
+  assert.match(p.run("youtubeSettingsHtml()"),/data-youtube-spotsaver checked> If yt-dlp fails or hangs, try SpotSaver/);
+  p.run('youtubeView.status.spotsaver = false');
+  assert.doesNotMatch(p.run("youtubeSettingsHtml()"),/data-youtube-spotsaver checked>/);
+});

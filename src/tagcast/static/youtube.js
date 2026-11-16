@@ -57,6 +57,7 @@ function youtubeSettingsHtml() {
   if (!st) { youtubeLoad(); return '<p class="muted">Loading…</p>'; }
   const browsers = st.browsers || [];
   return `<label class="checkline"><input type="checkbox" data-youtube-enabled ${st.enabled ? "checked" : ""}> Try YouTube first for every download (then Galaxy, Bandcamp, Soulseek)</label>
+    <label class="checkline"><input type="checkbox" data-youtube-spotsaver ${st.spotsaver !== false ? "checked" : ""}> If yt-dlp fails or hangs, try SpotSaver (spotsaver.net) before the other sources</label>
     <p class="muted">${st.installed ? `yt-dlp ${escapeHtml(st.version)} is installed.` : "yt-dlp is not installed yet. Restart Tagcast once, or run <code>pip install yt-dlp</code>."}
       <button type="button" class="button small" data-youtube="update" ${st.updating || !st.installed ? "disabled" : ""}>${st.updating ? "Updating yt-dlp…" : "Update yt-dlp"}</button>
       ${st.update_note ? `<span role="status">${escapeHtml(st.update_note)}</span>` : ""}</p>
@@ -99,6 +100,14 @@ document.addEventListener("change", async event => {
   if (!cookie) return;
   const body = cookie.dataset.youtubeCookies === "browser" ? {cookies_browser: cookie.value} : {cookies_file: cookie.value.trim()};
   try { youtubeView.status = await api("/api/youtube/settings", body); }
+  catch (error) { setActionStatus("#downloads-status", error.message || String(error)); }
+  renderDownloads();
+});
+
+document.addEventListener("change", async event => {
+  const box = event.target.closest?.("[data-youtube-spotsaver]");
+  if (!box) return;
+  try { youtubeView.status = await api("/api/youtube/settings", {spotsaver: box.checked}); }
   catch (error) { setActionStatus("#downloads-status", error.message || String(error)); }
   renderDownloads();
 });
