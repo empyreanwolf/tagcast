@@ -19,7 +19,7 @@ import requests
 
 from . import artist_match as match
 from .library import LibraryError
-from .youtube import YtdlpWorker, plain_error
+from .youtube import AgeRestricted, DownloadBlocked, FetchTimeout, YtdlpWorker, plain_error
 
 log = logging.getLogger("tagcast")
 SEARCH_RESULTS = 20
@@ -99,7 +99,17 @@ class MoreSources(YtdlpWorker):
         self._extract = extract or self._yt_extract
         self._chart = chart_fetch or self._soundcloud_chart
         self._fetch_audio = fetch_audio or self._yt_fetch
+        self.on_failed = None  # fork v96: set by Discography: a Spotify song yt-dlp cannot serve tries other sources
         super().__init__(studio, None)
+
+    def process(self, job):
+        try:
+            super().process(job)
+        except (AgeRestricted, DownloadBlocked, FetchTimeout) as error:
+            if (job.get("payload") or {}).get("spotify"):
+                self._failover(job, error)
+            else:
+                raise
 
     # -- yt-dlp -------------------------------------------------------------------------------
 

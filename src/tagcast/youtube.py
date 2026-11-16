@@ -41,6 +41,10 @@ class DownloadBlocked(JobFailed):
     """YouTube refused the download itself (HTTP 403): an old yt-dlp, or this video (fork v94)."""
 
 
+class FetchTimeout(JobFailed):
+    """Fork v96: yt-dlp gave no sign of life for too long (a hang reading the page, not an error)."""
+
+
 class YouTubeError(LibraryError):
     pass
 
@@ -344,6 +348,58 @@ class YtdlpWorker(FileWorker):
 
     _cover = None
 
+    fetch_idle = 90.0  # fork v96: seconds without any sign of life from yt-dlp before the song counts as failed
+
+    def _fetch_watched(self, url, folder, hook):
+        """Fork v96: ``_fetch_audio`` in a thread with a watchdog. yt-dlp can hang for ever reading a page; the
+        queue then froze behind one song. Now it fails after ``fetch_idle`` seconds without any progress, and the
+        song goes to the fallback (another upload, then the other sources)."""
+        beat = [time.monotonic()]
+        gone = threading.Event()
+        box = {}
+
+        def watched(d):
+            beat[0] = time.monotonic()
+            if gone.is_set():
+                raise StopRequested()
+            hook(d)
+
+        def run():
+            try:
+                box["got"] = self._fetch_audio(url, folder, watched)
+            except BaseException as error:  # noqa: BLE001 - handed to the worker thread below
+                box["error"] = error
+
+        thread = threading.Thread(target=run, daemon=True, name="yt-fetch")
+        thread.start()
+        while thread.is_alive():
+            thread.join(0.5)
+            if not thread.is_alive():
+                break
+            if self.stopping:
+                gone.set()
+                raise StopRequested()
+            try:
+                self._check_cancel()
+            except JobCancelled:
+                gone.set()
+                raise
+            if time.monotonic() - beat[0] > self.fetch_idle:
+                gone.set()
+                raise FetchTimeout(f"yt-dlp did not answer for {int(self.fetch_idle)} s (stuck reading the page). "
+                                   "Tagcast tries another upload and other sources. If it keeps happening: Settings → "
+                                   "YouTube → Update yt-dlp, restart Tagcast, and check your cookies setting.")
+        if "error" in box:
+            raise box["error"]
+        return box["got"]
+
+    def _failover(self, job, error):
+        """Fork v96: a song yt-dlp cannot serve is marked failed and tried elsewhere (see Discography.youtube_fallback)."""
+        jid = job["id"]
+        self.manager.update_item(jid, persist=True, state="failed", note=str(error), speed=0, eta=0)
+        if getattr(self, "on_failed", None):
+            threading.Thread(target=self.on_failed, args=(self.manager.item(jid),), daemon=True, name="ytdlp-fallback").start()
+
     def process(self, job):
         p, jid = job["payload"], job["id"]
         self.manager.update_item(jid, started=time.time(), speed=0, eta=0)
@@ -360,7 +416,7 @@ class YtdlpWorker(FileWorker):
                 self._progress(jid, done, total)
 
         folder = self._part_path(jid).parent / f"yt-{jid}"
-        got = self._fetch_audio(p["url"], folder, hook)
+        got = self._fetch_watched(p["url"], folder, hook)
         file, info = got if isinstance(got, tuple) else (got, {})
         try:
             part = self._part_path(jid)
@@ -434,11 +490,8 @@ class YouTube(YtdlpWorker):
     def process(self, job):
         try:
             super().process(job)
-        except (AgeRestricted, DownloadBlocked) as error:
-            jid = job["id"]
-            self.manager.update_item(jid, persist=True, state="failed", note=str(error), speed=0, eta=0)
-            if self.on_failed:
-                threading.Thread(target=self.on_failed, args=(self.manager.item(jid),), daemon=True, name="youtube-fallback").start()
+        except (AgeRestricted, DownloadBlocked, FetchTimeout) as error:
+            self._failover(job, error)
 
     # -- availability and settings --------------------------------------------------------------
 

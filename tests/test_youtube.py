@@ -472,5 +472,76 @@ class V94Tests(unittest.TestCase):
         self.assertEqual([(r["key"], r["ok"]) for r in answer["results"]], [("a", True), ("b", False)])
 
 
+class V96Tests(unittest.TestCase):
+    """Fork v96: a hung yt-dlp times out and the song goes to the fallback."""
+
+    def test_a_hung_fetch_times_out_and_starts_the_fallback(self):
+        import time
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=lambda q, playlists=False: [video("Obscure Song", "Coldplay - Topic", vid="v2")],
+                                 fetch_audio=lambda *a: None)
+        studio.youtube.ensure_worker = lambda: None
+        yt, called = studio.youtube, []
+        yt.on_failed = lambda item: called.append(item)
+        yt.fetch_idle = 0.6
+        release = []
+
+        def fetch(url, folder, hook):
+            while not release:
+                time.sleep(0.05)
+        yt._fetch_audio = fetch
+        yt.add_song("Coldplay", "Obscure Song", "Parachutes")
+        job = studio.download_manager.next_queued("youtube")
+        yt.active = job["id"]
+        yt.process(job)
+        release.append(1)
+        for _ in range(100):
+            if called:
+                break
+            time.sleep(0.01)
+        item = studio.download_manager.item(job["id"])
+        self.assertEqual(item["state"], "failed")
+        self.assertIn("did not answer", item["note"])
+        self.assertEqual(len(called), 1)
+
+    def test_a_fetch_that_keeps_reporting_progress_is_not_cut_off(self):
+        import time
+        studio = LocalStudio()
+        yt = YouTube(studio, search=lambda q, playlists=False: [], fetch_audio=lambda *a: None)
+        yt.fetch_idle = 0.6
+
+        def fetch(url, folder, hook):
+            for _ in range(5):
+                time.sleep(0.3)
+                hook({"status": "downloading", "downloaded_bytes": 1, "total_bytes": 9})
+            return "done"
+        yt._fetch_audio = fetch
+        yt.active = "x"
+        self.assertEqual(yt._fetch_watched("u", None, lambda d: None), "done")
+
+    def test_more_sources_spotify_rows_use_the_fallback(self):
+        from tagcast.moresources import MoreSources
+        from tagcast.youtube import FetchTimeout
+        studio = LocalStudio()
+        more = MoreSources(studio, search=lambda q: [], extract=lambda u: [], fetch_audio=lambda *a: None)
+        called = []
+        more.on_failed = lambda item: called.append(item)
+        job = {"id": "j1", "payload": {"spotify": {"year": "2026"}}}
+        studio.download_manager.update_item = lambda *a, **k: None
+        studio.download_manager.item = lambda jid: {"id": jid}
+        with unittest.mock.patch.object(YouTube.__mro__[1], "process", side_effect=FetchTimeout("hung")):
+            more.process(job)
+        import time
+        for _ in range(100):
+            if called:
+                break
+            time.sleep(0.01)
+        self.assertEqual(called, [{"id": "j1"}])
+        job["payload"] = {}
+        with unittest.mock.patch.object(YouTube.__mro__[1], "process", side_effect=FetchTimeout("hung")):
+            with self.assertRaises(FetchTimeout):
+                more.process(job)
+
+
 if __name__ == "__main__":
     unittest.main()

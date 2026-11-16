@@ -137,6 +137,9 @@ class Discography:
         youtube = getattr(studio, "youtube", None)
         if youtube is not None:
             youtube.on_failed = self.youtube_fallback
+        more = getattr(studio, "moresources", None)
+        if more is not None:
+            more.on_failed = self.youtube_fallback  # fork v96: a Spotify song that yt-dlp cannot serve
 
     @property
     def manager(self):
@@ -878,6 +881,8 @@ class Discography:
         if not artist or not item.get("title"):
             return
         bad = str((item.get("payload") or {}).get("id") or "")
+        if bad.startswith("http"):  # a More-sources row carries the link, not the video id (v96)
+            bad = (re.search(r"[?&]v=([\w-]{11})", bad) or re.search(r"youtu\.be/([\w-]{11})", bad) or [None, ""])[1]
         ctx = {"bandcamp": None, "bandcamp_checked": False}
         try:
             source = None
@@ -891,7 +896,7 @@ class Discography:
             source, note = None, str(error)
         if source:
             self.manager.remove([item["id"]])
-            activity.record("downloads", "info", f"YouTube age-restricted {item['title']}: trying {source} instead", source=source.casefold())
+            activity.record("downloads", "info", f"YouTube could not serve {item['title']}: trying {source} instead", source=source.casefold())
             return
         note = self._wish("song", artist, item["title"], item.get("album", ""), note=note)
         self.manager.update_item(item["id"], persist=True, note=f"{item.get('note', '')} · {note}".strip(" ·"))
