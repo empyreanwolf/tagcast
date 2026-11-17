@@ -44,7 +44,7 @@ LIST_MARK = re.compile(r"^\s*(?:[*•·▪◦■□●○▶►-]|\d{1,3}\s*[.)\
 YEAR_TAIL = re.compile(r"\s*[(\[]\s*((?:19|20)\d\d)\s*[)\]]\s*$")
 YEAR_ONLY = re.compile(r"^(?:19|20)\d\d$")
 BY = re.compile(r"^(?P<album>.{2,}?)\s+by\s+(?P<artist>.{2,})$", re.I)
-QUOTED = re.compile(r"^(?P<artist>[^\"“”‘’'«»]{2,}?)[,:]?\s+[\"“‘«'](?P<album>[^\"”’»]{1,}?)[\"”’»']$")
+QUOTED = re.compile(r"^(?P<artist>[^\"“”‘’'«»「」『』]{2,}?)[,:]?(?:\s+|(?=[「『]))[\"“‘«'「『](?P<album>[^\"”’»」』]{1,}?)[\"”’»'」』]$")  # v95: 『』「」
 HEADER_WORDS = {"artist", "album", "title", "rank", "year", "release", "band", "name", "no", "position", "label", "genre", "date"}
 TAG = re.compile(r"<[^>]+>")
 NOISE = re.compile(r"^(?:read more|share|reply|comments?|log in|sign up|advertisement|subscribe|menu|home|next|previous|"
@@ -168,6 +168,42 @@ def split_artist_album(line):
     return None
 
 
+DATE_LINE = re.compile(r"(?i)^(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?\s+|\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+)?((?:19|20)\d\d)\b")
+SONG_LINE = re.compile(r"^[\"“‘'「『]")
+
+
+def heading_pairs(lines):
+    """Fork v95: a list where each entry is a heading with the album and the next line the artist
+    ("• The One" / "DJ CHARI & DJ TATSUKI"), as on many review sites. Only trusted when the page
+    repeats it at least three times; a date line just above gives the year."""
+    out = []
+    for index, line in enumerate(lines[:-1]):
+        if not line.startswith("• "):
+            continue
+        album, artist = clean_text(line[2:]), lines[index + 1]
+        if not album or SONG_LINE.match(album) or re.search(DASHES, album) or len(album) > 80 or NOISE.match(album):
+            continue
+        if artist.startswith("• ") or LIST_MARK.match(artist) or NOISE.match(artist) or len(artist) > 60 \
+                or len(artist.split()) > 7 or artist.rstrip().endswith((".", "!", "?", ":")) \
+                or DATE_LINE.match(artist) or re.fullmatch(r"[\d\s#./-]+", artist) or artist.casefold().startswith("by "):
+            continue
+        year = ""
+        for before in lines[max(0, index - 3):index]:
+            m = DATE_LINE.match(before)
+            if m:
+                year = m.group(1)
+        if "©" in artist or "@" in artist or "http" in artist.casefold():
+            continue
+        described = index + 2 < len(lines) and len(lines[index + 2]) > 80 and not lines[index + 2].startswith("• ")
+        out.append({"artist": artist, "album": album, "year": year, "raw": f"{album} / {artist}", "song": False, "_described": described})
+    # Most entries followed by a review paragraph: the pairs without one are page furniture.
+    if sum(p["_described"] for p in out) >= max(3, len(out) * 0.6):
+        out = [p for p in out if p["_described"]]
+    for p in out:
+        p.pop("_described")
+    return out if len(out) >= 3 else []
+
+
 def candidates_from_lines(lines, loose=False):
     """List/heading/table lines first; plain prose lines only when the page has no list at all
     (or ``loose``, for forum comments where each line is one answer)."""
@@ -178,6 +214,9 @@ def candidates_from_lines(lines, loose=False):
         found = split_artist_album(line) if short else None
         if found:
             (structured if marked or loose else plain).append({"artist": found[0], "album": found[1], "year": found[2], "raw": line, "song": False})
+    pairs = [] if loose else heading_pairs(lines)
+    if len(pairs) > len(structured):
+        return pairs
     return structured or plain
 
 

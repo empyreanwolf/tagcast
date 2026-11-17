@@ -819,14 +819,14 @@ class YouTube(YtdlpWorker):
                             "track_no": number or 1, "track_total": total, "duration": video.get("duration") or 0,
                             "video_title": video.get("title", "")}}
 
-    def _submit(self, items):
+    def _submit(self, items, album=False):
         def on_disk(item):
             from .galaxy import find_existing_by_title
             p = item["payload"]
             found = find_existing_by_title(self.folder(), p["album_artist"], p["album"], item["title"])
             return {"where": "folder", "title": item["title"], "artist": item["artist"], "album": p["album"],
                     "path": str(found)} if found else None
-        result = self.manager.submit(items, "youtube", pre_check=on_disk)
+        result = self.manager.submit(items, "youtube", pre_check=on_disk, album=album)
         self.ensure_worker()
         return result
 
@@ -853,7 +853,7 @@ class YouTube(YtdlpWorker):
         total = len(tracks)
         items = [self._item(artist, match.clean(t["title"]), album, t, number=i + 1, total=total, query=query)
                  for i, t in enumerate(tracks)]
-        result = self._submit(items)
+        result = self._submit(items, album=True)
         if long:
             result["skipped_long"] = long
         return result

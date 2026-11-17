@@ -174,6 +174,21 @@ class DecisionTests(unittest.TestCase):
         # Submitting the same duplicate again does not hold it twice.
         self.assertEqual(self.manager.submit([song("Coldplay", "Yellow")])["held"], 0)
 
+    def test_album_run_skips_a_confident_have_but_still_holds_a_downloaded_before(self):
+        # Fork v98: "Get the missing" on a whole album drops a song you already have
+        # (in your library) instead of holding it for a decision; one only in your download
+        # history (not your library) still goes to Held, same as before.
+        self.manager.record({"title": "Fix You", "artists": ["Coldplay"], "album": "X&Y", "source": "galaxy"})
+        result = self.manager.submit([song("Coldplay", "Yellow"), song("Coldplay", "Speed of Light"),
+                                      song("Coldplay", "Fix You")], album=True)
+        self.assertEqual((result["queued"], result["held"], result["already_had"]), (1, 1, 1))
+        view = self.manager.queue_view()
+        self.assertEqual([i["title"] for i in view["queue"]], ["Speed of Light"])
+        self.assertEqual([i["title"] for i in view["held"]], ["Fix You"])
+        # The same song without ``album=True`` holds for a decision instead of being dropped.
+        again = self.manager.submit([song("Coldplay", "Yellow")])
+        self.assertEqual((again["queued"], again["held"], again["already_had"]), (0, 1, 0))
+
     def test_bulk_and_single_decisions(self):
         self.manager.submit([song("Coldplay", "Yellow"), song("Company Flow", "Blind"), song("王菲", "寓言")])
         held = self.manager.queue_view()["held"]

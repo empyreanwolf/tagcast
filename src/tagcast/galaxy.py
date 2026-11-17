@@ -1116,7 +1116,7 @@ class Galaxy:
 
     # -- queueing --------------------------------------------------------------------
 
-    def add(self, tracks, album_artist=None, total=None):
+    def add(self, tracks, album_artist=None, total=None, album=False):
         """Queue songs. Songs you may have (iBroadcast, history, already in the folder) are held."""
         if not isinstance(tracks, list) or not tracks or len(tracks) > 500:
             raise GalaxyError("Choose between 1 and 500 songs.")
@@ -1141,7 +1141,7 @@ class Galaxy:
             return {"where": "folder", "title": item["title"], "artist": item["artist"], "album": p["album"],
                     "path": str(found)} if found else None
 
-        result = self.manager.submit(items, "galaxy", pre_check=on_disk)
+        result = self.manager.submit(items, "galaxy", pre_check=on_disk, album=album)
         self.ensure_worker()
         return result
 

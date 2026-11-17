@@ -18,11 +18,13 @@ from urllib.parse import parse_qs, urlparse
 import requests
 
 from . import artist_match as match
+from .galaxy import fold, plain_title, sim
 from .library import LibraryError
 from .youtube import AgeRestricted, DownloadBlocked, FetchTimeout, YtdlpWorker, plain_error
 
 log = logging.getLogger("tagcast")
 SEARCH_RESULTS = 20
+MIN_SECONDS, MAX_SECONDS = 20, 1800  # fork v96: a SoundCloud "song" under 20s or over 30min is not really one
 SITES = {"soundcloud.com": "SoundCloud", "audiomack.com": "Audiomack", "youtube.com": "YouTube", "youtu.be": "YouTube",
          "spotify.com": "Spotify"}
 # Decorations in YouTube video titles that are not part of the song title (v61).
@@ -168,9 +170,85 @@ class MoreSources(YtdlpWorker):
             checked = [{"status": "new", "you_have": []}] * len(rows)
         return [{**r, "status": c["status"], "you_have": c["you_have"]} for r, c in zip(rows, checked)]
 
+    # -- "Get the missing": SoundCloud as a fallback source (fork v96) ----------------------
+
+    def find_song(self, artist, title, seconds=0):
+        """A SoundCloud search, taken only when the result's own account is this artist (no reposts, no
+        fan uploads); the search drops "(feat. ...)" so a long guest list doesn't bury the main artist."""
+        artist = match.main_artist(artist) or artist
+        query_title = match.strip_feat_group(title)
+        try:
+            results = self._search(f"{artist} {query_title}")
+        except MoreError as error:
+            log.info("SoundCloud song search failed for %s: %s", title, error)
+            return None
+        wanted = plain_title(query_title)
+        for entry in results[:SEARCH_RESULTS]:
+            name = str(entry.get("uploader") or entry.get("channel") or "")
+            if match.match_key(name) != match.match_key(artist):
+                continue  # not the artist's own account
+            found_title = str(entry.get("title") or "")
+            if sim(plain_title(found_title), wanted) < 0.82 and sim(found_title, title) < 0.82:
+                continue
+            duration = entry.get("duration") or 0
+            if duration and not MIN_SECONDS <= duration <= MAX_SECONDS:
+                continue
+            if seconds and duration and abs(duration - seconds) > max(20, seconds * 0.2):
+                continue
+            row = _entry_row(entry, "SoundCloud")
+            if row:
+                return row
+        return None
+
+    def _account_base(self, artist):
+        """The artist's own SoundCloud profile page, from a search result whose account is exactly them."""
+        try:
+            results = self._search(artist)
+        except MoreError:
+            return ""
+        for entry in results[:SEARCH_RESULTS]:
+            name = str(entry.get("uploader") or entry.get("channel") or "")
+            if match.match_key(name) != match.match_key(artist):
+                continue
+            base = str(entry.get("uploader_url") or entry.get("channel_url") or "")
+            if base:
+                return base.rstrip("/")
+        return ""
+
+    def find_album(self, artist, album, expected=0):
+        """The artist's own SoundCloud set (playlist) matching this album; its track count is checked
+        against ``expected`` (the album's own track count) when known, so a wrong set isn't taken whole."""
+        artist = match.main_artist(artist) or artist
+        base = self._account_base(artist)
+        if not base:
+            return None
+        try:
+            sets = [e for e in self._extract(f"{base}/sets") if e]
+        except MoreError as error:
+            log.info("SoundCloud sets lookup failed for %s: %s", artist, error)
+            return None
+        wanted = plain_title(album)
+        target_url = ""
+        for entry in sets:
+            title = str(entry.get("title") or entry.get("playlist_title") or "")
+            if sim(plain_title(title), wanted) >= 0.82:
+                target_url = str(entry.get("webpage_url") or entry.get("url") or "")
+                break
+        if not target_url:
+            return None
+        try:
+            tracks = [e for e in self._extract(target_url) if e]
+        except MoreError as error:
+            log.info("SoundCloud set read failed for %s: %s", album, error)
+            return None
+        if not tracks or (expected and not (expected - 1 <= len(tracks) <= expected + 1)):
+            return None
+        rows = [r for r in (_entry_row({**t, "url": _entry_url(t, target_url, "SoundCloud")}, "SoundCloud") for t in tracks) if r]
+        return rows or None
+
     # -- queueing ---------------------------------------------------------------------------
 
-    def add(self, rows, link="", query=""):
+    def add(self, rows, link="", query="", album=False):
         if not isinstance(rows, list) or not rows or len(rows) > 200:
             raise MoreError("Choose between 1 and 200 songs.")
         items = []
@@ -199,7 +277,7 @@ class MoreSources(YtdlpWorker):
             found = find_existing_by_title(self.folder(), p["album_artist"], p["album"], item["title"])
             return {"where": "folder", "title": item["title"], "artist": item["artist"], "album": p["album"],
                     "path": str(found)} if found else None
-        result = self.manager.submit(items, "more", pre_check=on_disk)
+        result = self.manager.submit(items, "more", pre_check=on_disk, album=album)
         self.ensure_worker()
         return result
 

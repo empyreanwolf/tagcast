@@ -11665,6 +11665,25 @@ test('fork v90: the lyrics card size is remembered and defaults to medium', asyn
   assert.equal(p.run('headerLyricInner(ln,true,false)'),'你好<small class="header-lyric-tr">Hello</small>');
 });
 
+test("fork v96: a wishlist row has its own Remove button, away from Search as…", async () => {
+  const p = page();
+  const items = [{id: "w1", title: "Shakespeare Science", artist: "Jus Allah", album: "", kind: "album", tries: 3, note: "x", next_try: 1},
+    {id: "w2", title: "Other", artist: "Someone", album: "", kind: "song", tries: 1, note: "y", next_try: 1}];
+  p.run(`state.screen = "downloads"; downloadsView.tab = "missing"; missingView.sub = "wishlist";
+    missingView.wishlist = {items: ${JSON.stringify(items)}, found: [], every_days: 3}; render()`);
+  await settle();
+  const html = p.run("wishlistHtml()");
+  assert.match(html, /data-wishlist="remove-one" data-wish-id="w1"[^>]*>Remove</);
+  const searchasIdx = html.indexOf('data-wishlist="searchas-open" data-wish-id="w1"');
+  const removeIdx = html.indexOf('data-wishlist="remove-one" data-wish-id="w1"');
+  assert.ok(removeIdx > searchasIdx + 80, "Remove sits well apart from Search as…, not right beside it");
+  let removed;
+  p.setFetch((url, options) => { removed = JSON.parse(options.body); return {ok: true, json: async () => ({items: [items[1]], found: [], every_days: 3})}; });
+  await p.click({"#downloads-page": {}, "[data-wishlist]": {dataset: {wishlist: "remove-one", wishId: "w1"}}});
+  assert.deepEqual(removed, {ids: ["w1"]});
+  assert.equal(p.json("missingView.wishlist.items.length"), 1);
+});
+
 test('fork v91: a wishlist row offers Search as… and a one-click credit suggestion', async () => {
   const p=page(); await settle();
   p.run('globalThis.row={id:"w1",title:"Shakespeare Science",artist:"Jus Allah",album:"",kind:"album",tries:3,note:"x",next_try:1}');

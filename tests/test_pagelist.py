@@ -24,6 +24,25 @@ class ReadingTests(unittest.TestCase):
                                  ("Some Artist", "Album Two"), ("Billy Woods", "Golliwog"), ("Armand Hammer", "We Buy Diabetic Test Strips"),
                                  ("MIKE", "Showbiz!")])
 
+    def test_heading_then_artist_line(self):
+        # Fork v95: realjapanesehiphop.com style: number, date, album heading, artist line, review, song picks.
+        review = "<p>" + "A long review paragraph about this record and why it matters this year. " * 3 + "</p>"
+        entry = lambda n, date, album, artist: (f"<div>0{n}</div><a>Stream</a><p>{date}</p><h3>{album}</h3><p>{artist}</p>{review}"
+                                                f"<h4>🎧 Essential Listens</h4><ul><li>“Some Song” feat. LEX</li></ul>")
+        html = ("<h1>Best Japanese Hip Hop Albums of 2026 – Vol. 1</h1><p>By Team RJHH</p>"
+                + entry(1, "January 1, 2026", "The One", "DJ CHARI &amp; DJ TATSUKI") + entry(2, "January 10, 2026", "Genius", "Kaneee")
+                + entry(3, "March 6, 2026 — Deluxe Edition", "Vertex 2", "Gottz &amp; MUD")
+                + "<ul><li>Listening picks coming soon</li></ul><p>Keep Exploring</p><h3>RJHH MIX — Japanese Rap Hits</h3>")
+        found = candidates_from_lines(html_to_lines(html))
+        self.assertEqual([(c["artist"], c["album"], c["year"]) for c in found],
+                         [("DJ CHARI & DJ TATSUKI", "The One", "2026"), ("Kaneee", "Genius", "2026"), ("Gottz & MUD", "Vertex 2", "2026")])
+        # Two such pairs are not a pattern yet.
+        self.assertEqual(pagelist.heading_pairs(["• A", "B", "• C", "D"]), [])
+
+    def test_japanese_brackets(self):
+        self.assertEqual(split_artist_album("ISSUGI『GEMZ』")[:2], ("ISSUGI", "GEMZ"))
+        self.assertEqual(split_artist_album("KOHH 「DIRT」")[:2], ("KOHH", "DIRT"))
+
     def test_prose_only_page_falls_back_to_plain_lines(self):
         lines = ["Intro text.", "Madvillain - Madvillainy", "Some other prose"]
         self.assertEqual([c["album"] for c in candidates_from_lines(lines)], ["Madvillainy"])

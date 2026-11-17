@@ -464,3 +464,12 @@ _FEAT_SPLIT = re.compile(r"\s+(?:feat|ft|featuring)\.?\s|\s*[(\[（]\s*(?:feat|f
 def main_artist(artist):
     value = str(artist or "")
     return _FEAT_SPLIT.split(value, 1)[0].strip() or value.strip()
+
+
+# Fork v96: "The Media (feat. Busdriver)" -> "The Media": the title to search with, without the guest list.
+_FEAT_GROUP = re.compile(r"(?i)\s*[(\[（]\s*(?:feat\.?|ft\.?|featuring|with)\b[^)\]）]*[)\]）]")
+
+
+def strip_feat_group(title):
+    value = str(title or "")
+    return _FEAT_GROUP.sub("", value).strip() or value.strip()

@@ -1355,3 +1355,6 @@ th.sortable-th .sort-arrow{font-size:calc(10px*var(--ts));color:var(--accent,cur
 .release-group-title{font-size:calc(15px*var(--ts));font-weight:600;margin:0 0 12px;color:var(--ink)}
 .release-fold{border:0;background:none;color:inherit;font:inherit;padding:0;cursor:pointer}
 .release-fold:hover{color:var(--palette-link,var(--green))}
+/* Fork v96: a per-row "Remove" on the wishlist, apart from Search as... so a stray click doesn't hit it */
+.wish-remove-one{align-self:center;margin-left:16px;color:var(--muted);border-color:var(--line)}
+.wish-remove-one:hover{color:#fff;background:#b23b3b;border-color:#b23b3b}

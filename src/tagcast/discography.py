@@ -36,7 +36,7 @@ from .library import LibraryError
 from .sources import PACING, Http, SourceError
 
 log = logging.getLogger("tagcast")
-NOT_FOUND = "Not found on Galaxy, Bandcamp or Soulseek"
+NOT_FOUND = "Not found on Galaxy, Bandcamp, SoundCloud or Soulseek"
 GALAXY_PAUSE = 600.0   # after GD Studio blocks a request, Galaxy is skipped this long (fork v54)
 _galaxy_block = {"until": 0.0}
 CACHE_FILE = "discography_cache.json"
@@ -579,6 +579,8 @@ class Discography:
         parts = [f"{result.get('queued', 0)} queued"]
         if result.get("held"):
             parts.append(f"{result['held']} waiting in Needs your decision")
+        if result.get("already_had"):
+            parts.append(f"{result['already_had']} already had")
         return ", ".join(parts)
 
     def _bandcamp_base(self, name, ctx, albums=()):
@@ -610,6 +612,39 @@ class Discography:
             reason = f"search failed ({error})"
         log.info("Bandcamp skipped %s - %s: %s", name, title, reason)
         return reason
+
+    def _soundcloud_album(self, name, title, expected=None):
+        """("SoundCloud", note) when found as a set on the artist's own account, else None (v96)."""
+        moresources = getattr(self.studio, "moresources", None)
+        if moresources is None:
+            return None
+        try:
+            rows = moresources.find_album(name, title, expected or 0)
+            if not rows:
+                return None
+            total = len(rows)
+            for i, r in enumerate(rows):
+                r.update(track_no=i + 1, track_total=total, album=title, album_artist=name)
+            return "SoundCloud", self._summary(moresources.add(rows, query=f"{name} {title}", album=True))
+        except Exception as error:
+            log.info("SoundCloud album failed for %s - %s: %s", name, title, error)
+            return None
+
+    def _soundcloud_song(self, name, title, album="", seconds=0):
+        """("SoundCloud", note) when found on the artist's own account, else None (v96)."""
+        moresources = getattr(self.studio, "moresources", None)
+        if moresources is None:
+            return None
+        try:
+            row = moresources.find_song(name, title, seconds)
+            if not row:
+                return None
+            if album:
+                row["album"] = album
+            return "SoundCloud", self._summary(moresources.add([row], query=f"{name} {title}"))
+        except Exception as error:
+            log.info("SoundCloud song failed for %s - %s: %s", name, title, error)
+            return None
 
     def _youtube(self):
         youtube = getattr(self.studio, "youtube", None)
@@ -690,6 +725,12 @@ class Discography:
         if isinstance(why, tuple):
             return why
         tried += [f"Galaxy · query “{name} {title}”: not found", f"Bandcamp · {why}"]
+        # 2b. SoundCloud: the artist's own account only (v96)
+        self._step(ctx, f"{title}: looking on SoundCloud…")
+        found = self._soundcloud_album(name, title, expected)
+        if found:
+            return found
+        tried.append("SoundCloud · not on the artist's own account")
         # 3. Soulseek (whole albums only; a partly owned album would be fetched again)
         soulseek = getattr(self.studio, "soulseek", None)
         if soulseek is not None and soulseek.configured() and status != "partly":
@@ -767,7 +808,7 @@ class Discography:
                     if data.get("found"):
                         # Saved under your own spelling of the artist, so it lands next to what you have (v70).
                         artist = name if spelling != name else data["album_artist"]
-                        return "Galaxy", self._summary(galaxy.add(data["tracks"], artist, len(data["tracks"])))
+                        return "Galaxy", self._summary(galaxy.add(data["tracks"], artist, len(data["tracks"]), album=True))
             # The album search found nothing: the title may be a song (a single, or an album that
             # shares its name with its first song), listed under another album name on Galaxy.
             best = find_song(galaxy.api, self._galaxy_sources(), name, title, deep=True)
@@ -776,7 +817,7 @@ class Discography:
                 if own and sim(own, title) < 0.9:   # the song's own album may be the whole thing
                     data = galaxy.album(own, name, best["source"])
                     if data.get("found"):
-                        return "Galaxy", self._summary(galaxy.add(data["tracks"], data["album_artist"], len(data["tracks"]))) + f" (album “{own}”)"
+                        return "Galaxy", self._summary(galaxy.add(data["tracks"], data["album_artist"], len(data["tracks"]), album=True)) + f" (album “{own}”)"
                 return "Galaxy", self._summary(galaxy.add([best])) + " (found by song title)"
         except GalaxyBlocked as error:
             _galaxy_block["until"] = time.time() + GALAXY_PAUSE
@@ -815,11 +856,15 @@ class Discography:
                     return "Bandcamp", self._summary(self.studio.bandcamp.add(release["url"], [track["num"]]))
             except LibraryError as error:
                 log.info("Bandcamp song failed: %s", error)
+        found = self._soundcloud_song(name, title, album)
+        if found:
+            return found
         soulseek = getattr(self.studio, "soulseek", None)
         if soulseek is not None and soulseek.configured():
             result = soulseek.add([{"kind": "song", "artist": name, "title": title, "album": album, "fallback": True}])
             return "Soulseek", self._summary(result) + " (wishlist if Soulseek has nothing)"
         tried.append(f"Galaxy · query “{name} {title}”: " + ("no download link" if skip_galaxy else "not found"))
+        tried.append("SoundCloud · not on the artist's own account")
         return None, self._not_found(galaxy_note, tried)
 
     def _galaxy_song(self, name, title):

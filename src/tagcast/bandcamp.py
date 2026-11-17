@@ -306,7 +306,7 @@ class Bandcamp(FileWorker):
             return {"where": "folder", "title": item["title"], "artist": item["artist"], "album": item["album"],
                     "path": str(found)} if found else None
 
-        result = self.manager.submit(items, "bandcamp", pre_check=on_disk)
+        result = self.manager.submit(items, "bandcamp", pre_check=on_disk, album=nums is None)
         return {**result, "album": release["title"]}
 
     # -- finding an artist's albums for "get missing" ------------------------------------

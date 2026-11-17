@@ -192,7 +192,8 @@ function wishlistHtml() {
         <div><b>${escapeHtml(i.title)}</b> <span class="muted">· ${escapeHtml(i.artist)}${i.album ? ` · ${escapeHtml(i.album)}` : ""}</span>
           <div class="muted">${i.tries} ${i.tries === 1 ? "try" : "tries"} · ${escapeHtml(i.note || "")} · next try ${missingDate(i.next_try)}</div>
           ${wishlistSearchAsHtml(i)}
-          ${missingCopyHtml(i.title, i.artist, i.kind === "album" ? i.title : i.album)}</div></li>`).join("")}</ul>`
+          ${missingCopyHtml(i.title, i.artist, i.kind === "album" ? i.title : i.album)}</div>
+        <button type="button" class="button wish-remove-one" data-wishlist="remove-one" data-wish-id="${escapeHtml(i.id)}" ${p ? "disabled" : ""} aria-label="Remove ${escapeHtml(i.title)} from the wishlist">Remove</button></li>`).join("")}</ul>`
       : '<p class="muted">Your wishlist is empty.</p>'}
     ${w.found.length ? `<h3>Found lately</h3><ul class="dl-list">${w.found.slice(0, 20).map(f => `<li><span class="dl-badge have">${escapeHtml(f.source)}</span>
       <div><b>${escapeHtml(f.title)}</b> <span class="muted">· ${escapeHtml(f.artist)} · ${escapeHtml(f.note || "")} · ${missingDate(f.when)}</span> ${missingCopyHtml(f.title, f.artist)}</div></li>`).join("")}</ul>` : ""}`;
@@ -288,6 +289,9 @@ document.addEventListener("click", event => {
       downloadsRun(async () => { view.wishlist = await api("/api/wishlist/retry", {ids: [...view.picked]}); view.picked.clear(); missingRefresh(); wishlistLoad(); });
     } else if (action === "remove") {
       downloadsRun(async () => { view.wishlist = await api("/api/wishlist/remove", {ids: [...view.picked]}); view.picked.clear(); missingRefresh(); });
+    } else if (action === "remove-one") {
+      const id = wish.dataset.wishId;
+      downloadsRun(async () => { view.wishlist = await api("/api/wishlist/remove", {ids: [id]}); view.picked.delete(id); missingRefresh(); });
     } else if (action === "check-library") {
       downloadsRun(async () => { view.wishlist = await api("/api/wishlist/check-library", {}); view.ownTicked = new Map(); missingRefresh(); });
     } else if (action === "own-remove" || action === "own-keep") {

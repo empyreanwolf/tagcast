@@ -74,6 +74,10 @@ _VERSION_RE = re.compile(r"\b(remix|mix|live|edit|instrumental|acoustic|demo|dub
                          r"extended|radio|club|reprise|unplugged|session|rework|vip|remaster(?:ed)?)\b", re.I)
 _ANY_BRACKET = re.compile(r"\s*[(\[（【][^)\]）】]*[)\]）】]")
 
+# Fork v98: "Don't Chart (from GTAVI: The Album)" / "Shallow (Original Motion Picture Soundtrack)"
+# name where a song or album also appears, not another version of it.
+_FROM_TAG = re.compile(r"\s*[(\[（【]\s*(?:from\b[^)\]）】]*|original\s+motion\s+picture[^)\]）】]*)[)\]）】]", re.I)
+
 
 def title_versions(title):
     return frozenset(w.lower() for w in _VERSION_RE.findall(str(title or "")))
@@ -81,6 +85,7 @@ def title_versions(title):
 
 def fuzzy_title_key(title):
     value = FEAT_TAIL.sub("", FEAT_BRACKET.sub("", match.clean(title)))
+    value = _FROM_TAG.sub("", value)
     value = _ANY_BRACKET.sub(lambda m: m.group(0) if _VERSION_RE.search(m.group(0)) else "", value)
     return match.simplified(title_key(value))
 
@@ -104,10 +109,11 @@ EDITION_TAIL = re.compile(r"\s+[-–—:]\s+[^-–—:]*\b" + EDITION_WORDS + r"
 
 
 def album_base_key(title):
-    """The album key without edition words: "None Shall Pass (Bonus Edition)" -> "none shall pass"."""
+    """The album key without edition words: "None Shall Pass (Bonus Edition)" -> "none shall pass".
+    Fork v98: a "(from ...)" / "(Original Motion Picture ...)" tag is stripped the same way."""
     value = match.clean(title)
     for _ in range(3):
-        value = EDITION_TAIL.sub("", EDITION_BRACKET.sub("", value)).strip()
+        value = EDITION_TAIL.sub("", EDITION_BRACKET.sub("", _FROM_TAG.sub("", value))).strip()
     return album_key(value) if value else album_key(title)
 
 
@@ -692,14 +698,17 @@ class Downloads:
 
     # -- writing ---------------------------------------------------------------
 
-    def submit(self, items, source="manual", pre_check=None):
+    def submit(self, items, source="manual", pre_check=None, album=False):
         """Queue new items; hold everything you may already have for your decision.
-        ``pre_check(item)`` may report one more place you have it (e.g. the download folder)."""
+        ``pre_check(item)`` may report one more place you have it (e.g. the download folder).
+        Fork v98: ``album=True`` (a whole-album "Get the missing" run) drops a song you
+        confidently already have instead of holding it for a decision - a close/fuzzy
+        match still goes to Held, same as before."""
         if not isinstance(items, list) or not items or len(items) > MAX_ITEMS:
             raise LibraryError(f"Add between 1 and {MAX_ITEMS} items.")
         cleaned = [clean_item(i, source) for i in items]
         library_index, history_index = self._index()
-        queued, held = [], []
+        queued, held, already_had = [], [], []
         with self.lock:
             waiting = {self._same(i) for i in self.state["queue"] if i.get("state") == "queued"} \
                 | {self._same(i) for i in self.state["held"]}
@@ -715,6 +724,9 @@ class Downloads:
                         continue
                     batch.add(twice)
                 result = check_item(item, library_index, history_index)
+                if album and result["status"] == "have":
+                    already_had.append(item)
+                    continue
                 if result["status"] == "new" and pre_check:
                     hit = pre_check(item)
                     if hit:
@@ -728,17 +740,20 @@ class Downloads:
                     self.state["held"].append(row)
                     held.append(row)
             self._persist()
-        skipped = len(cleaned) - len(queued) - len(held)
+        skipped = len(cleaned) - len(queued) - len(held) - len(already_had)
         if queued:  # recorded before waking the workers, so "Queued" precedes "Started"
             activity.record("downloads", "info", f"Queued {len(queued)} on {source}: {_names(queued)}", source=source)
         if held:
             activity.record("downloads", "info", f"{len(held)} held for your decision (you may have them): {_names(held)}",
                             "\n".join(f"{_name(i)} - {i.get('status')}: {_have(i)}" for i in held[:50]), source=source)
+        if already_had:
+            activity.record("downloads", "info", f"{len(already_had)} already in your library, not downloaded again: "
+                            f"{_names(already_had)}", source=source)
         if skipped:
             activity.record("downloads", "info", f"{skipped} already queued or waiting, not added again", source=source)
         if queued:
             self.wake_workers()
-        return {"queued": len(queued), "held": len(held), "skipped": skipped}
+        return {"queued": len(queued), "held": len(held), "skipped": skipped, "already_had": len(already_had)}
 
     @staticmethod
     def _same(item):

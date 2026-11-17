@@ -134,8 +134,10 @@ class ServiceTests(unittest.TestCase):
         self.b.album("https://coldplay.bandcamp.com/album/ghost-stories")
         self.assertEqual(len(self.studio.get.calls), before)
 
-    def test_download_album_tags_and_holds_owned(self):
-        self.assertEqual(self.b.add("https://coldplay.bandcamp.com/album/parachutes")["held"], 1)
+    def test_download_album_tags_and_skips_owned(self):
+        # Fork v98: an album download drops a song you confidently already have instead of holding it.
+        result = self.b.add("https://coldplay.bandcamp.com/album/parachutes")
+        self.assertEqual((result["held"], result["already_had"]), (0, 1))
         result = self.b.add("https://coldplay.bandcamp.com/album/ghost-stories")
         self.assertEqual(result["queued"], 2)
         wait_idle(self.studio)
