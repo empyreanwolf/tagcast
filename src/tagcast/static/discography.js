@@ -168,9 +168,11 @@ document.addEventListener("click", event => {
   else if (action === "pick-songs") { view.pickedSongs = new Set(view.top.songs.filter(s => s.status === "missing").map(s => s.title)); renderDownloads(); }
   else if (action === "close-job") { view.job = null; renderDownloads(); }
   else if (action === "get-albums") {
+    // fork v102: trust the backend's own "appearance" flag (Discogs role, Deezer guest-detection,
+    // or a "(feat. <artist>)" title match) instead of re-guessing it from type + source here - that
+    // guess missed a Deezer-only guest detection (no Discogs source string to match).
     const albums = view.data.releases.filter(r => view.types.has(r.type) && view.picked.has(r.title))
-      .map(r => ({title: r.title, status: r.status, deezer_id: r.deezer_id, tracks: r.tracks,
-                  appearance: r.type === "compile" && r.sources?.some(s => /discogs/i.test(s))}));
+      .map(r => ({title: r.title, status: r.status, deezer_id: r.deezer_id, tracks: r.tracks, appearance: !!r.appearance}));
     downloadsRun(() => discographyGet(albums, []));
   } else if (action === "get-full-album") {
     const title = button.dataset.discographyTitle;

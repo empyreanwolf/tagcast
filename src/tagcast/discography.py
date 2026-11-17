@@ -348,6 +348,7 @@ class Discography:
         self._add_discogs(data, refresh)
         if musicbrainz:
             self._add_musicbrainz(data)
+        self._check_feat_title(data)
         self._check_guest_only(data)
         self._statuses(data)
         data["releases"].sort(key=lambda r: (r.get("year") or "0000", r["title"]), reverse=True)
@@ -388,6 +389,12 @@ class Discography:
                 entry["cover"] = entry.get("cover") or row["cover"]
                 if row["sources"][0] not in entry["sources"]:
                     entry["sources"].append(row["sources"][0])
+                # fork v102: Discogs' role is more accurate than Deezer's plain "album" type - an
+                # entry Deezer already added (so it has no "appearance" of its own yet) still needs
+                # Discogs' Appearance role applied, not silently kept as a normal album.
+                if row.get("appearance"):
+                    entry["appearance"] = True
+                    entry["type"] = "compile"
 
     def _discogs(self, name, token, known):
         headers = {"Authorization": f"Discogs token={token}"}
@@ -419,9 +426,12 @@ class Discography:
             seen.add(k)
             alias = discogs_name(r.get("artist"))
             label = "Discogs" + (f" (as {alias})" if alias and match.match_key(alias) != match.match_key(name) and r.get("role") == "Main" else "")
+            # fork v102: carry the role forward - discogs_kind() already uses it for "type" (shown with
+            # Compilations), but a "Get" download also needs to know to search for this artist's own
+            # songs on the release, not the whole thing under their name.
             out.append({"title": title, "year": str(r.get("year") or "") if r.get("year") else "", "date": "",
                         "type": discogs_kind(r), "tracks": None, "cover": r.get("thumb") or "", "deezer_id": None,
-                        "sources": [label]})
+                        "appearance": r.get("role") == "Appearance", "sources": [label]})
         return {"releases": out, "notes": [] if same else ["Discogs has no artist with exactly this name"]}
 
     def _guest_only(self, deezer_id, artist_name):
@@ -449,13 +459,27 @@ class Discography:
         self._save_cache()
         return data
 
+    def _check_feat_title(self, data):
+        """v102: a release titled "Title (feat. <this artist>)" has them as a guest on someone
+        else's song, whatever Discogs or Deezer say about it - the title alone already says so,
+        for free, with no API call. Runs regardless of a Discogs token, unlike ``_check_guest_only``,
+        since it's the one signal that doesn't depend on either source actually covering the release."""
+        want = match.match_key(data["name"])
+        for r in data["releases"]:
+            if r.get("appearance"):
+                continue
+            names, _ = match.featured(r["title"])
+            if any(match.match_key(n) == want for n in names):
+                r["appearance"] = True
+                r["type"] = "compile"
+
     def _check_guest_only(self, data):
         if self._discogs_token():
             return  # Discogs' own "Appearance" role already tells these apart, more accurately
         budget = GUEST_CHECK_MAX
         for r in data["releases"]:
-            if r.get("type") != "album" or not r.get("deezer_id"):
-                continue
+            if r.get("appearance") or r.get("type") != "album" or not r.get("deezer_id"):
+                continue  # already known to be a guest appearance (e.g. the title says so) - skip the fetch
             fresh = self.cache.get(f"guestonly|{r['deezer_id']}", {}).get("when", 0) > time.time() - CACHE_DAYS * 86400
             if not fresh:
                 if budget <= 0:
@@ -467,6 +491,7 @@ class Discography:
             r["tracks"] = r["tracks"] or found["tracks"]
             if found["guest"]:
                 r["type"] = "compile"
+                r["appearance"] = True  # fork v102: so "Get" downloads their songs, not the whole thing
 
     def _add_musicbrainz(self, data):
         try:

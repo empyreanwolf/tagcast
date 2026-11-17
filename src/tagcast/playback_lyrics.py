@@ -441,7 +441,10 @@ def lyrics_title(value):
         allowed = {"remaster", "remastered", "version", "edition", "single", "album",
                    "mono", "stereo", "radio", "edit", "deluxe", "expanded", "anniversary",
                    "bonus", "track", "explicit", "clean", "dirty", "uncensored", "censored", "album",
-                   "lp", "original", "main", "audio"}
+                   "lp", "original", "main", "audio",
+                   # fork v102: YouTube upload-title suffixes ("Official Audio", "Official Music Video",
+                   # "Lyric Video", "Visualizer") - the words themselves, not a specific combination.
+                   "official", "music", "video", "lyric", "lyrics", "visualizer"}
         return bool(words) and all(word in allowed or re.fullmatch(r"\d{4}|\d{1,3}(?:st|nd|rd|th)", word)
                                    for word in words)
 

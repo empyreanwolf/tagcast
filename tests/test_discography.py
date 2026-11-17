@@ -121,6 +121,55 @@ class DiscographyTests(unittest.TestCase):
         self.assertEqual(rel["Parachutes"]["type"], "album")  # Discogs' own role field is trusted instead
         self.assertFalse(any(url.endswith("/album/11/tracks") for url in studio.http.calls))
 
+    def test_feat_in_title_is_flagged_as_an_appearance_with_no_extra_fetch(self):
+        # fork v102: "Title (feat. <this artist>)" means they're a guest on someone else's song,
+        # whatever Deezer or Discogs say about the release - catches a release neither source
+        # correctly tags (the bug report: Deezer just calls it an album, no Discogs token check
+        # runs for it since a token is set, and it isn't on Discogs at all).
+        studio = LocalStudio()
+        studio.http.answers["/artist/1/albums"] = {"data": [
+            *ANSWERS["/artist/1/albums"]["data"],
+            {"id": 14, "title": "True Power (feat. Coldplay)", "release_date": "2020-01-01", "record_type": "album"}]}
+        data = studio.discography.view("Coldplay")
+        rel = {r["title"]: r for r in data["releases"]}
+        self.assertTrue(rel["True Power (feat. Coldplay)"]["appearance"])
+        self.assertEqual(rel["True Power (feat. Coldplay)"]["type"], "compile")
+        self.assertFalse(any(url.endswith("/album/14/tracks") for url in studio.http.calls))  # no extra fetch needed
+
+    def test_feat_in_title_does_not_flag_someone_elses_feature(self):
+        studio = LocalStudio()
+        studio.http.answers["/artist/1/albums"] = {"data": [
+            *ANSWERS["/artist/1/albums"]["data"],
+            {"id": 15, "title": "Clocks (feat. Someone Else)", "release_date": "2020-01-01", "record_type": "album"}]}
+        data = studio.discography.view("Coldplay")
+        rel = {r["title"]: r for r in data["releases"]}
+        self.assertFalse(rel["Clocks (feat. Someone Else)"].get("appearance"))
+        self.assertEqual(rel["Clocks (feat. Someone Else)"]["type"], "album")
+
+    def test_discogs_appearance_role_is_carried_onto_a_release_already_from_deezer(self):
+        # A release Deezer already added (so it has no "appearance" flag yet) still needs
+        # Discogs' more accurate "Appearance" role applied when Discogs also lists it.
+        studio = LocalStudio()
+        studio.source_keys = lambda: {"discogs_token": "tok"}
+        studio.http.answers.pop("/search", None)  # would otherwise shadow "/database/search" (both end with "/search")
+        studio.http.answers.update({
+            "/database/search": {"results": [{"title": "Coldplay", "id": 99}]},
+            "/artists/99/releases": {"releases": [{"title": "Parachutes", "year": 2000, "role": "Appearance",
+                                                    "format": "Album"}], "pagination": {"pages": 1}},
+        })
+        data = studio.discography.view("Coldplay")
+        rel = {r["title"]: r for r in data["releases"]}
+        self.assertTrue(rel["Parachutes"]["appearance"])
+        self.assertEqual(rel["Parachutes"]["type"], "compile")
+
+    def test_deezer_guest_detection_also_sets_the_appearance_flag(self):
+        studio = LocalStudio()
+        studio.http.answers.update({"/album/11/tracks": {"data":
+            [{"artist": {"name": "Coldplay"}}] * 2 + [{"artist": {"name": "Someone Else"}}] * 12}})
+        data = studio.discography.view("Coldplay")
+        rel = {r["title"]: r for r in data["releases"]}
+        self.assertTrue(rel["Parachutes"]["appearance"])
+
     def test_musicbrainz_only_on_request(self):
         studio = LocalStudio()
         studio.http.answers.update({"/ws/2/artist": {"artists": [{"id": "mb", "name": "Coldplay"}]},

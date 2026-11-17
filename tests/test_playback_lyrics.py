@@ -272,6 +272,20 @@ class LyricsIdentityTests(unittest.TestCase):
         self.assertFalse(self.match("Singer (In A Rock And Roll Band)", "Artist", "Singer", "Artist"))
         self.assertFalse(self.match("Song", "Prince & The Revolution", "Song", "Prince", duration=0))
 
+    def test_youtube_upload_suffixes_are_stripped(self):
+        from tagcast.playback_lyrics import lyrics_strip_artist
+        # fork v102: titles pasted straight from a YouTube upload ("Artist - Title (Official Audio)")
+        for suffix in ("Official Audio", "Official Video", "Official Music Video", "Lyric Video",
+                       "Official Lyric Video", "Visualizer", "Audio"):
+            for title in (f"Song ({suffix})", f"Song [{suffix}]"):
+                with self.subTest(title=title):
+                    self.assertEqual(lyrics_title(title), "Song")
+        self.assertEqual(lyrics_title("Bag Lunch (Official Audio)"), "Bag Lunch")
+        self.assertEqual(lyrics_strip_artist("Aesop Rock - Bag Lunch (Official Audio)", "Aesop Rock"),
+                         "Bag Lunch (Official Audio)")
+        self.assertEqual(lyrics_title(lyrics_strip_artist("Aesop Rock - Bag Lunch (Official Audio)", "Aesop Rock")),
+                         "Bag Lunch")
+
 
 class UnisonRequestTests(unittest.TestCase):
     def setUp(self):
