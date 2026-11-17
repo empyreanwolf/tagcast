@@ -147,30 +147,38 @@ class SpotDL:
 
     # -- reading a link -------------------------------------------------------------------
 
-    def songs(self, link):
-        """Every song behind one Spotify link, with Spotify's tags and the YouTube Music link spotDL picked."""
-        if not spotify_link(link):
+    def songs(self, query):
+        """Every song behind one Spotify link, or the top Spotify match for a plain-text search
+        ("artist - song", an album name, ...), with Spotify's tags and the YouTube Music link
+        spotDL picked. Fork v99: spotDL itself searches Spotify when ``query`` is not a link, so
+        a search works the same as pasting one."""
+        query = str(query or "").strip()
+        is_link = bool(spotify_link(query))
+        if not query:
+            raise SpotifyError("Type a search, or paste a Spotify song, album, playlist or artist link.")
+        if not is_link and re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", query):
             raise SpotifyError("That is not a Spotify song, album, playlist or artist link.")
         if self._run is not None:
-            raw = self._run(link)
+            raw = self._run(query)
         else:
             if not self.installed():
                 self.install()
-                raise SpotifyError("spotDL is being installed (one time, about a minute). Paste the link again after that.")
-            raw = self._save(link)
+                raise SpotifyError("spotDL is being installed (one time, about a minute). "
+                                   + ("Paste the link" if is_link else "Search") + " again after that.")
+            raw = self._save(query)
         rows = [r for r in (song_row(s) for s in raw[:MAX_SONGS]) if r]
         if not rows:
-            raise SpotifyError("spotDL found no songs it could match on YouTube Music for this link.")
+            raise SpotifyError(f"spotDL found no songs it could match on YouTube Music for this {'link' if is_link else 'search'}.")
         return rows
 
     def _ffmpeg(self):
         from .youtube import ffmpeg_path
         return ffmpeg_path()
 
-    def _save(self, link):
+    def _save(self, query):
         with tempfile.TemporaryDirectory(prefix="tagcast-spotdl-") as folder:
             out = Path(folder) / "songs.spotdl"
-            cmd = [str(self.python()), "-m", "spotdl", "save", link, "--save-file", str(out), "--preload", "--threads", "6"]
+            cmd = [str(self.python()), "-m", "spotdl", "save", query, "--save-file", str(out), "--preload", "--threads", "6"]
             ffmpeg = self._ffmpeg()
             if ffmpeg:
                 cmd += ["--ffmpeg", ffmpeg]  # v68: spotDL checks FFmpeg even for save; use Tagcast's own copy

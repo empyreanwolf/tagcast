@@ -46,6 +46,8 @@ ITUNES = "https://itunes.apple.com"
 MB = "https://musicbrainz.org/ws/2"
 TYPES = {"album": "Album", "ep": "EP", "single": "Single", "compile": "Compilation"}
 SUFFIX = re.compile(r"\s+-\s+(single|ep)$", re.I)
+GUEST_CHECK_MAX = 25  # fork v99: at most this many fresh Deezer tracklist fetches per load
+GUEST_MIN_TRACKS = 6  # fewer tracks than this isn't worth a various-artists check
 
 
 class DiscographyError(LibraryError):
@@ -346,6 +348,7 @@ class Discography:
         self._add_discogs(data, refresh)
         if musicbrainz:
             self._add_musicbrainz(data)
+        self._check_guest_only(data)
         self._statuses(data)
         data["releases"].sort(key=lambda r: (r.get("year") or "0000", r["title"]), reverse=True)
         data["counts"] = dict(Counter(r["status"] for r in data["releases"]))
@@ -420,6 +423,50 @@ class Discography:
                         "type": discogs_kind(r), "tracks": None, "cover": r.get("thumb") or "", "deezer_id": None,
                         "sources": [label]})
         return {"releases": out, "notes": [] if same else ["Discogs has no artist with exactly this name"]}
+
+    def _guest_only(self, deezer_id, artist_name):
+        """v99: without a Discogs token, Deezer's own "album" type doesn't distinguish a various-
+        artists compilation that merely credits us as a guest on a track or two from one of our
+        own albums (Discogs' "Appearance" role, used in ``_discogs``, already tells the two apart).
+        Fetch the tracklist once (cached 7 days) and call it a guest appearance when we're not
+        the credited artist on at least half the tracks."""
+        key = f"guestonly|{deezer_id}"
+        hit = self.cache.get(key)
+        if hit and hit.get("when", 0) > time.time() - CACHE_DAYS * 86400:
+            return hit["data"]
+        try:
+            rows = (self.http.json(f"{DEEZER}/album/{deezer_id}/tracks", {"limit": 100}) or {}).get("data") or []
+        except SourceError:
+            return None
+        total = len(rows)
+        if total < GUEST_MIN_TRACKS:
+            data = {"guest": False, "tracks": total or None}
+        else:
+            want = match.match_key(artist_name)
+            mine = sum(1 for r in rows if match.match_key((r.get("artist") or {}).get("name")) == want)
+            data = {"guest": bool(mine) and mine < total / 2, "tracks": total}
+        self.cache[key] = {"when": time.time(), "data": data}
+        self._save_cache()
+        return data
+
+    def _check_guest_only(self, data):
+        if self._discogs_token():
+            return  # Discogs' own "Appearance" role already tells these apart, more accurately
+        budget = GUEST_CHECK_MAX
+        for r in data["releases"]:
+            if r.get("type") != "album" or not r.get("deezer_id"):
+                continue
+            fresh = self.cache.get(f"guestonly|{r['deezer_id']}", {}).get("when", 0) > time.time() - CACHE_DAYS * 86400
+            if not fresh:
+                if budget <= 0:
+                    continue
+                budget -= 1
+            found = self._guest_only(r["deezer_id"], data["name"])
+            if not found:
+                continue
+            r["tracks"] = r["tracks"] or found["tracks"]
+            if found["guest"]:
+                r["type"] = "compile"
 
     def _add_musicbrainz(self, data):
         try:

@@ -10910,6 +10910,18 @@ test("Galaxy album search lists matches and flags another artist; Spotify setup 
   assert.match(p.run("moreLinksHtml()"), /YouTube, Spotify, SoundCloud or Audiomack/);
 });
 
+test("v99: Spotify can be searched by name instead of pasting a link", async () => {
+  const p = page(); await settle();
+  p.run('spotifyView.status = {installed: true, installing: false, error: "", own_key: false}');
+  assert.match(p.run("spotifyHtml()"), /id="spotify-search"/);
+  p.run('$("#spotify-search").value = "Coldplay Yellow"');
+  p.setFetch(url => url === "/api/spotify/search" ? {ok: true, json: async () => ({note: "1 queued with Spotify's tags", queued: 1})}
+    : {ok: true, json: async () => ({queue: []})});
+  await p.emitDocument("submit", {target: {closest: s => s === '[data-spotify="search-form"]' ? {} : null}, preventDefault() {}});
+  assert.equal(p.run("spotifyView.searchNote"), "1 queued with Spotify's tags");
+  assert.equal(p.run("spotifyView.searchQuery"), "");
+});
+
 // v69: upstream Tagcast 1.3.0 Now playing lyrics tests (fork defaults: native-first, open).
 // Display-only Now playing lyrics exercise the actual page scripts below.
 async function playbackLyricsPage(mode = "native") {
@@ -11261,6 +11273,33 @@ test("v72: queued links leave the paste box, failed ones stay", async () => {
   const out = p.run(`dropQueuedLines("https://youtu.be/a\\nhttps://youtu.be/b\\nColdplay - Yellow", [
     {line: "https://youtu.be/a", ok: true}, {line: "https://youtu.be/b", ok: false, note: "no"}, {line: "Coldplay - Yellow", ok: true}])`);
   assert.equal(out, "https://youtu.be/b");
+});
+
+test("v99: a partly owned album's badge shows how many songs you already have", async () => {
+  const p = page(); await settle();
+  const badge = p.run('discographyBadge("partly", {tracks: 10, you_have: [{tracks: 3}]})');
+  assert.match(badge, /Partly \(3 of 10 songs\)/);
+  const noCount = p.run('discographyBadge("partly", {tracks: 10, you_have: []})');
+  assert.match(noCount, />Partly</);
+  assert.doesNotMatch(noCount, /of 10/);
+  assert.match(p.run('discographyBadge("have", {tracks: 10, you_have: [{tracks: 10}]})'), />Have</);
+});
+
+test("v99: a link pasted while Download links is still reading is not lost", async () => {
+  const p = page(); await settle();
+  p.run('$("#more-lines").value = "https://youtu.be/a"');
+  let resolveLinks, resolveQueue;
+  p.setFetch(url => url === "/api/more/links" ? new Promise(done => { resolveLinks = done; })
+    : new Promise(done => { resolveQueue = done; }));
+  const clicking = p.click({"[data-more]": {dataset: {more: "links"}}});
+  await settle(); await settle();
+  // the box isn't disabled while reading, so a new paste lands while the first request is in flight
+  p.run('$("#more-lines").value = $("#more-lines").value + "\\nhttps://youtu.be/b"');
+  resolveLinks({ok: true, json: async () => ({results: [{line: "https://youtu.be/a", ok: true, note: "1 queued"}]})});
+  await settle();
+  resolveQueue({ok: true, json: async () => ({queue: []})});
+  await clicking;
+  assert.equal(p.run("moreView.lines"), "https://youtu.be/b");
 });
 
 test("v72: Missing rows copy title, artist, album or all", async () => {

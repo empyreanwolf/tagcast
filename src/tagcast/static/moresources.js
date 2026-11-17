@@ -25,7 +25,7 @@ function moreHtml() {
 }
 
 // v66: spotDL for Spotify links: its own small Python environment, installed once with one click.
-const spotifyView = {status: null, busy: false, timer: null};
+const spotifyView = {status: null, busy: false, timer: null, searchQuery: "", searchBusy: false, searchNote: ""};
 
 async function spotifyLoad() {
   try { spotifyView.status = await api("/api/spotify/status"); } catch { spotifyView.status = {installed: false, installing: false, error: ""}; }
@@ -38,14 +38,31 @@ function spotifyHtml() {
   const st = spotifyView.status;
   if (!st) { spotifyLoad(); return ""; }
   return `<details class="dl-fold" ${st.installed ? "" : "open"}><summary>Spotify (spotDL) <span class="muted">${st.installed ? "ready" : st.installing ? "installing…" : "not installed"}</span></summary>
-    <p class="muted">Paste a Spotify song, album, playlist or artist link in the box above. spotDL (github.com/spotDL/spotify-downloader, MIT) reads Spotify's tags and finds each song on YouTube Music; Tagcast downloads it as MP3 with Spotify's tags and cover. Lossy, like YouTube.</p>
+    <p class="muted">Paste a Spotify song, album, playlist or artist link in the box above, or search by name below. spotDL (github.com/spotDL/spotify-downloader, MIT) reads Spotify's tags and finds each song on YouTube Music; Tagcast downloads it as MP3 with Spotify's tags and cover. Lossy, like YouTube.</p>
     ${st.installed ? "" : `<div class="dl-actions"><button type="button" class="button primary" data-spotify="install" ${st.installing ? "disabled" : ""}>${st.installing ? "Installing spotDL… (about a minute)" : "Install spotDL (one time)"}</button></div>`}
     ${st.error ? `<p class="dl-have">${escapeHtml(st.error)}</p>` : ""}
+    <form class="dl-actions" data-spotify="search-form"><input id="spotify-search" type="search" maxlength="200" placeholder="Artist - song, or an album name" aria-label="Search Spotify" value="${escapeHtml(spotifyView.searchQuery)}">
+      <button type="submit" class="button primary" ${spotifyView.searchBusy ? "disabled" : ""}>${spotifyView.searchBusy ? "Searching…" : "Search & queue"}</button></form>
+    ${spotifyView.searchNote ? `<p class="dl-have">${escapeHtml(spotifyView.searchNote)}</p>` : ""}
     <p class="muted">If Spotify limits spotDL's built-in key, add your own free app key from developer.spotify.com (Client ID and Secret).${st.own_key ? " Your own key is in use." : ""}</p>
     <div class="dl-actions"><input id="spotify-id" type="text" maxlength="100" placeholder="Client ID" aria-label="Spotify client ID">
       <input id="spotify-secret" type="password" maxlength="100" placeholder="Client secret" aria-label="Spotify client secret">
       <button type="button" class="button" data-spotify="key">Save key</button>${st.own_key ? `<button type="button" class="text-action" data-spotify="clear">Use built-in key</button>` : ""}</div></details>`;
 }
+
+document.addEventListener("submit", async event => {
+  if (!event.target.closest?.('[data-spotify="search-form"]')) return;
+  event.preventDefault();
+  const v = spotifyView;
+  const query = $("#spotify-search")?.value || "";
+  v.searchQuery = query; v.searchBusy = true; v.searchNote = ""; renderDownloads();
+  try {
+    const result = await api("/api/spotify/search", {query});
+    v.searchNote = result.note; v.searchQuery = "";
+    downloadsView.queue = (await api("/api/downloads/queue")).queue;
+  } catch (error) { v.searchNote = error.message || String(error); }
+  v.searchBusy = false; renderDownloads();
+});
 
 document.addEventListener("click", async event => {
   const button = event.target.closest?.("[data-spotify]");
@@ -122,9 +139,14 @@ document.addEventListener("click", async event => {
   if (action === "get") await moreQueue([Number(button.dataset.index)]);
   else if (action === "get-all") await moreQueue(v.results.map((r, i) => i).filter(i => v.results[i].status !== "have" && !v.queued.has(i)));
   else if (action === "links") {
-    v.lines = $("#more-lines")?.value || "";
-    v.linkResults = await moreLinks(v.lines);
-    v.lines = dropQueuedLines(v.lines, v.linkResults);  // v72: queued links leave the box, failed ones stay
+    const submitted = $("#more-lines")?.value || "";
+    v.linkResults = await moreLinks(submitted);
+    // v99: a line pasted in while this read was in flight must not be lost - the box isn't
+    // disabled while reading, so keep anything appended to the end since we started.
+    const after = $("#more-lines")?.value || "";
+    const added = after.startsWith(submitted) ? after.slice(submitted.length).replace(/^\s+/, "") : "";
+    const kept = dropQueuedLines(submitted, v.linkResults);  // v72: queued links leave the box, failed ones stay
+    v.lines = added ? (kept ? `${kept}\n${added}` : added) : kept;
     renderDownloads();
   }
 });

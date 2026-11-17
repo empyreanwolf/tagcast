@@ -104,3 +104,35 @@ class SpotifyTests(unittest.TestCase):
             with self.assertRaisesRegex(Exception, "being installed"):
                 spot.songs("https://open.spotify.com/track/4aawyAB9vmqN3uQ7FjRGTy")
             install.assert_called_once()
+
+    def test_a_free_text_search_works_the_same_as_a_pasted_link(self):
+        # Fork v99: typing "artist - song" (or an album name) instead of pasting a link - spotDL
+        # itself searches Spotify and we take its top match, same as a pasted link.
+        seen = []
+        spot = SpotDL(LocalStudio(), runner=lambda query: (seen.append(query), SONGS)[1])
+        rows = spot.songs("Epidemic - Track 1")
+        self.assertEqual(seen, ["Epidemic - Track 1"])
+        self.assertEqual(len(rows), 2)
+
+    def test_a_non_spotify_link_is_rejected_even_as_a_search(self):
+        spot = SpotDL(LocalStudio(), runner=lambda query: SONGS)
+        with self.assertRaisesRegex(Exception, "not a Spotify"):
+            spot.songs("https://youtube.com/watch?v=x")
+
+    def test_an_empty_search_is_rejected(self):
+        spot = SpotDL(LocalStudio(), runner=lambda query: SONGS)
+        with self.assertRaisesRegex(Exception, "Type a search"):
+            spot.songs("   ")
+
+    def test_moresources_can_search_spotify_by_name_instead_of_a_link(self):
+        studio = LocalStudio()
+        seen = []
+        studio.spotify = SpotDL(studio, runner=lambda query: (seen.append(query), SONGS)[1])
+        studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None)
+        studio.moresources.ensure_worker = lambda: None
+        result = studio.moresources.spotify_search("Epidemic Track 1")
+        self.assertEqual(seen, ["Epidemic Track 1"])
+        self.assertEqual(result["queued"], 2)
+        self.assertIn("queued with Spotify's tags", result["note"])
+        with self.assertRaisesRegex(Exception, "Type something"):
+            studio.moresources.spotify_search("  ")

@@ -95,6 +95,32 @@ class DiscographyTests(unittest.TestCase):
         with self.assertRaises(DiscographyError):
             studio.discography.view("")
 
+    def test_no_discogs_token_downgrades_a_various_artists_album_by_track_count(self):
+        # Fork v99: Deezer calls "Parachutes" an "album" of ours, but most of its 14 tracks are
+        # really credited to someone else - a various-artists compilation Deezer still files
+        # under us. Without a Discogs token (which would say so directly via its "Appearance"
+        # role) we fetch the tracklist once and downgrade it ourselves.
+        studio = LocalStudio()
+        studio.http.answers.update({"/album/11/tracks": {"data":
+            [{"artist": {"name": "Coldplay"}}] * 2 + [{"artist": {"name": "Someone Else"}}] * 12}})
+        data = studio.discography.view("Coldplay")
+        rel = {r["title"]: r for r in data["releases"]}
+        self.assertEqual(rel["Parachutes"]["type"], "compile")
+        self.assertEqual(rel["Ghost Stories"]["type"], "album")  # no tracklist answer configured - stays as-is
+        calls = len(studio.http.calls)
+        studio.discography.view("Coldplay")  # cached: no new tracklist fetch
+        self.assertEqual(len(studio.http.calls), calls)
+
+    def test_a_discogs_token_skips_the_track_count_check(self):
+        studio = LocalStudio()
+        studio.source_keys = lambda: {"discogs_token": "tok"}
+        studio.http.answers.update({"/album/11/tracks": {"data": [{"artist": {"name": "Someone Else"}}] * 14},
+                                    "/database/search": {"results": []}})
+        data = studio.discography.view("Coldplay")
+        rel = {r["title"]: r for r in data["releases"]}
+        self.assertEqual(rel["Parachutes"]["type"], "album")  # Discogs' own role field is trusted instead
+        self.assertFalse(any(url.endswith("/album/11/tracks") for url in studio.http.calls))
+
     def test_musicbrainz_only_on_request(self):
         studio = LocalStudio()
         studio.http.answers.update({"/ws/2/artist": {"artists": [{"id": "mb", "name": "Coldplay"}]},

@@ -11,8 +11,13 @@ const discographyView = {
 const discographyTypes = [["album", "Albums"], ["ep", "EPs"], ["single", "Singles"], ["compile", "Compilations"]];
 const discographyStatus = {have: "Have", partly: "Partly", downloaded: "Downloaded before", folder: "In your download folder", missing: "Missing"};
 
-function discographyBadge(status) {
-  return `<span class="dl-badge ${status === "missing" ? "new" : status}">${discographyStatus[status] || status}</span>`;
+function discographyBadge(status, release) {
+  let label = discographyStatus[status] || status;
+  if (status === "partly" && release) {
+    const have = release.you_have?.[0]?.tracks, total = release.tracks;
+    if (have && total) label = `Partly (${have} of ${total} songs)`;
+  }
+  return `<span class="dl-badge ${status === "missing" ? "new" : status}">${label}</span>`;
 }
 
 function discographyHtml() {
@@ -51,7 +56,7 @@ function discographyResultsHtml() {
       ${bandcampThumb(r.cover, "galaxy-album-art")}
       <div><b>${escapeHtml(r.title)}</b>${discographyIsInstrumental(r) ? ' <span class="pill">Instrumental</span>' : ""}${isAppearance ? ' <span class="pill">Appearance</span>' : ""}<div class="muted">${[r.year, ({album: "Album", ep: "EP", single: "Single", compile: "Compilation"})[r.type], r.tracks ? `${r.tracks} tracks` : "", r.genre].filter(Boolean).map(escapeHtml).join(" · ")}</div>
         <div class="muted discography-sources">${escapeHtml(r.sources.join(", "))}</div></div>
-      <div>${discographyBadge(r.status)}<div class="dl-have">${downloadsYouHave(r.you_have)}</div>${fullAlbumBtn}</div></li>`;
+      <div>${discographyBadge(r.status, r)}<div class="dl-have">${downloadsYouHave(r.you_have)}</div>${fullAlbumBtn}</div></li>`;
     }).join("") || '<li class="muted">No releases of these types.</li>'}</ul>
     ${discographyTopHtml()}`;
 }

@@ -301,14 +301,28 @@ class MoreSources(YtdlpWorker):
             raise MoreError("Paste at least one YouTube, Spotify, SoundCloud or Audiomack link.")
         return {"results": out}
 
+    def spotify_search(self, query):
+        """v99: search Spotify by name instead of pasting a link - spotDL finds the closest
+        match itself and we queue every song behind it, same as a pasted link."""
+        query = str(query or "").strip()
+        if not query:
+            raise MoreError("Type something to search for.")
+        rows = self.studio.spotify.songs(query)
+        result = self.add(rows, query=query)
+        return {"note": self._spotify_note(rows, result), **result}
+
+    @staticmethod
+    def _spotify_note(rows, result):
+        album = rows[0]["album"] if len({r["album"] for r in rows}) == 1 else ""
+        return (f"{result.get('queued', 0)} queued with Spotify's tags"
+                + (f" ({album})" if album and len(rows) > 1 else "")
+                + (f", {result['held']} waiting in Needs your decision" if result.get("held") else ""))
+
     def _add_link(self, url, site, mode):
         if site == "Spotify":  # v66: spotDL reads Spotify's tags and finds each song on YouTube Music
             rows = self.studio.spotify.songs(url)
-            album = rows[0]["album"] if len({r["album"] for r in rows}) == 1 else ""
             result = self.add(rows, link=url)
-            return {"line": url, "ok": True, "note": f"{result.get('queued', 0)} queued with Spotify's tags"
-                    + (f" ({album})" if album and len(rows) > 1 else "")
-                    + (f", {result['held']} waiting in Needs your decision" if result.get("held") else "")}
+            return {"line": url, "ok": True, "note": self._spotify_note(rows, result)}
         kind = ""
         read = url
         if site == "YouTube":
