@@ -58,6 +58,7 @@ from .library import (
 from .lyrics import Lyrics
 from .lyrics_job import LyricsJob
 from .track_numbers import TrackNumberJob
+from .backup import Backup
 from .lyrics_translate import LyricsTranslator
 from .metadata_export import MetadataExport
 from .playlist_import import PlaylistImport
@@ -496,6 +497,7 @@ class Studio:
         self.tagclean = TagClean(self)
         self.uploader = Uploader(self)
         self.settings_sync = SettingsSync(self)
+        self.backup = Backup(self)  # fork v100
         self.charts = Charts(self)
         self.pagelist = PageList(self)
         self.labels = Labels(self)

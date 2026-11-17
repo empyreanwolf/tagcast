@@ -374,6 +374,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._run((lambda: self.studio.digest.part(query["part"])) if query.get("part") else self.studio.digest.view)
         elif url.path == "/api/wishlist":
             self._run(self.studio.wishlist.view)
+        elif url.path == "/api/backup":
+            self._run(self.studio.backup.view)
         elif url.path == "/api/releases":
             self._run(self.studio.new_releases.view)
         elif url.path == "/api/releases/summary":
@@ -555,6 +557,8 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/album-guide/link": self.studio.album_guide.link,
             "/api/updates/install": lambda b: __import__("tagcast.selfupdate", fromlist=["install"]).install(),
             "/api/sync/now": lambda b: self.studio.settings_sync.sync_now(),
+            "/api/backup/settings": lambda b: self.studio.backup.save_settings(b.get("path")),
+            "/api/backup/run": lambda b: self.studio.backup.run_now(),
             "/api/updates/check": lambda b: self.studio.check_updates(manual=True),
             "/api/artwork": self.studio.change_artwork,
             "/api/artwork/undo": self.studio.undo_artwork,
@@ -792,7 +796,7 @@ _ROUTE_CATEGORIES = [
     (("/api/cleanup", "/api/artist-cleanup", "/api/duplicate-cleanup"), "cleanup"),
     (("/api/artist-pictures",), "pictures"),
     (("/api/play", "/api/queue-tracks", "/api/queue-sync", "/api/stream"), "playback"),
-    (("/api/config", "/api/settings", "/api/auth", "/api/updates"), "settings"),
+    (("/api/config", "/api/settings", "/api/auth", "/api/updates", "/api/backup"), "settings"),
     (("/api/library", "/api/albums", "/api/overview", "/api/status", "/api/browse", "/api/tracks"), "library"),
 ]
 

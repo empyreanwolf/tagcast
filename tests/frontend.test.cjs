@@ -10922,6 +10922,32 @@ test("v99: Spotify can be searched by name instead of pasting a link", async () 
   assert.equal(p.run("spotifyView.searchQuery"), "");
 });
 
+test("v100: the Google Drive backup card shows status and can save a path and run now", async () => {
+  const p = page(); await settle();
+  p.run('backupView.data = {path: "", last: 0, last_ok: null, last_error: "", last_bytes: 0, running: false}');
+  assert.match(p.run("backupCardHtml()"), /Set a folder below first\./);
+
+  p.run('$("#backup-path").value = "G:\\\\My Drive\\\\Tagcast Backups"');
+  p.setFetch(url => url === "/api/backup/settings"
+    ? {ok: true, json: async () => ({path: "G:\\My Drive\\Tagcast Backups", last: 0, last_ok: null, last_error: "", last_bytes: 0, running: false})}
+    : {ok: true, json: async () => ({})});
+  await p.click({"[data-backup]": {dataset: {backup: "save"}}});
+  assert.equal(p.run("backupView.data.path"), "G:\\My Drive\\Tagcast Backups");
+  assert.doesNotMatch(p.run("backupCardHtml()"), /Set a folder below first\./);
+
+  p.setFetch(url => url === "/api/backup/run"
+    ? {ok: true, json: async () => ({path: "G:\\My Drive\\Tagcast Backups", last: 0, last_ok: null, last_error: "", last_bytes: 0, running: true})}
+    : {ok: true, json: async () => ({path: "G:\\My Drive\\Tagcast Backups", last: 1700000000, last_ok: true, last_error: "", last_bytes: 1048576, running: false})});
+  await p.click({"[data-backup]": {dataset: {backup: "run"}}});
+  assert.equal(p.run("backupView.data.running"), true);
+  assert.match(p.run("backupCardHtml()"), /Backing up…/);
+  // the click fired backupPoll() without awaiting it; drive its fake timer to let it pick up the finished state
+  p.flushTimers(1500);
+  await settle(); await settle(); await settle();
+  assert.equal(p.run("backupView.data.running"), false);
+  assert.match(p.run("backupCardHtml()"), /1\.0 MB/);
+});
+
 // v69: upstream Tagcast 1.3.0 Now playing lyrics tests (fork defaults: native-first, open).
 // Display-only Now playing lyrics exercise the actual page scripts below.
 async function playbackLyricsPage(mode = "native") {
