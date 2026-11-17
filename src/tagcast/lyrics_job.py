@@ -1,13 +1,15 @@
-"""Find lyrics for every song that has none (fork v81).
+"""Find lyrics for every song that has none (fork v81; Genius fallback added in v101).
 
 A slow, gentle background run over the whole library. For each song the server first
 asks iBroadcast whether it already has lyrics (those are never touched), then looks
 for them on LRCLIB, then on GD Studio (netease, joox, bilibili; title with artist,
-title alone, simplified Chinese). A match must have the same title and the same
-artist, and its timing must fit the song's length. A sure match is saved to the
-song's iBroadcast lyrics as timed LRC text (the same field "Find lyrics" writes);
-a song with only unsure candidates goes to the "Couldn't match" list, where one
-click picks the right one.
+title alone, simplified Chinese), then, if neither has it, on Genius - this last step
+catches brand-new releases that aren't indexed anywhere else yet. A match must have
+the same title and the same artist, and an LRCLIB/GD Studio match's timing must fit
+the song's length (Genius carries no timing, so its text is saved plain). A sure
+match is saved to the song's iBroadcast lyrics (timed LRC text from LRCLIB/GD Studio,
+plain text from Genius); a GD Studio song with only unsure candidates goes to the
+"Couldn't match" list, where one click picks the right one.
 
 The run can be paused, resumed or stopped. What each song turned out to be is kept in
 ``lyrics-job.json`` so a stop, a crash or a restart continues where it left off. GD
@@ -25,6 +27,7 @@ import requests
 from . import activity, galaxy as galaxy_module
 from .artist_match import simplified
 from .galaxy import GalaxyBlocked, GalaxyError
+from .genius_lyrics import Genius
 from .library import LibraryError, number
 from .lyrics import lyric_text
 from .playback_lyrics import (MAX_TEXT, _gdstudio_match, _lyrics_artists, _lyrics_loose, fetch_lrclib_display,
@@ -95,8 +98,9 @@ def _hit(item):
 
 
 class LyricsJob:
-    def __init__(self, studio):
+    def __init__(self, studio, genius=None):
         self.studio = studio
+        self.genius = genius or Genius()
         self.lock = threading.RLock()
         self.running = False
         self.paused = False
@@ -369,6 +373,12 @@ class LyricsJob:
                 self.progress["phase"] = "GD Studio"
             found, candidates = self._gdstudio(track)
             source = "GD Studio"
+        # 4. Genius (last resort - catches brand-new releases not yet on LRCLIB or GD Studio)
+        if not found:
+            with self.lock:
+                self.progress["phase"] = "Genius"
+            found = self._genius(track)
+            source = "Genius"
         if found:
             status = self._write(client, library, track_id, track, found)
             self._record(track_id, track, status[0], source, status[1])
@@ -376,7 +386,15 @@ class LyricsJob:
         if candidates:
             self._record(track_id, track, "review", "gdstudio", f"{len(candidates)} possible, none sure.", candidates=candidates)
         else:
-            self._record(track_id, track, "none", "", "Nothing found on LRCLIB or GD Studio.")
+            self._record(track_id, track, "none", "", "Nothing found on LRCLIB, GD Studio or Genius.")
+
+    def _genius(self, track):
+        try:
+            text = self.genius.find(track)
+        except Exception as error:
+            log.info("Genius lookup failed for %s - %s: %s", track["artist"], track["title"], error)
+            return None
+        return text if text and text.strip() and len(text) <= MAX_TEXT else None
 
     def _lrclib(self, track, album):
         for attempt in range(3):

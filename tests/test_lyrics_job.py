@@ -31,6 +31,18 @@ class FakeClient:
         return {}
 
 
+class FakeGenius:
+    """Stands in for ``genius_lyrics.Genius`` - no network, a canned answer per test."""
+
+    def __init__(self, results=None):
+        self.results = results or {}  # title -> lyric text
+        self.asked = []
+
+    def find(self, track):
+        self.asked.append(track["title"])
+        return self.results.get(track["title"])
+
+
 class FakeLyrics:
     def __init__(self, client):
         self.client = client
@@ -97,9 +109,9 @@ def lrclib_for(track, album, check):
 
 
 class LyricsJobTests(unittest.TestCase):
-    def run_job(self, studio=None):
+    def run_job(self, studio=None, genius=None):
         studio = studio or FakeStudio()
-        job = LyricsJob(studio)
+        job = LyricsJob(studio, genius=genius or FakeGenius())
         job.running = True
         job.progress = {"done": 0, "total": 0, "name": "", "phase": ""}
         with mock.patch.object(lyrics_job, "fetch_lrclib_display", side_effect=lrclib_for), \
@@ -131,6 +143,24 @@ class LyricsJobTests(unittest.TestCase):
         self.assertNotIn("作词", saved)
         self.assertEqual(data["review"]["5"]["candidates"][0]["title"], "Nothing Here (Remix)")
         self.assertFalse(job.running)
+
+    def test_genius_fills_in_a_song_lrclib_and_gd_studio_both_missed(self):
+        studio, job = self.run_job(genius=FakeGenius({"Nothing Here": "First line\nSecond line"}))
+        data = studio.files["lyrics-job.json"]
+        self.assertEqual(data["checked"]["5"], "saved")
+        self.assertEqual(studio.client.userdata["5"], [{"type": "lyrics", "value": "First line\nSecond line"}])
+        job5 = next(j for j in job.jobs if j["track_id"] == "5")
+        self.assertEqual(job5["source"], "Genius")
+        # Genius is a last resort - LRCLIB and GD Studio still both ran first
+        self.assertIn("Nothing Here", [c for c in job.genius.asked])
+
+    def test_genius_lookup_errors_are_swallowed_not_raised(self):
+        class BrokenGenius:
+            def find(self, track):
+                raise RuntimeError("boom")
+
+        studio, job = self.run_job(genius=BrokenGenius())
+        self.assertEqual(studio.files["lyrics-job.json"]["checked"]["5"], "review")
 
     def test_second_run_continues_and_skips_checked_songs(self):
         studio, _ = self.run_job()
@@ -188,7 +218,7 @@ class LyricsJobTests(unittest.TestCase):
     def test_album_start_looks_only_at_the_given_songs(self):
         studio = FakeStudio()
         studio.library.tracks = {1: {}, 2: {}, 3: {}, 5: {}}
-        job = LyricsJob(studio)
+        job = LyricsJob(studio, genius=FakeGenius())
         job._state("7")["checked"]["5"] = "none"
         job._state("7")["review"]["5"] = {"title": "x"}
         with mock.patch.object(lyrics_job, "fetch_lrclib_display", side_effect=lrclib_for), \
@@ -217,7 +247,7 @@ class LyricsJobTests(unittest.TestCase):
 
     def test_pause_holds_the_run_and_stop_ends_it(self):
         studio = FakeStudio()
-        job = LyricsJob(studio)
+        job = LyricsJob(studio, genius=FakeGenius())
         job.running = job.paused = True
         job.progress = {"done": 0, "total": 0, "name": "", "phase": ""}
         job.pause_flag.set()

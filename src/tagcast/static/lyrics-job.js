@@ -1,8 +1,10 @@
 "use strict";
 
-// Find lyrics for every song that has none (fork v81): a slow background run on the server. It looks on LRCLIB,
-// then GD Studio, saves a sure match to the song's iBroadcast lyrics as timed LRC text, and keeps unsure ones in
-// "Couldn't match" for one-click picking. Pause, Resume and Stop; it continues where it left off after a restart.
+// Find lyrics for every song that has none (fork v81; Genius added in v101): a slow background run on the server.
+// It looks on LRCLIB, then GD Studio, then Genius for anything still missing (catches brand-new releases).
+// A sure match is saved to the song's iBroadcast lyrics - timed LRC text from LRCLIB/GD Studio, plain text from
+// Genius - and unsure GD Studio candidates go to "Couldn't match" for one-click picking. Pause, Resume and Stop;
+// it continues where it left off after a restart.
 const lyricsJobView = {data: null, loading: false, timer: null, previews: {}};
 
 function showLyricsJob() {
