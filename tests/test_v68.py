@@ -104,7 +104,11 @@ class TryYouTubeReasonTests(unittest.TestCase):
         yt._search = lambda query, *a: [{"id": "TYJlkUDKP9o", "title": "Neroche - Since You Went Away", "channel": "K", "duration": 134}]
         submitted = []
         yt._submit = lambda items: submitted.extend(items) or {"queued": len(items)}
-        with self.assertRaisesRegex(YouTubeError, "closest was"):
+        import unittest.mock as mock
+        from tagcast import spotsaver
+        # fork v105: don't let add_song's SpotSaver search fallback make a real network call here.
+        with mock.patch("tagcast.spotsaver.search", side_effect=spotsaver.SpotSaverError("no")), \
+                self.assertRaisesRegex(YouTubeError, "closest was"):
             yt.try_item("x")
         item = manager.items["x"]
         self.assertEqual(item["youtube_near"]["id"], "TYJlkUDKP9o")

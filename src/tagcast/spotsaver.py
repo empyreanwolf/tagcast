@@ -1,7 +1,9 @@
 """Fork v96: SpotSaver (spotsaver.net) as a back-up when yt-dlp cannot get a song from YouTube.
+Fork v105: also ``search()``, SpotSaver's own title/artist search, used when YouTube's own search
+(YouTube Music, then YouTube) finds nothing - not only once a video is already known.
 
 SpotSaver has no public API. Its web page makes two calls and this module repeats them:
-``POST /api/get-id/`` (title, artist, duration -> a YouTube video id; skipped here, Tagcast already has the id) and
+``POST /api/get-id/`` (title, artist, duration -> a YouTube video id) and
 ``POST /api/download/`` (video id -> a short-lived MP3 link on its converter). Their server fetches the video from YouTube,
 so it works when this PC's yt-dlp is stuck or refused. It can change or stop at any time: every failure here is an
 ordinary error and the caller falls back to the other sources.
@@ -27,6 +29,27 @@ class SpotSaverError(Exception):
 def video_id(url):
     found = _ID.search(str(url or ""))
     return found.group(1) if found else ""
+
+
+def search(title, artist="", duration=0, session=None):
+    """fork v105: ask SpotSaver's own search for the YouTube video it would use for this title/artist
+    (the half of its page this module never called before). Returns a video id, or raises
+    SpotSaverError when SpotSaver has no match - an ordinary miss, same as any other source."""
+    http = session or requests.Session()
+    body = {"title": str(title or ""), "artist": str(artist or ""), "query": f"{artist} {title}".strip()}
+    if duration:
+        body["duration"] = int(duration)
+    try:
+        reply = http.post(f"{BASE}/api/get-id/", headers=HEADERS, timeout=(15, 30), json=body)
+        data = reply.json() if reply.ok else {}
+    except (requests.RequestException, ValueError) as error:
+        raise SpotSaverError(f"SpotSaver search did not answer ({type(error).__name__})") from None
+    candidates = data.get("candidates") or data.get("results") or []
+    vid = data.get("videoId") or data.get("id") or next(
+        (c.get("videoId") or c.get("id") for c in candidates if isinstance(c, dict) and (c.get("videoId") or c.get("id"))), None)
+    if not vid:
+        raise SpotSaverError(f"SpotSaver found no match (HTTP {reply.status_code})")
+    return str(vid)
 
 
 def fetch(url, folder, hook, title, artist="", session=None):

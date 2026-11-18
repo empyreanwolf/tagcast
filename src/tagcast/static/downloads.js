@@ -127,9 +127,15 @@ function downloadsCollapsify(html, fallback) {
   return out + html.slice(at);
 }
 
+// v105: these tabs have their own full-page list (Clean up's genre queue, Upload's batch, Check's
+// results, From a page's reader, Needs your decision, Missing's own sub-tabs) - the global queue
+// banner on top of all of that was just noise, not something to decide anything from.
+const DOWNLOADS_QUEUE_BANNER_HIDDEN = new Set(["missing", "tagclean", "upload", "check", "pagelist", "decide"]);
+
 function downloadsManagerRender() {
   const box = $("#dl-queue-box");
-  if (box) box.innerHTML = downloadsCollapsify(downloadsQueueBoxHtml(), "Queue");
+  if (!box) return;
+  box.innerHTML = DOWNLOADS_QUEUE_BANNER_HIDDEN.has(downloadsView.tab) ? "" : downloadsCollapsify(downloadsQueueBoxHtml(), "Queue");
 }
 
 async function loadDownloadsHistory() {

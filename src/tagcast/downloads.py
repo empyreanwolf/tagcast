@@ -68,6 +68,13 @@ def album_key(title):
     return match.simplified(title_key(match.clean(title)))
 
 
+def album_key_loose(title):
+    """fork v105: album_key() without the actual spaces, as a last-resort fallback - a tag typo'd
+    as one run-together word ("CloudNineteen" for "Cloud Nineteen") shouldn't make an album you
+    already own look missing forever."""
+    return album_key(title).replace(" ", "")
+
+
 # Fork v91: a typo ("Feaks"), a spelling ("Kems" / "Kem's") or a tag in brackets ("(Intro)") no longer hides a song
 # you already have. Remix / live / mix and the like still make it another song.
 _VERSION_RE = re.compile(r"\b(remix|mix|live|edit|instrumental|acoustic|demo|dub|cover|karaoke|acapella|a cappella|"
@@ -155,7 +162,7 @@ class LibraryIndex:
     """Songs and albums of one library copy, keyed for the duplicate check."""
 
     def __init__(self, library):
-        self.songs, self.albums, self.album_bases, self.by_artist = {}, {}, {}, {}
+        self.songs, self.albums, self.album_bases, self.by_artist, self.albums_loose = {}, {}, {}, {}, {}
         sets = {}
         for album_id in library.album_ids():
             album = library.albums[album_id]
@@ -182,6 +189,7 @@ class LibraryIndex:
         for entry in sets.values():
             self.albums.setdefault(album_key(entry["title"]), []).append(entry)
             self.album_bases.setdefault(album_base_key(entry["title"]), []).append(entry)
+            self.albums_loose.setdefault(album_key_loose(entry["title"]), []).append(entry)
 
 
 class HistoryIndex:
@@ -258,6 +266,14 @@ def check_item(item, library_index, history_index):
              if album_key(hit["title"]) != exact and _overlap(keys, named, hit["keys"], hit["named"])]
     if other:
         return {"status": "have", "you_have": other[:EXAMPLES], "other_edition": True}
+    # fork v105: a run-together or missing-space tag ("CloudNineteen" for "Cloud Nineteen") still
+    # counts, as a last resort - only once the exact title and its editions have both come up empty.
+    loose = [{"where": "ibroadcast", "title": hit["title"], "artist": hit["artist"], "tracks": hit["tracks"],
+              "album_id": hit["album_id"], "edition": True}
+             for hit in (getattr(library_index, "albums_loose", {}) if library_index else {}).get(album_key_loose(item["title"]), [])
+             if album_key(hit["title"]) != exact and _overlap(keys, named, hit["keys"], hit["named"])]
+    if loose:
+        return {"status": "have", "you_have": loose[:EXAMPLES], "other_edition": True}
     songs = [entry for other, other_named, entry in history_index.albums.get(album_key(item["title"]), [])
              if _overlap(keys, named, other, other_named)]
     if songs:

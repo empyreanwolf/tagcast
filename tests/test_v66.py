@@ -53,6 +53,28 @@ class EditionTests(unittest.TestCase):
         result = check_item({"kind": "album", "title": "None Shall Pass", "artist": "Aesop Rock"}, index, HistoryIndex([]))
         self.assertEqual((result["status"], result.get("other_edition"), result["you_have"][0]["edition"]), ("have", True, True))
 
+    def test_a_missing_space_in_the_stored_title_still_counts_as_have(self):
+        # v105: "CloudNineteen" tagged in iBroadcast with no space still matches a wishlist/
+        # discography entry correctly spelled "Cloud Nineteen".
+        from tagcast.downloads import LibraryIndex, HistoryIndex, check_item, artist_keys, album_key_loose
+        index = LibraryIndex.__new__(LibraryIndex)
+        entry = {"title": "CloudNineteen", "artist": "Braille", "keys": artist_keys("Braille"), "named": True,
+                 "tracks": 16, "album_id": 1}
+        index.songs, index.albums, index.album_bases = {}, {}, {}
+        index.albums_loose = {album_key_loose(entry["title"]): [entry]}
+        result = check_item({"kind": "album", "title": "Cloud Nineteen", "artist": "Braille"}, index, HistoryIndex([]))
+        self.assertEqual((result["status"], result["you_have"][0]["title"]), ("have", "CloudNineteen"))
+
+    def test_the_loose_spacing_fallback_still_requires_the_artist_to_match(self):
+        from tagcast.downloads import LibraryIndex, HistoryIndex, check_item, artist_keys, album_key_loose
+        index = LibraryIndex.__new__(LibraryIndex)
+        entry = {"title": "CloudNineteen", "artist": "Someone Else", "keys": artist_keys("Someone Else"), "named": True,
+                 "tracks": 16, "album_id": 1}
+        index.songs, index.albums, index.album_bases = {}, {}, {}
+        index.albums_loose = {album_key_loose(entry["title"]): [entry]}
+        result = check_item({"kind": "album", "title": "Cloud Nineteen", "artist": "Braille"}, index, HistoryIndex([]))
+        self.assertEqual(result["status"], "new")
+
 
 class ForkUpdateTests(unittest.TestCase):
     def test_fork_numbers_and_result(self):

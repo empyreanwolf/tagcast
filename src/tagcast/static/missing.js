@@ -28,7 +28,9 @@ function missingCopyHtml(title, artist, album = "") {
   const t = String(title || ""), a = String(artist || ""), b = String(album || "");
   const all = `${a ? `${a} - ` : ""}${t}${b && b !== t ? ` (${b})` : ""}`;
   const button = (label, value, what) => value ? `<button type="button" class="text-action" data-dl-copy="${escapeHtml(value)}" title="Copy the ${what}" aria-label="Copy the ${what}: ${escapeHtml(value)}">${label}</button>` : "";
-  return `<span class="missing-copy" aria-label="Copy">⧉ ${[button("Title", t, "title"), button("Artist", a, "artist"), button("Album", b, "album"), button("All", all, "artist, title and album")].filter(Boolean).join(" · ")}</span>`;
+  // v105: a direct web search, opened in your own browser, instead of having to copy-then-paste.
+  const search = all ? `<a class="text-action" href="https://www.google.com/search?q=${encodeURIComponent(all)}" target="_blank" rel="noopener" title="Search the web for this" aria-label="Search the web for ${escapeHtml(all)}">⌕ Search</a>` : "";
+  return `<span class="missing-copy" aria-label="Copy">⧉ ${[button("Title", t, "title"), button("Artist", a, "artist"), button("Album", b, "album"), button("All", all, "artist, title and album")].filter(Boolean).join(" · ")}${search ? ` · ${search}` : ""}</span>`;
 }
 
 function missingDate(seconds) {

@@ -12,9 +12,11 @@ import logging
 import secrets
 import threading
 import time
+from pathlib import Path
 
 from . import artist_match as match
 from .downloads import album_key, artist_keys, song_key
+from .galaxy import find_existing_by_title, safe_name
 from .library import LibraryError
 
 log = logging.getLogger("tagcast")
@@ -23,13 +25,42 @@ MAX_ITEMS = 2000
 CHECK_BATCH = 500
 
 
+def _folder_hit(manager, item):
+    """fork v105: the Music folder itself, as one more place you might already have this - a file
+    can sit there before iBroadcast has re-scanned it, or if it was saved outside Tagcast's own
+    download history (e.g. replaced by hand). Only tried once iBroadcast/history both say "new"."""
+    folder = manager.folder()
+    try:
+        if item["kind"] == "song":
+            if not item.get("album"):
+                return None  # find_existing_by_title() needs a real album folder to look in
+            found = find_existing_by_title(folder, item["artist"], item["album"], item["title"])
+            if not found:
+                return None
+        else:
+            path = Path(folder) / safe_name(item["artist"], "Unknown Artist") / safe_name(item["title"], "Unknown Album")
+            if not path.is_dir() or not (any(path.glob("*.mp3")) or any(path.glob("*.flac")) or any(path.glob("*.m4a"))):
+                return None
+    except OSError:
+        return None
+    return {"where": "folder", "title": item["title"], "artist": item["artist"], "album": item.get("album", "")}
+
+
+def _with_folder_fallback(manager, item, check):
+    """check, or a synthetic "have" built from _folder_hit() when check itself came up empty."""
+    if check.get("status") == "have":
+        return check
+    hit = _folder_hit(manager, item)
+    return {"status": "have", "you_have": [hit]} if hit else check
+
+
 def owned_from(item, check):
     """Fork v95: {"sure", "you_have"} when the library check says you have this wish, else None.
     Sure = the same title (album: the same album, not another edition) by the main artist; the rest is a
     "maybe" you tick yourself. An album you only partly have is not owned (Complete my albums covers it)."""
     if check.get("status") != "have":
         return None
-    rows = [r for r in check.get("you_have") or [] if r.get("where") == "ibroadcast"]
+    rows = [r for r in check.get("you_have") or [] if r.get("where") in ("ibroadcast", "folder")]
     if not rows:
         return None
     keys = artist_keys(match.main_artist(item["artist"]))
@@ -96,7 +127,7 @@ class Wishlist:
             results = manager.check([{"kind": i["kind"], "artist": i["artist"], "title": i["title"],
                                       "album": i.get("album", "")} for i in chunk])["results"]
             for item, check in zip(chunk, results):
-                found[item["id"]] = owned_from(item, check)
+                found[item["id"]] = owned_from(item, _with_folder_fallback(manager, item, check))
         with self.lock:
             for i in self.state["items"]:
                 if i["id"] in found:
@@ -191,6 +222,7 @@ class Wishlist:
         manager = self.studio.download_manager
         check = manager.check([{"kind": item["kind"], "artist": item["artist"], "title": item["title"],
                                 "album": item.get("album", "")}])["results"][0]
+        check = _with_folder_fallback(manager, item, check)
         owned = None if item.get("keep") else owned_from(item, check)
         if owned:
             # Fork v95: you confirm before a wish leaves the list; it is not searched while it waits.
@@ -209,6 +241,10 @@ class Wishlist:
             names += d.aliases(artist)
         source = note = None
         for index, name in enumerate(names):
+            # fork v105: an alias (index > 0, for an album) is only tried if its own Deezer
+            # catalog backs it up - otherwise it's skipped, not searched under blind.
+            if index and item["kind"] == "album" and not d.alias_has_album(name, title):
+                continue
             artist_ctx = ctx.setdefault(name, {"bandcamp": None, "bandcamp_checked": False})
             if item["kind"] == "album":
                 source, note = d._album(name, title, item.get("status"), None, artist_ctx)

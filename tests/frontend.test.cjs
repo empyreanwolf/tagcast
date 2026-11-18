@@ -11278,6 +11278,19 @@ test('browser Mini Player bridge mirrors the playing track and controls the same
   assert.equal(p.run('miniResult'), false, 'a command for an old track is refused');
 });
 
+test("fork v105: the global queue banner is hidden on tabs with their own full list", async () => {
+  const p = page();
+  p.run(`state.screen = "downloads"; downloadsView.queue = [{id: "x", state: "failed", title: "Oops"}]`);
+  for (const tab of ["missing", "tagclean", "upload", "check", "pagelist", "decide"]) {
+    p.run(`downloadsView.tab = "${tab}"; downloadsManagerRender()`);
+    assert.equal(p.nodes.get("#dl-queue-box").innerHTML, "", `hidden on ${tab}`);
+  }
+  for (const tab of ["youtube", "galaxy", "bandcamp", "soulseek", "queue"]) {
+    p.run(`downloadsView.tab = "${tab}"; downloadsManagerRender()`);
+    assert.match(p.nodes.get("#dl-queue-box").innerHTML, /Oops/, `shown on ${tab}`);
+  }
+});
+
 test("v70: Queue & history has its own menu entry that opens that Downloads tab and can be hidden", async () => {
   const p = page(); await settle();
   assert.ok(p.run('SIDEBAR_ITEMS.some(([id]) => id === "show-dl-queue")'));
@@ -11344,6 +11357,29 @@ test("v72: Missing rows copy title, artist, album or all", async () => {
   assert.match(html, /data-dl-copy="派克特 PACT"[^>]*>Artist/);
   assert.match(html, /data-dl-copy="Rise Of Babel"[^>]*>Album/);
   assert.match(html, /data-dl-copy="派克特 PACT - Shadow \(Rise Of Babel\)"[^>]*>All/);
+});
+
+test("fork v105: Download discography respects the Show filter", async () => {
+  const p = page(); await settle();
+  p.run(`bandcampView.releases = ["/a", "/b", "/c"];
+    bandcampView.albums = new Map([
+      ["/a", {status: "new", tracks: 5}],
+      ["/b", {status: "partly", tracks: 3}],
+      ["/c", {status: "have", tracks: 4}]]);
+    bandcampView.base = "x.bandcamp.com"; bandcampView.filter = "all"`);
+  let html = p.run("bandcampListHtml()");
+  assert.match(html, /⬇ Download discography \(2 not complete\)/);
+  assert.deepEqual(JSON.parse(JSON.stringify(p.run("bandcampTargetUrls(bandcampView)"))), ["/a", "/b"]);
+  p.run(`bandcampView.filter = "new"`);
+  html = p.run("bandcampListHtml()");
+  assert.match(html, /⬇ Download shown \(1\)/);
+  assert.deepEqual(JSON.parse(JSON.stringify(p.run("bandcampTargetUrls(bandcampView)"))), ["/a"]);
+});
+
+test("fork v105: Missing rows offer a web search opened in a new tab", async () => {
+  const p = page(); await settle();
+  const html = p.run(`missingCopyHtml("F'Real Version", "Abstract Rude")`);
+  assert.match(html, /<a class="text-action" href="https:\/\/www\.google\.com\/search\?q=Abstract%20Rude%20-%20F'Real%20Version"[^>]*target="_blank"[^>]*>⌕ Search<\/a>/);
 });
 
 test("v72: the cover spins only while a song plays and the setting can turn it off", async () => {

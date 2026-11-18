@@ -730,6 +730,30 @@ class Discography:
             log.info("SoundCloud song failed for %s - %s: %s", name, title, error)
             return None
 
+    def _spotify_song(self, name, title, album=""):
+        """fork v105: spotDL's own Spotify search (v99) tried automatically for a wishlist miss -
+        not only when you paste a link or type a search for it by hand. Spotify's own catalog search
+        is reliable, but spotDL still returns its "closest match" rather than nothing, so that match
+        is checked against the title asked for before it is trusted."""
+        spotify = getattr(self.studio, "spotify", None)
+        moresources = getattr(self.studio, "moresources", None)
+        if spotify is None or moresources is None:
+            return None
+        try:
+            rows = spotify.songs(f"{name} - {title}")
+        except LibraryError as error:
+            log.info("Spotify search for %s - %s found nothing: %s", name, title, error)
+            return None
+        row = max(rows, key=lambda r: sim(r.get("title") or "", title))
+        if sim(row.get("title") or "", title) < 0.8:
+            return None
+        try:
+            result = moresources.add([row], query=f"{name} {title}")
+        except LibraryError as error:
+            log.info("Spotify match for %s - %s could not be queued: %s", name, title, error)
+            return None
+        return "Spotify", moresources._spotify_note([row], result)
+
     def _youtube(self):
         youtube = getattr(self.studio, "youtube", None)
         return youtube if youtube is not None and youtube.enabled() else None
@@ -841,6 +865,30 @@ class Discography:
             log.info("MusicBrainz aliases for %s failed: %s", name, error)
             return []
 
+    def alias_has_album(self, name, title):
+        """fork v105: before trying a MusicBrainz alias for an album search, make sure the alias
+        artist's own Deezer catalog actually lists an album with this title - a stage name is a
+        fine alias to search under, but MusicBrainz linking a side-project or a collaborator as
+        if they were "the same person" is not, and sends the search chasing the wrong name
+        (the bug report: Braille & Symbolyc One's "Cloud Nineteen" searched only under "Symbolyc
+        One"). True when it can't check (no Deezer artist, or Deezer is unreachable) - this is a
+        second opinion that can rule an alias OUT, never one that should block a search on its own."""
+        try:
+            candidates = self._deezer_artists(name)
+        except SourceError:
+            return True
+        if not candidates:
+            return True
+        want = release_key(title)
+        for c in candidates[:4]:
+            try:
+                rows = (self.http.json(f"{DEEZER}/artist/{c['id']}/albums", {"limit": 200}) or {}).get("data") or []
+            except SourceError:
+                continue
+            if any(release_key(r.get("title")) == want for r in rows):
+                return True
+        return False
+
     def credited_as(self, name, title):
         """Fork v91: a different artist name MusicBrainz credits an album with this exact title to, when there is
         exactly one ("Jus Allah" / "Shakespeare Science" -> "Poetic Death"). Only ever a suggestion."""
@@ -943,6 +991,9 @@ class Discography:
             except LibraryError as error:
                 log.info("Bandcamp song failed: %s", error)
         found = self._soundcloud_song(name, title, album)
+        if found:
+            return found
+        found = self._spotify_song(name, title, album)
         if found:
             return found
         soulseek = getattr(self.studio, "soulseek", None)

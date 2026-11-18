@@ -94,6 +94,7 @@ class QueueTests(unittest.TestCase):
 
     def test_nothing_found_falls_through_and_switching_off_skips_it(self):
         studio = self.make([video("Something else", "Nobody")])
+        studio.youtube.save_settings({"spotsaver": False})  # fork v105: don't let the real search run in tests
         self.assertIsNone(studio.discography._youtube_song("Coldplay", "Yellow"))
         with self.assertRaises(YouTubeError):
             studio.youtube.add_song("Coldplay", "Yellow")
@@ -467,9 +468,59 @@ class V94Tests(unittest.TestCase):
 
     def test_add_songs_reports_each_song(self):
         studio = self.yt(lambda q, playlists=False: [video("Found It", "Coldplay - Topic", vid="v9")] if "Found" in q else [])
+        studio.youtube.save_settings({"spotsaver": False})  # fork v105: don't let the real search run in tests
         answer = studio.youtube.add_songs([{"key": "a", "artist": "Coldplay", "title": "Found It", "album": "X"},
                                            {"key": "b", "artist": "Coldplay", "title": "Missing", "album": "X"}])
         self.assertEqual([(r["key"], r["ok"]) for r in answer["results"]], [("a", True), ("b", False)])
+
+
+class V105SpotSaverSearchFallbackTests(unittest.TestCase):
+    """fork v105: when YouTube's own search (YouTube Music, then YouTube) finds nothing, ask
+    SpotSaver's own search for a video before giving up - not only once a video is already known."""
+
+    def test_a_spotsaver_match_is_queued_when_youtube_search_finds_nothing(self):
+        import unittest.mock as mock
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=lambda q, playlists=False: [], fetch_audio=lambda *a: None)
+        studio.youtube.ensure_worker = lambda: None
+        with mock.patch("tagcast.spotsaver.search", return_value="sp123"), \
+                mock.patch.object(studio.youtube, "_yt_info",
+                                   return_value={"title": "Obscure Song", "channel": "Coldplay - Topic", "duration": 200}):
+            result = studio.youtube.add_song("Coldplay", "Obscure Song")
+        self.assertEqual(result.get("queued"), 1)
+        job = studio.download_manager.next_queued("youtube")
+        self.assertEqual(job["payload"]["id"], "sp123")
+
+    def test_a_spotsaver_match_that_is_clearly_the_wrong_song_is_rejected(self):
+        """fork v105: SpotSaver's search returns a video id even for a made-up query, with no title
+        to judge it by up front - the resolved video is checked and a bad match is treated as a miss."""
+        import unittest.mock as mock
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=lambda q, playlists=False: [], fetch_audio=lambda *a: None)
+        with mock.patch("tagcast.spotsaver.search", return_value="sp999"), \
+                mock.patch.object(studio.youtube, "_yt_info",
+                                   return_value={"title": "Totally Different Song", "channel": "Someone Else", "duration": 200}):
+            with self.assertRaises(YouTubeError):
+                studio.youtube.add_song("Coldplay", "Obscure Song")
+
+    def test_a_spotsaver_miss_still_raises_the_usual_error(self):
+        import unittest.mock as mock
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=lambda q, playlists=False: [], fetch_audio=lambda *a: None)
+        from tagcast import spotsaver
+        with mock.patch("tagcast.spotsaver.search", side_effect=spotsaver.SpotSaverError("no match")):
+            with self.assertRaises(YouTubeError):
+                studio.youtube.add_song("Coldplay", "Yellow")
+
+    def test_turning_the_setting_off_skips_the_spotsaver_search_too(self):
+        import unittest.mock as mock
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=lambda q, playlists=False: [], fetch_audio=lambda *a: None)
+        studio.youtube.save_settings({"spotsaver": False})
+        with mock.patch("tagcast.spotsaver.search") as search:
+            with self.assertRaises(YouTubeError):
+                studio.youtube.add_song("Coldplay", "Yellow")
+        search.assert_not_called()
 
 
 class V96Tests(unittest.TestCase):

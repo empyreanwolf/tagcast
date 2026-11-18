@@ -830,11 +830,36 @@ class YouTube(YtdlpWorker):
         self.ensure_worker()
         return result
 
+    def _spotsaver_search(self, artist, title):
+        """fork v105: SpotSaver's own title/artist search, tried when YouTube's own search (YouTube
+        Music, then YouTube) comes up empty - a general fallback, not only the v96 one that kicks in
+        after yt-dlp already found a video but failed to download it. SpotSaver's search answers with
+        just a video id, no title or channel to judge it by, and it answers *something* even for a
+        made-up query - so before trusting it, the video itself is looked up and scored the same way
+        an ordinary search result is, and a bad match is treated as no match at all."""
+        if not self._spotsaver_on():
+            return None
+        from . import spotsaver
+        try:
+            vid = spotsaver.search(title, artist)
+        except spotsaver.SpotSaverError as error:
+            log.info("SpotSaver search for %s - %s found nothing: %s", artist, title, error)
+            return None
+        try:
+            info = self._yt_info(f"https://www.youtube.com/watch?v={vid}")
+        except YouTubeError as error:
+            log.info("SpotSaver's match (%s) for %s - %s could not be checked: %s", vid, artist, title, error)
+            return None
+        if score_video(info, artist, title) <= 0.0:
+            log.info("SpotSaver's match (%s) for %s - %s did not look like the right song; skipped", vid, artist, title)
+            return None
+        return {"id": vid, "title": info.get("title") or f"{artist} - {title}", "duration": info.get("duration") or 0}
+
     def add_song(self, artist, title, album="", exclude=()):
         artist, title = match.clean(artist), match.clean(title)
         if not artist or not title:
             raise YouTubeError("Each song needs an artist and a title.")
-        video = self.find_song(artist, title, exclude=exclude, album=album)
+        video = self.find_song(artist, title, exclude=exclude, album=album) or self._spotsaver_search(artist, title)
         if not video:
             shown = f"{match.main_artist(artist) or artist} {_FEAT_GROUP.sub('', tidy_title(title)).strip() or title}"
             raise YouTubeError(f"query “{shown}” (YouTube Music songs, then YouTube): no official audio")

@@ -83,6 +83,33 @@ class SpotSaverTests(unittest.TestCase):
             spotsaver.fetch("https://www.youtube.com/watch?v=4pBcZSIF_78", tmp, lambda d: None, "T", session=Down())
 
 
+class SpotSaverSearchTests(unittest.TestCase):
+    """fork v105: SpotSaver's own title/artist search (the half of its page this module never used)."""
+
+    def test_a_direct_video_id_is_returned(self):
+        session = FakeSession(FakeReply(data={"videoId": "4pBcZSIF_78"}), None)
+        self.assertEqual(spotsaver.search("Yellow", "Coldplay", session=session), "4pBcZSIF_78")
+        url, body = session.posted[0]
+        self.assertTrue(url.endswith("/api/get-id/"))
+        self.assertEqual((body["title"], body["artist"]), ("Yellow", "Coldplay"))
+
+    def test_an_id_inside_a_candidates_list_is_also_accepted(self):
+        session = FakeSession(FakeReply(data={"candidates": [{"videoId": "abc123"}]}), None)
+        self.assertEqual(spotsaver.search("Yellow", "Coldplay", session=session), "abc123")
+
+    def test_no_match_is_a_spotsaver_error(self):
+        session = FakeSession(FakeReply(data={}), None)
+        with self.assertRaises(spotsaver.SpotSaverError):
+            spotsaver.search("Yellow", "Coldplay", session=session)
+
+    def test_network_errors_are_spotsaver_errors(self):
+        class Down:
+            def post(self, *a, **k):
+                raise requests.ConnectionError("no")
+        with self.assertRaises(spotsaver.SpotSaverError):
+            spotsaver.search("Yellow", "Coldplay", session=Down())
+
+
 class BackupInWorkerTests(unittest.TestCase):
     def worker(self, fetch_result):
         studio = LocalStudio()

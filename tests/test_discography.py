@@ -177,6 +177,18 @@ class DiscographyTests(unittest.TestCase):
         self.assertNotIn("Safety", {r["title"] for r in studio.discography.view("Coldplay")["releases"]})
         self.assertIn("Safety", {r["title"] for r in studio.discography.view("Coldplay", musicbrainz=True)["releases"]})
 
+    def test_alias_has_album_true_when_deezer_lists_the_title(self):
+        studio = LocalStudio()
+        self.assertTrue(studio.discography.alias_has_album("Coldplay", "Parachutes"))
+
+    def test_alias_has_album_false_when_deezer_catalog_lacks_the_title(self):
+        studio = LocalStudio()
+        self.assertFalse(studio.discography.alias_has_album("Coldplay", "Shakespeare Science"))
+
+    def test_alias_has_album_true_when_no_deezer_artist_to_check_against(self):
+        studio = LocalStudio()
+        self.assertTrue(studio.discography.alias_has_album("Some Unknown Act", "Anything"))
+
     def test_top_songs(self):
         studio = LocalStudio()
         top = studio.discography.top("Coldplay", 1)
@@ -303,6 +315,47 @@ class DiscographyTests(unittest.TestCase):
         self.assertNotIn("Not found on Galaxy", first["note"])
         self.assertEqual(len(calls), 1, "after one block Galaxy is not asked again for a while")
         self.assertIn("paused", second["note"])
+
+
+class V105SpotifyFallbackTests(unittest.TestCase):
+    """fork v105: spotDL's own Spotify search (v99) tried automatically for a wishlist song miss."""
+
+    def test_a_close_match_is_queued_through_more_sources(self):
+        studio = LocalStudio()
+        row = {"url": "https://youtu.be/x", "title": "Yellow", "artist": "Coldplay", "album": "Parachutes"}
+        studio.spotify = type("S", (), {"songs": staticmethod(lambda q: [row])})()
+        added = []
+        studio.moresources = type("M", (), {
+            "add": lambda self, rows, query="": added.append(rows) or {"queued": 1, "held": 0},
+            "_spotify_note": staticmethod(lambda rows, result: f"{result['queued']} queued with Spotify's tags")})()
+        source, note = studio.discography._spotify_song("Coldplay", "Yellow")
+        self.assertEqual(source, "Spotify")
+        self.assertEqual(added, [[row]])
+        self.assertIn("queued", note)
+
+    def test_a_distant_match_is_not_trusted(self):
+        studio = LocalStudio()
+        row = {"title": "Something Completely Different", "artist": "Nobody"}
+        studio.spotify = type("S", (), {"songs": staticmethod(lambda q: [row])})()
+
+        def boom(self, rows, query=""):
+            raise AssertionError("should not have queued a distant match")
+        studio.moresources = type("M", (), {"add": boom})()
+        self.assertIsNone(studio.discography._spotify_song("Coldplay", "Yellow"))
+
+    def test_no_spotify_or_moresources_attribute_is_a_quiet_miss(self):
+        studio = LocalStudio()
+        self.assertIsNone(studio.discography._spotify_song("Coldplay", "Yellow"))
+
+    def test_a_spotify_search_error_is_a_quiet_miss(self):
+        from tagcast.library import LibraryError
+        studio = LocalStudio()
+
+        def boom(q):
+            raise LibraryError("spotDL found nothing")
+        studio.spotify = type("S", (), {"songs": staticmethod(boom)})()
+        studio.moresources = type("M", (), {})()
+        self.assertIsNone(studio.discography._spotify_song("Coldplay", "Yellow"))
 
 
 if __name__ == "__main__":

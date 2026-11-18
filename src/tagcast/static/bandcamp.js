@@ -20,6 +20,16 @@ function bandcampHtml() {
     <div id="bandcamp-list">${bandcampListHtml()}</div>`;
 }
 
+// v105: what "Download discography" actually grabs - every not-"have" release when the Show
+// filter is "All", or only the releases that filter is currently showing otherwise. Shared with
+// the click handler below so the button's own count and what it queues never disagree.
+function bandcampTargetUrls(view) {
+  return view.releases.filter(u => {
+    const a = view.albums.get(u);
+    return a && a.tracks && a.status !== "have" && (view.filter === "all" || a.status === view.filter);
+  });
+}
+
 function bandcampListHtml() {
   const view = bandcampView;
   if (view.loading) return '<p class="muted">Reading the Bandcamp page…</p>';
@@ -28,12 +38,13 @@ function bandcampListHtml() {
   const counts = Object.keys(bandcampStatus).map(s => [s, loaded.filter(a => a.status === s).length]).filter(([, n]) => n);
   const waiting = view.releases.length - view.releases.filter(u => view.albums.has(u) && view.albums.get(u) !== "loading").length;
   const shown = view.releases.filter(u => view.filter === "all" || view.albums.get(u)?.status === view.filter || (view.filter === "new" && !view.albums.get(u)?.tracks));
-  const missing = loaded.filter(a => a.status !== "have");
+  const targets = bandcampTargetUrls(view);
+  const label = view.filter === "all" ? `⬇ Download discography (${targets.length} not complete)` : `⬇ Download shown (${targets.length})`;
   return `<div class="dl-actions"><strong>${view.releases.length} releases on ${escapeHtml(view.base.replace("https://", ""))}</strong>
       ${counts.map(([s, n]) => `<span class="dl-badge ${s === "new" ? "new" : s}">${n} ${bandcampStatus[s]}</span>`).join(" ")}
       ${waiting ? `<span class="muted">checking ${waiting} more…</span>` : ""}</div>
     <div class="dl-actions">
-      <button type="button" class="button primary" data-bandcamp-all ${missing.length ? "" : "disabled"}>⬇ Download discography (${missing.length} not complete)</button>
+      <button type="button" class="button primary" data-bandcamp-all ${targets.length ? "" : "disabled"}>${label}</button>
       <label>Show <select id="bandcamp-filter">${[["all", "All"], ["new", "Missing"], ["partly", "Partly"], ["downloaded", "Downloaded before"], ["have", "Have"]].map(([v, l]) =>
         `<option value="${v}" ${view.filter === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       <span class="muted">Songs you have wait in Needs your decision.</span></div>
@@ -121,7 +132,7 @@ document.addEventListener("click", event => {
   const song = target.closest("[data-bandcamp-song]");
   if (song) { downloadsRun(() => bandcampAdd([song.dataset.bandcampSong], [Number(song.dataset.num)])); return; }
   if (target.closest("[data-bandcamp-all]")) {
-    const urls = bandcampView.releases.filter(u => bandcampView.albums.get(u)?.tracks && bandcampView.albums.get(u).status !== "have");
+    const urls = bandcampTargetUrls(bandcampView);
     if (confirm(`Queue ${urls.length} releases? Songs you may already have wait in Needs your decision.`)) downloadsRun(() => bandcampAdd(urls));
   }
 });

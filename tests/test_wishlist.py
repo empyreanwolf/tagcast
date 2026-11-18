@@ -2,6 +2,7 @@
 
 import time
 import unittest
+from pathlib import Path
 
 from tagcast.library import LibraryError
 from tagcast.wishlist import Wishlist
@@ -51,6 +52,19 @@ class WishlistTests(unittest.TestCase):
         again = studio.wishlist.view()["items"][0]
         self.assertEqual((again["tries"], again["note"]), (2, "Not found on Galaxy, Bandcamp or Soulseek (Galaxy · query “Coldplay Unreleased Demo”: not found)"))
 
+    def test_spotdl_search_finds_a_song_the_other_sources_missed(self):
+        """fork v105: spotDL's own Spotify search is tried automatically before a song gives up."""
+        studio = LocalStudio()
+        item = studio.wishlist.add("song", "Coldplay", "Unreleased Demo")
+        row = {"url": "https://youtu.be/x", "title": "Unreleased Demo", "artist": "Coldplay", "album": ""}
+        studio.spotify = type("S", (), {"songs": staticmethod(lambda q: [row])})()
+        studio.moresources = type("M", (), {
+            "add": lambda self, rows, query="": {"queued": 1, "held": 0},
+            "_spotify_note": staticmethod(lambda rows, result: f"{result['queued']} queued with Spotify's tags")})()
+        view = (studio.wishlist.retry([item["id"]]), wait(studio.wishlist))[1]
+        self.assertEqual(view["items"], [])
+        self.assertEqual((view["found"][0]["title"], view["found"][0]["source"]), ("Unreleased Demo", "Spotify"))
+
     def test_something_you_have_now_waits_for_you(self):
         # Fork v95: a wish you meanwhile have is tagged, not searched, and leaves only when you confirm.
         studio = LocalStudio()
@@ -67,6 +81,26 @@ class WishlistTests(unittest.TestCase):
         view = studio.wishlist.keep([item_id])
         self.assertNotIn("owned", view["items"][0])
         self.assertEqual(studio.wishlist.check_library()["checked"], {"total": 0, "found": 0})
+
+    def test_an_album_already_in_the_music_folder_counts_as_owned(self):
+        # v105: iBroadcast may not have re-scanned a file yet (or never recorded it in history) -
+        # the Music folder itself is now also checked before an album is called missing.
+        studio = LocalStudio()
+        wish = studio.wishlist.add("album", "Braille", "Cloud Nineteen")
+        folder = Path(studio.folder) / "Braille" / "Cloud Nineteen"
+        folder.mkdir(parents=True)
+        (folder / "01 - Intro.mp3").write_bytes(b"x")
+        view = studio.wishlist.check_library()
+        self.assertEqual(view["checked"], {"total": 1, "found": 1})
+        item = next(i for i in view["items"] if i["id"] == wish["id"])
+        self.assertEqual((item["owned"]["sure"], item["owned"]["you_have"][0]["title"]), (True, "Cloud Nineteen"))
+
+    def test_a_song_with_no_known_album_is_not_guessed_from_the_folder(self):
+        # find_existing_by_title() needs a real album folder to look in - no album, no folder check.
+        studio = LocalStudio()
+        studio.wishlist.add("song", "Nobody Knows", "Some Song")
+        view = studio.wishlist.check_library()
+        self.assertEqual(view["checked"], {"total": 1, "found": 0})
 
     def test_check_my_library(self):
         studio = LocalStudio()
@@ -118,6 +152,7 @@ class V91SearchAsTests(unittest.TestCase):
         studio = LocalStudio()
         studio.discography.aliases = lambda name: []
         studio.discography.credited_as = lambda name, title: ""
+        studio.discography.alias_has_album = lambda name, title: True
         return studio
 
     def test_an_alias_is_tried_after_your_own_spelling(self):
@@ -128,6 +163,18 @@ class V91SearchAsTests(unittest.TestCase):
         view = (studio.wishlist.retry([item["id"]]), wait(studio.wishlist))[1]
         self.assertEqual(view["items"], [])
         self.assertIn("searched as “Poetic Death”", view["found"][0]["note"])
+
+    def test_an_alias_with_no_matching_deezer_album_is_skipped(self):
+        """fork v105: a MusicBrainz alias that isn't backed by the alias artist's own Deezer
+        catalog is a side-project or collaborator, not "the same person" - don't search under it."""
+        studio = self.make()
+        studio.discography.aliases = lambda name: ["Symbolyc One"]
+        studio.discography.alias_has_album = lambda name, title: False
+        item = studio.wishlist.add("album", "Jus Allah", "Shakespeare Science")
+        studio.gd.search_results[("netease_album", "Shakespeare Science", 1)] = [gd_song(61, "Hamlet", "Symbolyc One", "Shakespeare Science")]
+        view = (studio.wishlist.retry([item["id"]]), wait(studio.wishlist))[1]
+        self.assertEqual(view["found"], [])
+        self.assertEqual(view["items"][0]["tries"], 2)
 
     def test_a_credit_on_musicbrainz_becomes_a_one_click_suggestion(self):
         studio = self.make()
