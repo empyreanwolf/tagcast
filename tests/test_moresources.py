@@ -1,3 +1,5 @@
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -6,6 +8,17 @@ from test_discography import LocalStudio
 from tagcast.moresources import MoreError, MoreSources, chapters_from_description, site_of, split_title
 
 FIXTURE_MP3 = Path(__file__).parent / "fixtures" / "galaxy-silence.mp3"
+
+
+def wait_links(job, timeout=2.0):
+    """fork v107: add_links() returns a background job right away - wait for it to finish
+    reading before a test looks at job["results"]. The tests' mocked extract/search/info callables
+    do no real I/O, so this always resolves almost immediately."""
+    deadline = time.monotonic() + timeout
+    while job["state"] == "running" and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert job["state"] != "running", "add_links job did not finish in time"
+    return job
 
 
 def entry(title, uploader="Someone", url=None):
@@ -48,10 +61,40 @@ class MoreTests(unittest.TestCase):
     def test_links_report_each_line_and_number_album_tracks(self):
         album = [entry("One", url="https://audiomack.com/a/song/one"), entry("Two", url="https://audiomack.com/a/song/two")]
         studio = self.make(extract=lambda url: album if "album" in url else [])
-        out = studio.moresources.add_links("https://audiomack.com/a/album/x\nhttps://example.com/no\nhttps://soundcloud.com/a/empty")["results"]
+        out = wait_links(studio.moresources.add_links("https://audiomack.com/a/album/x\nhttps://example.com/no\nhttps://soundcloud.com/a/empty"))["results"]
         self.assertEqual([r["ok"] for r in out], [True, False, False])
         queued = [i["payload"] for i in studio.download_manager.state["queue"] if i.get("source") == "more"]
         self.assertEqual([(p["track_no"], p["track_total"]) for p in queued], [(1, 2), (2, 2)])
+
+    def test_links_run_in_the_background_and_each_error_names_its_own_line(self):
+        gate = threading.Event()  # fork v107: prove the call returns before the line is actually read
+
+        def extract(url):
+            gate.wait(2)
+            return [entry("One")] if "audiomack" in url else []
+
+        studio = self.make(extract=extract)
+        job = studio.moresources.add_links("https://audiomack.com/a/song/one\nhttps://example.com/not-a-site")
+        self.assertEqual(job["state"], "running")  # add_links returned before either line was read
+        self.assertEqual(studio.moresources.active_links()["jobs"][0]["id"], job["id"])
+        gate.set()
+        done = wait_links(job)
+        self.assertEqual(done["state"], "done")
+        self.assertEqual([(r["line"], r["ok"]) for r in done["results"]],
+                         [("https://audiomack.com/a/song/one", True), ("https://example.com/not-a-site", False)])
+        self.assertIn("Only youtube.com", done["results"][1]["note"])
+
+    def test_an_unexpected_error_on_one_line_still_names_that_line_and_does_not_crash_the_job(self):
+        def extract(url):
+            if "boom" in url:
+                raise RuntimeError("kaboom")
+            return [entry("One")]
+
+        studio = self.make(extract=extract)
+        done = wait_links(studio.moresources.add_links("https://soundcloud.com/a/boom\nhttps://soundcloud.com/a/fine"))
+        self.assertEqual(done["results"][0]["ok"], False)
+        self.assertEqual(done["results"][0]["line"], "https://soundcloud.com/a/boom")
+        self.assertEqual(done["results"][1]["ok"], True)
 
     def test_chart_rows_and_getting_them(self):
         collection = [{"track": {"title": "Jay - Hot One", "permalink_url": "https://soundcloud.com/j/hot", "user": {"username": "jay"}}},
@@ -74,11 +117,11 @@ class YouTubeLinkTests(unittest.TestCase):
                 {"id": "aaaaaaa2", "url": "aaaaaaa2", "title": "Two", "channel": "Kay - Topic"}]
         studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None, extract=lambda url: flat)
         studio.moresources.ensure_worker = lambda: None
-        out = studio.moresources.add_links("https://www.youtube.com/playlist?list=PL1")["results"]
+        out = wait_links(studio.moresources.add_links("https://www.youtube.com/playlist?list=PL1"))["results"]
         self.assertTrue(out[0]["choose"])
         self.assertEqual((out[0]["kind"], out[0]["count"], out[0]["has_song"]), ("playlist", 2, False))
         self.assertEqual(studio.download_manager.state["queue"], [])
-        out = studio.moresources.add_links("https://www.youtube.com/playlist?list=PL1", "list")["results"]
+        out = wait_links(studio.moresources.add_links("https://www.youtube.com/playlist?list=PL1", "list"))["results"]
         self.assertTrue(out[0]["ok"])
         q = [i["payload"] for i in studio.download_manager.state["queue"] if i.get("source") == "more"]
         self.assertEqual([(p["album"], p["album_artist"], p["track_no"], p["url"]) for p in q],
@@ -107,10 +150,10 @@ class V63LinkTests(unittest.TestCase):
                                                 "webpage_url": "https://www.youtube.com/watch?v=BXa5y6q8wHg"}]
         studio = self.make(extract)
         link = "https://www.youtube.com/watch?v=BXa5y6q8wHg&list=RDBXa5y6q8wHg&start_radio=1"
-        ask = studio.moresources.add_links(link)["results"][0]
+        ask = wait_links(studio.moresources.add_links(link))["results"][0]
         self.assertEqual((ask["choose"], ask["kind"], ask["count"], ask["has_song"]), (True, "mix", 5, True))
         self.assertEqual(self.queued(studio), [])
-        done = studio.moresources.add_links(link, "song")["results"][0]
+        done = wait_links(studio.moresources.add_links(link, "song"))["results"][0]
         self.assertTrue(done["ok"])
         self.assertEqual(seen[-1], "https://www.youtube.com/watch?v=BXa5y6q8wHg")
         q = self.queued(studio)
@@ -120,22 +163,22 @@ class V63LinkTests(unittest.TestCase):
     def test_a_whole_mix_is_singles_and_an_olak_album_is_one_album(self):
         mix = [{"id": f"v{i}xxxxxx", "title": f"Song {i}", "channel": f"Artist {i}", "playlist_title": "Mix - X"} for i in range(3)]
         studio = self.make(lambda url: mix)
-        studio.moresources.add_links("https://www.youtube.com/watch?v=abc&list=RDabc", "list")
+        wait_links(studio.moresources.add_links("https://www.youtube.com/watch?v=abc&list=RDabc", "list"))
         self.assertEqual({i["payload"]["album"] for i in self.queued(studio)}, {"Song 0", "Song 1", "Song 2"})
         album = [{"id": f"a{i}xxxxxx", "title": f"Track {i}", "playlist_title": "Album - Airport 2",
                   "playlist_uploader": "Moka Only - Topic"} for i in range(3)]
         studio = self.make(lambda url: album)
         link = "https://www.youtube.com/watch?v=OiogCwVUekQ&list=OLAK5uy_kgt9MyqHFUu4D2x_CN3ciVxc_fga47Vyo"
-        ask = studio.moresources.add_links(link)["results"][0]
+        ask = wait_links(studio.moresources.add_links(link))["results"][0]
         self.assertEqual((ask["kind"], ask["title"]), ("album", "Airport 2"))
-        studio.moresources.add_links(link, "list")
+        wait_links(studio.moresources.add_links(link, "list"))
         q = [i["payload"] for i in self.queued(studio)]
         self.assertEqual([(p["album"], p["album_artist"], p["track_no"]) for p in q],
                          [("Airport 2", "Moka Only", 1), ("Airport 2", "Moka Only", 2), ("Airport 2", "Moka Only", 3)])
 
     def test_an_unread_redirect_is_reported_not_downloaded(self):
         studio = self.make(lambda url: [{"_type": "url", "url": "https://www.youtube.com/playlist?list=OLAK5uy_x", "title": "Airport 2"}])
-        out = studio.moresources.add_links("https://www.youtube.com/watch?v=abc", "song")["results"][0]
+        out = wait_links(studio.moresources.add_links("https://www.youtube.com/watch?v=abc", "song"))["results"][0]
         self.assertFalse(out["ok"])
         self.assertIn("Couldn't read", out["note"])
         self.assertEqual(self.queued(studio), [])
@@ -193,20 +236,20 @@ class V105SplitAlbumVideoTests(unittest.TestCase):
         studio = self.make(info=lambda url: {"title": "Jay - Greatest Hits", "uploader": "Jay",
                                              "chapters": [{"title": "One", "start_time": 0, "end_time": 90},
                                                          {"title": "Two", "start_time": 90}]})
-        ask = studio.moresources.add_links("https://www.youtube.com/watch?v=aaaaaaaaaaa")["results"][0]
+        ask = wait_links(studio.moresources.add_links("https://www.youtube.com/watch?v=aaaaaaaaaaa"))["results"][0]
         self.assertEqual((ask["choose"], ask["kind"], ask["count"], ask["has_song"]), (True, "split", 2, True))
         self.assertEqual(self.queued(studio), [])
 
     def test_a_video_with_no_tracklist_is_not_offered_a_split(self):
         studio = self.make(info=lambda url: {"title": "Jay - One Song", "uploader": "Jay", "chapters": [], "description": "no timestamps here"})
-        out = studio.moresources.add_links("https://www.youtube.com/watch?v=bbbbbbbbbbb")["results"][0]
+        out = wait_links(studio.moresources.add_links("https://www.youtube.com/watch?v=bbbbbbbbbbb"))["results"][0]
         self.assertFalse(out.get("choose"))
 
     def test_clicking_split_queues_one_album_job_with_the_chapters(self):
         studio = self.make(info=lambda url: {"title": "Jay - Greatest Hits", "uploader": "Jay",
                                              "chapters": [{"title": "One", "start_time": 0, "end_time": 90},
                                                          {"title": "Two", "start_time": 90, "end_time": None}]})
-        out = studio.moresources.add_links("https://www.youtube.com/watch?v=aaaaaaaaaaa", "split")["results"][0]
+        out = wait_links(studio.moresources.add_links("https://www.youtube.com/watch?v=aaaaaaaaaaa", "split"))["results"][0]
         self.assertTrue(out["ok"])
         self.assertIn("Split into 2 tracks", out["note"])
         q = self.queued(studio)

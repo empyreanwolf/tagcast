@@ -40,12 +40,13 @@ function showDownloads(tab) {
 
 async function loadDownloads() {
   try {
-    const [info, queue, galaxy, finding] = await Promise.all([api("/api/downloads"), api("/api/downloads/queue"), api("/api/galaxy/status"), api("/api/discography/active")]);
+    const [info, queue, galaxy, finding, moreLinks] = await Promise.all([api("/api/downloads"), api("/api/downloads/queue"), api("/api/galaxy/status"), api("/api/discography/active"), api("/api/more/links/active")]);
     downloadsView.finding = finding.jobs;
     downloadsView.info = info; downloadsView.queue = queue.queue; downloadsView.held = queue.held; downloadsView.galaxy = galaxy;
     downloadsView.persistError = queue.persist_error || ""; downloadsView.stalled = queue.stalled || [];
     for (const id of [...downloadsView.picked]) if (!queue.held.some(h => h.id === id)) downloadsView.picked.delete(id);
     if (downloadsView.tab === "queue") await loadDownloadsHistory();
+    moreLinksPoll(moreLinks.jobs);
     renderDownloads();
     downloadsPoll();
   } catch (error) { downloadsError(error); }
@@ -53,9 +54,11 @@ async function loadDownloads() {
 
 // While songs download, refresh only the queue box and the Galaxy status line (never the
 // fields you are typing in), every 1.5 s, and only while the Downloads page is open.
+// v107: also keeps polling while a pasted/picked link is still being read in the background.
 function downloadsBusy() {
   return (downloadsView.queue || []).some(i => i.state === "active" || (i.state === "queued" && i.payload))
-    || (downloadsView.finding || []).some(f => f.state === "running");
+    || (downloadsView.finding || []).some(f => f.state === "running")
+    || Object.keys(moreView.linkJobs).length > 0;
 }
 
 function downloadsPoll() {
@@ -65,7 +68,7 @@ function downloadsPoll() {
     if (state.screen !== "downloads") return;
     try {
       const before = downloadsView.held?.length || 0;
-      const [queue, galaxy, finding, info] = await Promise.all([api("/api/downloads/queue"), api("/api/galaxy/status"), api("/api/discography/active"), api("/api/downloads")]);
+      const [queue, galaxy, finding, info, moreLinks] = await Promise.all([api("/api/downloads/queue"), api("/api/galaxy/status"), api("/api/discography/active"), api("/api/downloads"), api("/api/more/links/active")]);
       const waitingBefore = downloadsView.info?.genre_waiting || 0;
       if (info && downloadsView.info) downloadsView.info.genre_waiting = info.genre_waiting || 0;
       downloadsView.finding = finding.jobs;
@@ -73,6 +76,7 @@ function downloadsPoll() {
       downloadsView.queue = queue.queue; downloadsView.held = queue.held; downloadsView.galaxy = galaxy;
       downloadsView.persistError = queue.persist_error || ""; downloadsView.stalled = queue.stalled || [];
       if (queue.queue.filter(i => i.state === "failed").length > failed) artistCleanupAlarm();
+      moreLinksPoll(moreLinks.jobs);
       downloadsManagerRender();
       if ($("#galaxy-status")) $("#galaxy-status").innerHTML = galaxyStatusHtml();
       if (before !== queue.held.length || waitingBefore !== (downloadsView.info?.genre_waiting || 0)) $("#downloads-tabs").innerHTML = downloadsTabsHtml();

@@ -64,6 +64,11 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v107** **Reading a pasted link no longer blocks the page.** "Download links", and each "This
+  song"/"Whole album"/"Split into N tracks" choice, used to hold the whole Downloads page until
+  yt-dlp/Spotify/SoundCloud finished reading that link. Now the click returns at once and the
+  read runs in the background; the row shows **Reading…** until it resolves to Queued or Failed
+  (with that link's own error message), so a slow or large batch never freezes the rest of the page.
 - **v106** **Split a full-album YouTube video into tracks.** Pasting a plain YouTube video link (no
   playlist) that has a tracklist - either YouTube's own chapter markers, or a tracklist written in the
   description (same formats as `album-splitter`'s `tracks.txt`) - now offers a third choice alongside

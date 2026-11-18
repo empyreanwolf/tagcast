@@ -384,6 +384,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._run(lambda: self.studio.discography.status(query.get("id")))
         elif url.path == "/api/discography/active":
             self._run(self.studio.discography.active)
+        elif url.path == "/api/more/links/active":
+            self._run(self.studio.moresources.active_links)
         elif url.path == "/api/pagelist/status":
             self._run(lambda: self.studio.pagelist.view(query.get("id")))
         elif url.path == "/api/pagelist/get-status":

@@ -11340,21 +11340,40 @@ test("v99: a partly owned album's badge shows how many songs you already have", 
   assert.match(p.run('discographyBadge("have", {tracks: 10, you_have: [{tracks: 10}]})'), />Have</);
 });
 
-test("v99: a link pasted while Download links is still reading is not lost", async () => {
+test("v107: Download links returns right away and the page stays usable while it reads in the background", async () => {
   const p = page(); await settle();
-  p.run('$("#more-lines").value = "https://youtu.be/a"');
-  let resolveLinks, resolveQueue;
-  p.setFetch(url => url === "/api/more/links" ? new Promise(done => { resolveLinks = done; })
-    : new Promise(done => { resolveQueue = done; }));
-  const clicking = p.click({"[data-more]": {dataset: {more: "links"}}});
-  await settle(); await settle();
-  // the box isn't disabled while reading, so a new paste lands while the first request is in flight
+  p.run('state.screen = "downloads"; $("#more-lines").value = "https://youtu.be/a"');
+  p.setFetch(url => url === "/api/more/links" ? {ok: true, json: async () => ({id: "j1", state: "running", done: 0, total: 1, results: []})}
+    : {ok: true, json: async () => ({queue: [], held: [], jobs: []})});
+  await p.click({"[data-more]": {dataset: {more: "links"}}});
+  // the request came back at once (no "Reading…" block on the button), and the box isn't disabled,
+  // so a new paste lands while the job is still being read on the server
+  assert.doesNotMatch(p.run("moreLinksHtml()"), /disabled/);
   p.run('$("#more-lines").value = $("#more-lines").value + "\\nhttps://youtu.be/b"');
-  resolveLinks({ok: true, json: async () => ({results: [{line: "https://youtu.be/a", ok: true, note: "1 queued"}]})});
-  await settle();
-  resolveQueue({ok: true, json: async () => ({queue: []})});
-  await clicking;
+  assert.equal(Object.keys(p.run("moreView.linkJobs")).length, 1);
+  p.setFetch(url => url === "/api/more/links/active"
+    ? {ok: true, json: async () => ({jobs: [{id: "j1", state: "done", results: [{line: "https://youtu.be/a", ok: true, note: "1 queued"}]}]})}
+    : {ok: true, json: async () => ({queue: [], held: [], jobs: []})});
+  p.flushTimers(1500);
+  await settle(); await settle(); await settle();
   assert.equal(p.run("moreView.lines"), "https://youtu.be/b");
+  assert.equal(Object.keys(p.run("moreView.linkJobs")).length, 0);
+});
+
+test("v107: a Choose row shows Reading… right away, then resolves to its own result", async () => {
+  const p = page(); await settle();
+  p.run(`state.screen = "downloads";
+    moreView.linkResults = [{line: "https://www.youtube.com/watch?v=x", choose: true, kind: "split", count: 2, has_song: true, title: "Album"}]`);
+  p.setFetch(url => url === "/api/more/links" ? {ok: true, json: async () => ({id: "j2", state: "running", done: 0, total: 1, results: []})}
+    : {ok: true, json: async () => ({queue: [], held: [], jobs: []})});
+  await p.click({"[data-more-pick]": {dataset: {morePick: "split", index: "0"}}});
+  assert.match(p.run("moreLinksResultsHtml()"), /Reading…/);
+  p.setFetch(url => url === "/api/more/links/active"
+    ? {ok: true, json: async () => ({jobs: [{id: "j2", state: "done", results: [{line: "https://www.youtube.com/watch?v=x", ok: true, note: "Split into 2 tracks queued"}]}]})}
+    : {ok: true, json: async () => ({queue: [], held: [], jobs: []})});
+  p.flushTimers(1500);
+  await settle(); await settle(); await settle();
+  assert.match(p.run("moreLinksResultsHtml()"), /Split into 2 tracks queued/);
 });
 
 test("v72: Missing rows copy title, artist, album or all", async () => {

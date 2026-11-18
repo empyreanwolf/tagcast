@@ -2,7 +2,7 @@
 
 // More sources (fork v60): one search bar for SoundCloud, plus a box for YouTube (v61), SoundCloud and Audiomack links.
 // Audiomack and mixtape sites have no search Tagcast can use, so their links are pasted instead.
-const moreView = {query: "", lines: "", results: null, queued: new Set(), linkResults: null, busy: false, linkBusy: false, error: ""};
+const moreView = {query: "", lines: "", results: null, queued: new Set(), linkResults: null, busy: false, error: "", linkJobs: {}};
 
 function moreHtml() {
   const v = moreView;
@@ -79,16 +79,27 @@ document.addEventListener("click", async event => {
 // The shared link box (v61): YouTube, SoundCloud and Audiomack links and playlists. Shown on this tab and the YouTube tab.
 function moreLinksHtml() {
   const v = moreView;
+  // v107: reading happens in the background now - the button never blocks the page waiting for it.
+  // The results list lives in its own #more-links-results box so a poll tick can refresh just that
+  // (moreLinksPoll below) without touching the textarea and losing whatever you're typing into it.
   return `<h3>Paste links</h3>
     <p class="muted">YouTube, Spotify, SoundCloud or Audiomack links, one per line: a song, an album, a set or a playlist. A playlist downloads every song as one album (album = playlist name, tracks in order). Spotify links get Spotify's own tags and cover (through spotDL).</p>
     <textarea id="more-lines" class="dl-lines" rows="4" maxlength="20000" aria-label="YouTube, Spotify, SoundCloud or Audiomack links" placeholder="https://www.youtube.com/playlist?list=…">${escapeHtml(v.lines)}</textarea>
-    <div class="dl-actions"><button type="button" class="button primary" data-more="links" ${v.linkBusy ? "disabled" : ""}>${v.linkBusy ? "Reading…" : "⬇ Download links"}</button></div>
-    ${v.linkResults ? `<ul class="dl-list dl-nofold">${v.linkResults.map((r, i) => r.choose ? `<li><span class="dl-badge partly">Choose</span>
-      <div><b>${escapeHtml(r.title || r.line)}</b><div class="muted">${escapeHtml(r.line)}</div></div>
-      <span class="dl-row-actions">${r.has_song ? `<button type="button" class="button" data-more-pick="song" data-index="${i}">⬇ This song</button>` : ""}
-      <button type="button" class="button primary" data-more-pick="${r.kind === "split" ? "split" : "list"}" data-index="${i}">⬇ ${moreListLabel(r)}</button></span></li>`
-      : `<li><span class="dl-badge ${r.ok ? "have" : "partly"}">${r.ok ? "Queued" : "Failed"}</span>
-      <div><b>${escapeHtml(r.line)}</b><div class="dl-have">${escapeHtml(r.note)}</div></div></li>`).join("")}</ul>` : ""}`;
+    <div class="dl-actions"><button type="button" class="button primary" data-more="links">⬇ Download links</button></div>
+    <div id="more-links-results">${moreLinksResultsHtml()}</div>`;
+}
+
+function moreLinksResultsHtml() {
+  const v = moreView;
+  if (!v.linkResults) return "";
+  return `<ul class="dl-list dl-nofold">${v.linkResults.map((r, i) => r.reading ? `<li><span class="dl-badge partly">Reading…</span>
+    <div><b>${escapeHtml(r.line)}</b></div></li>`
+    : r.choose ? `<li><span class="dl-badge partly">Choose</span>
+    <div><b>${escapeHtml(r.title || r.line)}</b><div class="muted">${escapeHtml(r.line)}</div></div>
+    <span class="dl-row-actions">${r.has_song ? `<button type="button" class="button" data-more-pick="song" data-index="${i}">⬇ This song</button>` : ""}
+    <button type="button" class="button primary" data-more-pick="${r.kind === "split" ? "split" : "list"}" data-index="${i}">⬇ ${moreListLabel(r)}</button></span></li>`
+    : `<li><span class="dl-badge ${r.ok ? "have" : "partly"}">${r.ok ? "Queued" : "Failed"}</span>
+    <div><b>${escapeHtml(r.line)}</b><div class="dl-have">${escapeHtml(r.note)}</div></div></li>`).join("")}</ul>`;
 }
 
 // v63: a YouTube link with a list waits for a click: only that song, or the whole album, playlist or Mix.
@@ -99,16 +110,66 @@ function moreListLabel(r) {
   return `${what} (${r.count} ${r.count === 1 ? "song" : "songs"})`;
 }
 
-async function moreLinks(lines, mode = "") {
+// v107: reading links used to block the whole page until every line was read. Now the request
+// returns a job right away (id, state, results-so-far) and the background poll loop
+// (moreLinksPoll, called from downloadsPoll/loadDownloads) follows it to completion - so pasting
+// a big batch, or clicking "Split into N tracks" on a slow video, no longer freezes the page.
+async function moreStartLinks(lines) {
   const v = moreView;
-  v.linkBusy = true; renderDownloads();
-  let results = [];
   try {
-    results = (await api("/api/more/links", {lines, mode})).results;
-    downloadsView.queue = (await api("/api/downloads/queue")).queue;
-  } catch (error) { setActionStatus("#downloads-status", error.message || String(error)); }
-  v.linkBusy = false;
-  return results;
+    const job = await api("/api/more/links", {lines, mode: ""});
+    v.linkJobs[job.id] = {kind: "links", submitted: lines};
+    v.linkResults = job.results;
+  } catch (error) { setActionStatus("#downloads-status", error.message || String(error)); return; }
+  downloadsPoll();
+  renderDownloads();
+}
+
+async function moreStartPick(index, mode) {
+  const v = moreView;
+  const row = v.linkResults?.[index];
+  if (!row) return;
+  try {
+    const job = await api("/api/more/links", {lines: row.line, mode});
+    v.linkJobs[job.id] = {kind: "pick", index};
+    v.linkResults[index] = {...row, reading: true};
+  } catch (error) { setActionStatus("#downloads-status", error.message || String(error)); return; }
+  downloadsPoll();
+  if ($("#more-links-results")) $("#more-links-results").innerHTML = moreLinksResultsHtml(); else renderDownloads();
+}
+
+// v107: called every poll tick with the current /api/more/links/active jobs - finishes off
+// whichever of moreView's own jobs have moved past "running" and drops them once applied.
+function moreLinksPoll(jobs) {
+  const v = moreView;
+  if (!Object.keys(v.linkJobs).length) return;
+  let rowsChanged = false, linesChanged = false;
+  for (const job of jobs || []) {
+    const meta = v.linkJobs[job.id];
+    if (!meta) continue;
+    if (meta.kind === "links") { v.linkResults = job.results || []; rowsChanged = true; }
+    else if (meta.kind === "pick" && v.linkResults?.[meta.index] !== undefined && job.results?.length) {
+      v.linkResults[meta.index] = job.results[0]; rowsChanged = true;
+    }
+    if (job.state === "running") continue;  // show the rows resolved so far; keep tracking this job
+    if (meta.kind === "links") {
+      const submitted = meta.submitted, after = $("#more-lines")?.value || "";
+      // v99: a line pasted in while this read was in flight must not be lost - the box isn't
+      // disabled while reading, so keep anything appended to the end since we started.
+      const added = after.startsWith(submitted) ? after.slice(submitted.length).replace(/^\s+/, "") : "";
+      const kept = dropQueuedLines(submitted, v.linkResults);  // v72: queued links leave the box, failed ones stay
+      v.lines = added ? (kept ? `${kept}\n${added}` : added) : kept;
+      linesChanged = true;
+    } else if (meta.kind === "pick" && v.linkResults[meta.index]?.ok) {
+      v.lines = dropQueuedLines(v.lines, [v.linkResults[meta.index]]);
+      linesChanged = true;
+    }
+    delete v.linkJobs[job.id];
+  }
+  // A line queued just now must disappear from the textarea too, so only that needs the full
+  // re-render; otherwise just refresh the results list (never the textarea you may be typing in).
+  if (linesChanged) renderDownloads();
+  else if (rowsChanged && $("#more-links-results")) $("#more-links-results").innerHTML = moreLinksResultsHtml();
 }
 
 async function moreQueue(indexes) {
@@ -140,26 +201,13 @@ document.addEventListener("click", async event => {
   const v = moreView, action = button.dataset.more;
   if (action === "get") await moreQueue([Number(button.dataset.index)]);
   else if (action === "get-all") await moreQueue(v.results.map((r, i) => i).filter(i => v.results[i].status !== "have" && !v.queued.has(i)));
-  else if (action === "links") {
-    const submitted = $("#more-lines")?.value || "";
-    v.linkResults = await moreLinks(submitted);
-    // v99: a line pasted in while this read was in flight must not be lost - the box isn't
-    // disabled while reading, so keep anything appended to the end since we started.
-    const after = $("#more-lines")?.value || "";
-    const added = after.startsWith(submitted) ? after.slice(submitted.length).replace(/^\s+/, "") : "";
-    const kept = dropQueuedLines(submitted, v.linkResults);  // v72: queued links leave the box, failed ones stay
-    v.lines = added ? (kept ? `${kept}\n${added}` : added) : kept;
-    renderDownloads();
-  }
+  else if (action === "links") await moreStartLinks($("#more-lines")?.value || "");
 });
 
 document.addEventListener("click", async event => {
   const pick = event.target.closest?.("[data-more-pick]");
   if (!pick) return;
-  const v = moreView, i = Number(pick.dataset.index), row = v.linkResults?.[i];
-  if (!row || v.linkBusy) return;
-  const [result] = await moreLinks(row.line, pick.dataset.morePick);
-  if (result) v.linkResults[i] = result;
-  if (result?.ok) v.lines = dropQueuedLines(v.lines, [result]);
-  renderDownloads();
+  const i = Number(pick.dataset.index);
+  if (!moreView.linkResults?.[i] || moreView.linkResults[i].reading) return;
+  await moreStartPick(i, pick.dataset.morePick);
 });

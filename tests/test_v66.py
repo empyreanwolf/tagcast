@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from test_discography import LocalStudio
+from test_moresources import wait_links
 from tagcast import updates
 from tagcast.downloads import album_base_key
 from tagcast.galaxy import album_candidates
@@ -111,7 +112,7 @@ class SpotifyTests(unittest.TestCase):
         studio.spotify = SpotDL(studio, runner=lambda link: SONGS)
         studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None)
         studio.moresources.ensure_worker = lambda: None
-        out = studio.moresources.add_links("https://open.spotify.com/album/4aawyAB9vmqN3uQ7FjRGTy")["results"][0]
+        out = wait_links(studio.moresources.add_links("https://open.spotify.com/album/4aawyAB9vmqN3uQ7FjRGTy"))["results"][0]
         self.assertTrue(out["ok"])
         q = [i for i in studio.download_manager.state["queue"] if i.get("source") == "more"]
         self.assertEqual([(i["payload"]["site"], i["payload"]["album"], i["payload"]["track_no"], i["payload"]["artists"]) for i in q],

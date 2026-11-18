@@ -20,7 +20,9 @@
 import logging
 import os
 import re
+import secrets
 import subprocess
+import threading
 import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -169,6 +171,8 @@ class MoreSources(YtdlpWorker):
         self._fetch_audio = fetch_audio or self._yt_fetch
         self._info = info or self._yt_full_info  # fork v105: a single video's full info (chapters, description)
         self.on_failed = None  # fork v96: set by Discography: a Spotify song yt-dlp cannot serve tries other sources
+        self.link_jobs = {}  # fork v107: pasted/picked links are read in the background, not on the request thread
+        self._link_lock = threading.Lock()
         super().__init__(studio, None)
 
     def process(self, job):
@@ -485,19 +489,43 @@ class MoreSources(YtdlpWorker):
         v63: a YouTube link with a list (``watch?v=…&list=…`` or ``playlist?list=…``) is not queued until
         you choose: ``mode="song"`` takes only that video, ``mode="list"`` the whole list. An album
         (``OLAK5uy_``) or playlist is tagged as one album (its name, tracks in order); a Mix (``RD…``,
-        YouTube's endless radio) as separate singles."""
-        out = []
-        for url in [u for u in re.findall(r"https?://\S+", str(text or ""))][:20]:
+        YouTube's endless radio) as separate singles.
+
+        fork v107: reading each link (yt-dlp/Spotify/SoundCloud) can be slow, and this used to hold the
+        request - and the whole page - until every line was read. Now it returns right away with a job;
+        the reading runs in a background thread and active_links() reports its progress and results,
+        same pattern as Discography's "Get the missing ones" jobs."""
+        urls = [u for u in re.findall(r"https?://\S+", str(text or ""))][:20]
+        if not urls:
+            raise MoreError("Paste at least one YouTube, Spotify, SoundCloud or Audiomack link.")
+        job = {"id": secrets.token_hex(6), "state": "running", "done": 0, "total": len(urls), "results": []}
+        with self._link_lock:
+            self.link_jobs = {k: v for k, v in self.link_jobs.items() if v["state"] == "running"} | {job["id"]: job}
+        threading.Thread(target=self._run_links, args=(job, urls, mode), daemon=True, name="more-links").start()
+        return job
+
+    def _run_links(self, job, urls, mode):
+        for url in urls:
             site = site_of(url)
             try:
                 if not site:
                     raise MoreError("Only youtube.com, youtu.be, open.spotify.com, soundcloud.com and audiomack.com links work here.")
-                out.append(self._add_link(url, site, mode))
+                result = self._add_link(url, site, mode)
             except LibraryError as error:
-                out.append({"line": url, "ok": False, "note": str(error)})
-        if not out:
-            raise MoreError("Paste at least one YouTube, Spotify, SoundCloud or Audiomack link.")
-        return {"results": out}
+                result = {"line": url, "ok": False, "note": str(error)}
+            except Exception as error:  # noqa: BLE001 - one bad link should never sink the whole job
+                log.exception("Reading %s failed", url)
+                result = {"line": url, "ok": False, "note": plain_error(str(error)) or "Something went wrong reading this link."}
+            with self._link_lock:
+                job["results"].append(result)
+                job["done"] += 1
+        with self._link_lock:
+            job["state"] = "done"
+
+    def active_links(self):
+        """Every link-reading job in flight or just finished, for the Downloads queue page (v107)."""
+        with self._link_lock:
+            return {"jobs": [dict(j) for j in self.link_jobs.values()]}
 
     def spotify_search(self, query):
         """v99: search Spotify by name instead of pasting a link - spotDL finds the closest
