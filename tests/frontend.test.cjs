@@ -10744,11 +10744,20 @@ test("a genre lists each album artist once with its albums and songs", async () 
   assert.match(p.run(`browseArtistCard({name: "Afterjourney", albums: 2, tracks: 13, image: ""})`), /2 albums[\s\S]*13 songs/);
 });
 
-test("a failed download offers one-click copy of artist, album and title", async () => {
+test("fork v103: a failed single offers one-click copy of artist & title, not artist & album", async () => {
   const p = page(); await settle();
   p.run('downloadsView.queue = [{id: "1", state: "failed", title: "暫時", artist: "MC仁", album: "自行判斷", kind: "song", source: "galaxy", payload: {}}]');
   const html = p.run("downloadsQueueBoxHtml()");
-  for (const word of ["MC仁", "自行判斷", "暫時"]) assert.match(html, new RegExp(`data-dl-copy="${word}"`));
+  assert.match(html, /data-dl-copy="MC仁 暫時"[^>]*>Copy artist &amp; title/);
+  assert.doesNotMatch(html, /Copy artist &amp; album/);
+});
+
+test("fork v103: a failed album offers one-click copy of artist & album, not artist & title", async () => {
+  const p = page(); await settle();
+  p.run('downloadsView.queue = [{id: "2", state: "failed", title: "Rise Of Babel", artist: "派克特 PACT", album: "Rise Of Babel", kind: "album", source: "galaxy", payload: {}}]');
+  const html = p.run("downloadsQueueBoxHtml()");
+  assert.match(html, /data-dl-copy="派克特 PACT Rise Of Babel"[^>]*>Copy artist &amp; album/);
+  assert.doesNotMatch(html, /Copy artist &amp; title/);
 });
 
 test("an artist created in a credit is offered in the artist list right after saving", async () => {

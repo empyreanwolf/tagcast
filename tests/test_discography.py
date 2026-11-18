@@ -206,6 +206,21 @@ class DiscographyTests(unittest.TestCase):
         sources = {i["title"]: i["source"] for i in studio.download_manager.state["queue"]}
         self.assertEqual(sources, {"Magic": "bandcamp", "Ink": "bandcamp", "Square One": "galaxy"})
 
+    def test_get_missing_leaves_out_instrumental_and_backing_track_bonuses(self):
+        # v103: an automatic "Get missing album" used to grab every track GD Studio listed,
+        # bonus 伴奏/instrumental versions included - the manual "Download album" button already
+        # left these out (galaxyWanted() in galaxy.js); now this path does too.
+        studio = LocalStudio()
+        studio.gd.search_results[("netease_album", "烽烟四起", 1)] = [
+            gd_song(31, "烽烟四起", "胡彦斌", "烽烟四起"),
+            gd_song(32, "烽烟四起 (伴奏)", "胡彦斌", "烽烟四起"),
+            gd_song(33, "对月 (和声伴奏)", "胡彦斌", "烽烟四起"),
+        ]
+        job = studio.discography.get("胡彦斌", albums=[{"title": "烽烟四起", "status": "missing"}])
+        wait_job(studio.discography, job)
+        titles = {i["title"] for i in studio.download_manager.state["queue"]}
+        self.assertEqual(titles, {"烽烟四起"})
+
     def test_galaxy_tries_the_other_open_source(self):
         # v32: netease has nothing for the album, joox does.
         studio = LocalStudio()

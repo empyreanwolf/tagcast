@@ -257,10 +257,8 @@ function downloadsQueueBoxHtml() {
       <button type="button" class="button small" data-galaxy-control="${g?.paused ? "resume" : "pause"}">${g?.paused ? "▶ Resume" : "⏸ Pause"}</button>
       <button type="button" class="button small" data-galaxy-control="cancel" ${g?.active ? "" : "disabled"}>⏹ Cancel current</button>
       <button type="button" class="button small" data-galaxy-control="retry" ${count("failed") ? "" : "disabled"}>Retry failed (${count("failed")})</button>
-      <button type="button" class="button small" data-galaxy-control="clear_done" ${doneTotal ? "" : "disabled"}>Clear done</button>
       <button type="button" class="button small" data-galaxy-control="clear_waiting" ${count("queued") ? "" : "disabled"}>Clear waiting</button>
       <button type="button" class="button small" data-galaxy-control="clear_failed" ${count("failed") ? "" : "disabled"}>Clear failed</button>
-      <button type="button" class="button small" data-galaxy-control="clear_skipped" ${count("skipped") ? "" : "disabled"}>Clear skipped</button>
       <button type="button" class="button small" data-activity-open data-activity-cat="downloads" title="Every queue step, with why it failed">Activity log</button></div>
     <p class="muted" role="status">${galaxyStatusHtml()}</p>
     ${queuedTotal + doneTotal ? `<div class="dl-overall"><span>Overall: ${doneTotal} of ${queuedTotal + doneTotal} saved</span><progress max="100" value="${overall}" aria-label="Overall progress"></progress></div>` : ""}
@@ -272,10 +270,9 @@ function downloadsQueueBoxHtml() {
         <div class="muted">${escapeHtml(downloadsSourceName(i))}${downloadsOriginHtml(i)}${i.state === "done" ? ` · ${escapeHtml(i.path || "")}` : ""}${i.note && i.state !== "done" ? ` · ${escapeHtml(i.note)}` : i.state === "done" && i.note && i.note !== "Saved" ? ` · ${escapeHtml(i.note)}` : ""}</div></div>
       <div class="dl-row-actions">
         ${i.state === "failed" ? `<button type="button" class="button small" data-galaxy-control="retry" data-id="${escapeHtml(i.id)}">Retry</button>` : ""}
-        ${i.state === "failed" ? `<span class="dl-copy" role="group" aria-label="Copy for a manual search">
-          ${i.artist ? `<button type="button" class="button small" data-dl-copy="${escapeHtml(i.artist)}" title="Copy the artist name">Copy artist</button>` : ""}
-          ${i.album ? `<button type="button" class="button small" data-dl-copy="${escapeHtml(i.album)}" title="Copy the album name">Copy album</button>` : ""}
-          <button type="button" class="button small" data-dl-copy="${escapeHtml(i.title)}" title="Copy the song or album title">Copy title</button></span>` : ""}
+        ${i.state === "failed" ? (i.kind === "album"
+          ? (i.artist && i.album ? `<button type="button" class="button small" data-dl-copy="${escapeHtml(`${i.artist} ${i.album}`)}" title="Copy artist and album, to search for it yourself">Copy artist &amp; album</button>` : "")
+          : (i.artist ? `<button type="button" class="button small" data-dl-copy="${escapeHtml(`${i.artist} ${i.title}`)}" title="Copy artist and title, to search for it yourself">Copy artist &amp; title</button>` : "")) : ""}
         ${i.state === "failed" && i.kind !== "album" && i.source !== "youtube" ? `<button type="button" class="button small" data-dl-try-youtube="${escapeHtml(i.id)}" title="Look this song up on YouTube instead">⬇ Try YouTube</button>` : ""}
         ${i.state === "failed" && i.youtube_near?.id ? `<button type="button" class="button small" data-dl-use-near="${escapeHtml(i.id)}" title="${escapeHtml(i.youtube_near.title)}">⬇ Use this one</button>` : ""}
         ${i.state === "failed" && i.short_seconds ? `<button type="button" class="button small" data-galaxy-control="allow_short" data-id="${escapeHtml(i.id)}" title="It is a real ${escapeHtml(String(i.short_seconds))}-second track (an intro or skit): download it again and keep it">Keep it (short track)</button>` : ""}

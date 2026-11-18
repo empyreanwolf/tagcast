@@ -38,6 +38,18 @@ from .sources import PACING, Http, SourceError
 log = logging.getLogger("tagcast")
 NOT_FOUND = "Not found on Galaxy, Bandcamp, SoundCloud or Soulseek"
 GALAXY_PAUSE = 600.0   # after GD Studio blocks a request, Galaxy is skipped this long (fork v54)
+
+# fork v103: same word list as static/galaxy.js's galaxyInstrumentalWords - a bonus instrumental,
+# backing-track or karaoke version bundled into an otherwise ordinary album/single. The manual
+# "Download album" button in the browser already leaves these out (galaxyWanted() in galaxy.js);
+# this is the same thing for the automatic "Get missing album" path, which had no such check at all.
+INSTRUMENTAL_WORDS = re.compile(
+    r"strumental|karaoke|off[\s-]?vocal|backing[\s-]?track|伴奏|纯音乐|純音樂|无人声|無人聲|消音|卡拉\s?ok", re.I)
+
+
+def _not_instrumental(tracks):
+    kept = [t for t in tracks if not INSTRUMENTAL_WORDS.search(str(t.get("title") or ""))]
+    return kept or tracks  # never leave nothing to download because every title happened to match
 _galaxy_block = {"until": 0.0}
 CACHE_FILE = "discography_cache.json"
 CACHE_DAYS = 7
@@ -880,7 +892,8 @@ class Discography:
                     if data.get("found"):
                         # Saved under your own spelling of the artist, so it lands next to what you have (v70).
                         artist = name if spelling != name else data["album_artist"]
-                        return "Galaxy", self._summary(galaxy.add(data["tracks"], artist, len(data["tracks"]), album=True))
+                        tracks = _not_instrumental(data["tracks"])
+                        return "Galaxy", self._summary(galaxy.add(tracks, artist, len(tracks), album=True))
             # The album search found nothing: the title may be a song (a single, or an album that
             # shares its name with its first song), listed under another album name on Galaxy.
             best = find_song(galaxy.api, self._galaxy_sources(), name, title, deep=True)
@@ -889,7 +902,8 @@ class Discography:
                 if own and sim(own, title) < 0.9:   # the song's own album may be the whole thing
                     data = galaxy.album(own, name, best["source"])
                     if data.get("found"):
-                        return "Galaxy", self._summary(galaxy.add(data["tracks"], data["album_artist"], len(data["tracks"]), album=True)) + f" (album “{own}”)"
+                        tracks = _not_instrumental(data["tracks"])
+                        return "Galaxy", self._summary(galaxy.add(tracks, data["album_artist"], len(tracks), album=True)) + f" (album “{own}”)"
                 return "Galaxy", self._summary(galaxy.add([best])) + " (found by song title)"
         except GalaxyBlocked as error:
             _galaxy_block["until"] = time.time() + GALAXY_PAUSE

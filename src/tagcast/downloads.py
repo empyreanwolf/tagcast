@@ -633,7 +633,15 @@ class Downloads:
     def queue_view(self):
         self._watchdog()
         with self.lock:
-            return {"queue": [dict(i) for i in self.state["queue"][-1000:]], "held": list(self.state["held"]),
+            # v103: "done" is already in history (record(), called separately) and "skipped" never
+            # needed a second look either way - neither needs a "Clear …" button, so neither is shown.
+            # Swept out of the stored queue here too (not the instant each one finishes), so nothing
+            # that reads an item back right after finishing it - a retry, a test - loses it underfoot.
+            kept = [i for i in self.state["queue"] if i.get("state") not in ("done", "skipped")]
+            if len(kept) != len(self.state["queue"]):
+                self.state["queue"] = kept
+                self._persist()
+            return {"queue": [dict(i) for i in kept[-1000:]], "held": list(self.state["held"]),
                     "persist_error": self.persist_error,
                     "stalled": sorted(self._stalled_sources())}
 
@@ -857,8 +865,10 @@ class Downloads:
             self.wake_workers()
         elif action == "top":
             self.move_to_top(ids)
-        elif action in ("clear_done", "clear_failed", "clear_waiting", "clear_skipped"):
-            state = {"clear_done": "done", "clear_failed": "failed", "clear_waiting": "queued", "clear_skipped": "skipped"}[action]
+        elif action in ("clear_failed", "clear_waiting"):
+            # v103: "done" and "skipped" items never linger in the queue at all now - see update_item()
+            # and decide() - so there's nothing left for "clear_done"/"clear_skipped" to do.
+            state = {"clear_failed": "failed", "clear_waiting": "queued"}[action]
             with self.lock:
                 self.state["queue"] = [i for i in self.state["queue"] if i.get("state") != state or i["id"] in active]
                 self._persist()

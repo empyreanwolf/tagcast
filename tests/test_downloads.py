@@ -199,11 +199,27 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(view["held"], [])
         states = {i["title"]: (i["state"], i.get("allow_duplicate")) for i in view["queue"]}
         self.assertEqual(states["Yellow"], ("queued", True))
-        self.assertEqual(states["Blind"], ("skipped", None))
+        # v103: a skip needs no decision from you afterward - it's never shown in the queue at all.
+        self.assertNotIn("Blind", states)
         with self.assertRaises(LibraryError):
             self.manager.decide([held[0]["id"]], "skip")  # already decided
         with self.assertRaises(LibraryError):
             self.manager.decide([held[0]["id"]], "maybe")
+
+    def test_skipped_and_done_items_disappear_from_the_queue_view_but_not_from_raw_state(self):
+        # v103: no "Clear done"/"Clear skipped" button needed - both auto-clear from what the
+        # page shows; a done item is already in history() too, which is unaffected.
+        self.manager.submit([song("Coldplay", "Yellow"), song("Company Flow", "Blind")])
+        held = {h["title"]: h["id"] for h in self.manager.queue_view()["held"]}
+        self.manager.decide([held["Yellow"]], "download")
+        self.manager.decide([held["Blind"]], "skip")
+        yellow_id = next(i["id"] for i in self.manager.state["queue"] if i["title"] == "Yellow")
+        self.manager.update_item(yellow_id, persist=True, state="done", note="Saved")
+        # still there right after finishing, for anything (a retry, a test) that reads it back at once
+        self.assertEqual({i["title"]: i["state"] for i in self.manager.state["queue"]},
+                         {"Yellow": "done", "Blind": "skipped"})
+        # the next time the page actually asks for the queue, though, neither is in it
+        self.assertEqual(self.manager.queue_view()["queue"], [])
 
     def test_state_survives_a_restart(self):
         self.manager.submit([song("Coldplay", "Yellow")])
