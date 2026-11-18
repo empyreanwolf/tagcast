@@ -37,6 +37,13 @@ def start(operation):
 
 
 class TokenRefreshTests(unittest.TestCase):
+    def setUp(self):
+        # fork v108: since v80 streams go through a kept-alive requests.Session, not requests.get -
+        # without this the "mocked" stream calls below went out to the real iBroadcast server.
+        stream = patch.object(client, "_stream_session", lambda: client.requests)
+        stream.start()
+        self.addCleanup(stream.stop)
+
     def transport(self, expired=False, callback=None):
         original = tokens(expired=expired)
         transport = client.StudioClient(access_token=original.access_token,

@@ -64,6 +64,16 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v108** **Bug sweep: whole test suite green, no test touches the network.** Fixes: a full-album
+  video opened from a Mix/playlist link (URL with `&list=`) now also offers **Split into N tracks**;
+  split album names lose "(Full Album Stream)" / "[Full Album]" / "| FULL ALBUM", and track names lose
+  leading numbers ("01. ") and the artist's own name ("Artist - Song"); a description tracklist that
+  lists each song's length ("Song - 3:45") is added up into start times instead of being scrambled;
+  "[00:00] Song" timestamps are read; a link-reading job that finished between two refreshes no
+  longer vanishes (it kept the page polling forever), and a job lost to a restart shows as Failed;
+  an empty Spotify answer for a wishlist song is a miss, not a crash. Tests: the 6 long-standing
+  failures were stale tests (fixed), and 4 tests that quietly called real sites (iBroadcast, YouTube,
+  GD Studio lyrics) are now fully mocked.
 - **v107** **Reading a pasted link no longer blocks the page.** "Download links", and each "This
   song"/"Whole album"/"Split into N tracks" choice, used to hold the whole Downloads page until
   yt-dlp/Spotify/SoundCloud finished reading that link. Now the click returns at once and the

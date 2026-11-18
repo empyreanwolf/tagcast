@@ -38,7 +38,7 @@ log = logging.getLogger("tagcast")
 # fork v105: a track line in a "full album" video's description - "[hh:]mm:ss - Title",
 # "Title - [hh:]mm:ss" or "Title [hh:]mm:ss", the same formats album-splitter's tracks.txt takes.
 _TRACK_TS = r"(\d{1,2}(?::\d{2}){1,2})"
-_TS_FIRST = re.compile(rf"^{_TRACK_TS}\s*[-–—:.]?\s*(.+)$")
+_TS_FIRST = re.compile(rf"^[\[\(]?{_TRACK_TS}[\]\)]?\s*[-–—:.]?\s*(.+)$")  # v108: "[00:00] Song" too
 _TS_LAST = re.compile(rf"^(.+?)\s*[-–—:]\s*{_TRACK_TS}$")
 _TS_TRAIL = re.compile(rf"^(.+?)\s+{_TRACK_TS}$")
 SEARCH_RESULTS = 20
@@ -111,6 +111,28 @@ def _parse_timestamp(text):
     return h * 3600 + m * 60 + s
 
 
+_FULL_ALBUM = re.compile(r"(?i)\s*(?:[\(\[]\s*(?:full\s+(?:album|ep|lp)|album\s+stream)[^\)\]]*[\)\]]"
+                         r"|\s[|/~-]\s*full\s+(?:album|ep|lp)\b.*$|\s+full\s+(?:album|ep|lp)\s*$)")
+_TRACK_NO = re.compile(r"^\s*\d{1,2}\s*(?:[.)-](?=\s)|\))\s*")
+
+
+def split_album_name(album):
+    """fork v108: "Album (Full Album Stream)", "Album [Full Album]", "Album | FULL ALBUM" -> "Album"."""
+    cleaned = match.clean(_FULL_ALBUM.sub("", str(album or "")))
+    return cleaned or match.clean(album)
+
+
+def split_track_title(title, artist=""):
+    """fork v108: one track's name inside a full-album video - drop a leading track number
+    ("01. ", "1) ", "03 - ") and the album artist's own name ("Artist - Song")."""
+    t = _TRACK_NO.sub("", str(title or ""), count=1)
+    if artist:
+        head, sep, rest = re.sub(r"\s+[–—]\s+", " - ", t).partition(" - ")
+        if sep and rest.strip() and fold(head) == fold(artist):
+            t = rest
+    return match.clean(t) or match.clean(title)
+
+
 def _strip_dash(text):
     return re.sub(r"^[\s\-–—:.]+|[\s\-–—:.]+$", "", text)
 
@@ -137,6 +159,16 @@ def chapters_from_description(description):
         if seconds is None or not title:
             continue
         found.append((seconds, title))
+    times = [s for s, _ in found]
+    if len(found) >= 2 and times[0] > 10 and (times[0] >= 60 or any(b <= a for a, b in zip(times, times[1:]))):
+        # fork v108: "Song - 3:45" lines that are each track's LENGTH, not where it starts
+        # (they don't count up from 0:00) - add them up into start times instead of sorting
+        # them, which used to scramble the tracklist and cut every song in the wrong place.
+        start, starts = 0, []
+        for seconds, title in found:
+            starts.append((start, title))
+            start += seconds
+        found = starts
     found.sort(key=lambda t: t[0])
     seen, rows = set(), []
     for seconds, title in found:
@@ -213,6 +245,9 @@ class MoreSources(YtdlpWorker):
         else:
             chapters = chapters_from_description(info.get("description"))
         artist, album = split_title(info.get("title"), info.get("uploader") or info.get("channel"))
+        album = split_album_name(album)
+        for c in chapters:  # fork v108: "01. Song" / "Artist - Song" chapter names become just "Song"
+            c["title"] = split_track_title(c["title"], artist)
         return chapters, artist, album
 
     def add_split(self, url, chapters, album_artist, album, link=""):
@@ -500,7 +535,13 @@ class MoreSources(YtdlpWorker):
             raise MoreError("Paste at least one YouTube, Spotify, SoundCloud or Audiomack link.")
         job = {"id": secrets.token_hex(6), "state": "running", "done": 0, "total": len(urls), "results": []}
         with self._link_lock:
-            self.link_jobs = {k: v for k, v in self.link_jobs.items() if v["state"] == "running"} | {job["id"]: job}
+            # fork v108: finished jobs stay for 10 minutes (newest 30), not only until the next click -
+            # a job that finished between two poll ticks used to vanish before the page saw its results,
+            # leaving that page polling for it forever.
+            now = time.time()
+            keep = [(k, v) for k, v in self.link_jobs.items()
+                    if v["state"] == "running" or now - v.get("finished", now) < 600]
+            self.link_jobs = dict(keep[-30:]) | {job["id"]: job}
         threading.Thread(target=self._run_links, args=(job, urls, mode), daemon=True, name="more-links").start()
         return job
 
@@ -520,7 +561,7 @@ class MoreSources(YtdlpWorker):
                 job["results"].append(result)
                 job["done"] += 1
         with self._link_lock:
-            job["state"] = "done"
+            job["state"], job["finished"] = "done", time.time()
 
     def active_links(self):
         """Every link-reading job in flight or just finished, for the Downloads queue page (v107)."""
@@ -559,17 +600,29 @@ class MoreSources(YtdlpWorker):
                     else f"https://www.youtube.com/watch?v={video}&list={list_id}"
             elif video:
                 read = f"https://www.youtube.com/watch?v={video}"
+            if video and mode == "split":  # fork v105: queue the split, re-reading the tracklist
+                plain = f"https://www.youtube.com/watch?v={video}"  # v108: also from a Mix/playlist link
+                chapters, artist, album = self._chapters(plain)
+                result = self.add_split(plain, chapters, artist, album, link=url)
+                return {"line": url, "ok": True, "note": f"Split into {len(chapters)} tracks queued"
+                        + (f", {result['held']} waiting in Needs your decision" if result.get("held") else "")}
             if list_id and not mode:  # ask first: this song, or the whole list?
                 entries = [e for e in self._extract(read) if e]
                 title = match.clean(entries[0].get("playlist_title") or "") if entries else ""
-                return {"line": url, "ok": False, "choose": True, "kind": kind, "has_song": bool(video),
-                        "count": len(entries), "title": re.sub(r"(?i)^album\s*-\s*", "", title),
-                        "note": f"{len(entries)} songs in this {kind}"}
-            if not list_id and video and mode == "split":  # fork v105: queue the split, re-reading the tracklist
-                chapters, artist, album = self._chapters(read)
-                result = self.add_split(read, chapters, artist, album, link=url)
-                return {"line": url, "ok": True, "note": f"Split into {len(chapters)} tracks queued"
-                        + (f", {result['held']} waiting in Needs your decision" if result.get("held") else "")}
+                ask = {"line": url, "ok": False, "choose": True, "kind": kind, "has_song": bool(video),
+                       "count": len(entries), "title": re.sub(r"(?i)^album\s*-\s*", "", title),
+                       "note": f"{len(entries)} songs in this {kind}"}
+                if video:
+                    # fork v108: a full-album video opened from a Mix or playlist (the URL keeps "&list=")
+                    # can still be split - offer that as a third choice next to "This song".
+                    try:
+                        chapters, artist, album = self._chapters(f"https://www.youtube.com/watch?v={video}")
+                    except LibraryError:
+                        chapters = []
+                    if len(chapters) >= 2:
+                        ask["split"] = len(chapters)
+                        ask["note"] += f" - this video is also a full album ({len(chapters)} tracks)"
+                return ask
             if not list_id and video and not mode:  # fork v105: offer a split when this looks like a full album
                 chapters, artist, album = self._chapters(read)
                 if len(chapters) >= 2:

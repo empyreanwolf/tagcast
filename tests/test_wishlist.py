@@ -50,7 +50,8 @@ class WishlistTests(unittest.TestCase):
         item = studio.wishlist.add("song", "Coldplay", "Unreleased Demo")
         (studio.wishlist.retry([item["id"]]), wait(studio.wishlist))[1]
         again = studio.wishlist.view()["items"][0]
-        self.assertEqual((again["tries"], again["note"]), (2, "Not found on Galaxy, Bandcamp or Soulseek (Galaxy · query “Coldplay Unreleased Demo”: not found)"))
+        self.assertEqual((again["tries"], again["note"]), (2, "Not found on Galaxy, Bandcamp, SoundCloud or Soulseek (Galaxy · query “Coldplay Unreleased Demo”: "
+                          "not found; SoundCloud · not on the artist's own account)"))
 
     def test_spotdl_search_finds_a_song_the_other_sources_missed(self):
         """fork v105: spotDL's own Spotify search is tried automatically before a song gives up."""

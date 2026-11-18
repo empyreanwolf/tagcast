@@ -75,9 +75,27 @@ class YouTubeMatchingTests(unittest.TestCase):
         self.assertEqual(score_video(other, "Neroche", "Antiheroes - Powdered Water (Neroche Remix)"), 0)
 
     def test_galaxy_preview_only_starts_the_other_sources(self):
-        import inspect
+        # fork v108: was a grep of galaxy.py's source text, which broke on a harmless refactor -
+        # now checks the behaviour: a "Preview only" failure hands the song to the other sources.
+        import threading
         from tagcast import galaxy
-        self.assertIn('"Preview only" in str(e)', inspect.getsource(galaxy))
+
+        started = threading.Event()
+
+        class Manager:
+            def update_item(self, *a, **kw):
+                pass
+
+            def item(self, job_id):
+                return {"id": job_id}
+
+        fake = type("G", (), {})()
+        fake.manager, fake.on_failed = Manager(), lambda item: started.set()
+        galaxy.Galaxy._fail(fake, "j1", galaxy.JobFailed("Preview only (30s of about 200s)"))
+        self.assertTrue(started.wait(2))
+        started.clear()
+        galaxy.Galaxy._fail(fake, "j2", galaxy.JobFailed("Wrong album"))
+        self.assertFalse(started.wait(0.2))
 
 
 class TryYouTubeReasonTests(unittest.TestCase):

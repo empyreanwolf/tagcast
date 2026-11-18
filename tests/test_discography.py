@@ -347,6 +347,12 @@ class V105SpotifyFallbackTests(unittest.TestCase):
         studio = LocalStudio()
         self.assertIsNone(studio.discography._spotify_song("Coldplay", "Yellow"))
 
+    def test_v108_an_empty_spotify_answer_is_a_quiet_miss_not_a_crash(self):
+        studio = LocalStudio()
+        studio.spotify = type("S", (), {"songs": staticmethod(lambda q: [])})()
+        studio.moresources = type("M", (), {"add": lambda self, rows, query="": None})()
+        self.assertIsNone(studio.discography._spotify_song("Coldplay", "Yellow"))
+
     def test_a_spotify_search_error_is_a_quiet_miss(self):
         from tagcast.library import LibraryError
         studio = LocalStudio()

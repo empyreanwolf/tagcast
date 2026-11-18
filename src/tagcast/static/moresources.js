@@ -97,6 +97,7 @@ function moreLinksResultsHtml() {
     : r.choose ? `<li><span class="dl-badge partly">Choose</span>
     <div><b>${escapeHtml(r.title || r.line)}</b><div class="muted">${escapeHtml(r.line)}</div></div>
     <span class="dl-row-actions">${r.has_song ? `<button type="button" class="button" data-more-pick="song" data-index="${i}">⬇ This song</button>` : ""}
+    ${r.split && r.kind !== "split" ? `<button type="button" class="button" data-more-pick="split" data-index="${i}">⬇ Split into ${r.split} tracks</button>` : ""}
     <button type="button" class="button primary" data-more-pick="${r.kind === "split" ? "split" : "list"}" data-index="${i}">⬇ ${moreListLabel(r)}</button></span></li>`
     : `<li><span class="dl-badge ${r.ok ? "have" : "partly"}">${r.ok ? "Queued" : "Failed"}</span>
     <div><b>${escapeHtml(r.line)}</b><div class="dl-have">${escapeHtml(r.note)}</div></div></li>`).join("")}</ul>`;
@@ -165,6 +166,18 @@ function moreLinksPoll(jobs) {
       linesChanged = true;
     }
     delete v.linkJobs[job.id];
+  }
+  // v108: a job the server no longer has (Tagcast restarted mid-read) would keep the page polling
+  // forever - drop it, and show its row(s) as failed so the link can simply be tried again.
+  if (Array.isArray(jobs)) {
+    const known = new Set(jobs.map(j => j.id));
+    for (const [id, meta] of Object.entries(v.linkJobs)) {
+      if (known.has(id)) continue;
+      const lost = line => ({line, ok: false, note: "Tagcast restarted before this link was read - try again."});
+      if (meta.kind === "pick" && v.linkResults?.[meta.index]) v.linkResults[meta.index] = lost(v.linkResults[meta.index].line);
+      else if (meta.kind === "links" && !(v.linkResults || []).length) v.linkResults = [lost(meta.submitted.split("\n")[0] || "")];
+      delete v.linkJobs[id]; rowsChanged = true;
+    }
   }
   // A line queued just now must disappear from the textarea too, so only that needs the full
   // re-render; otherwise just refresh the results list (never the textarea you may be typing in).

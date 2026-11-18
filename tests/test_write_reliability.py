@@ -21,7 +21,7 @@ def response(status=200, data=None):
 
 class WriteReliabilityTests(unittest.TestCase):
     def setUp(self):
-        self.home = tempfile.TemporaryDirectory()
+        self.home = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)  # v108: a read-back thread may still be logging
         self.addCleanup(self.home.cleanup)
         self.remote = raw()
         self.transport = client.StudioClient(access_token="synthetic-test-token")

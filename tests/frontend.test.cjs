@@ -11360,6 +11360,24 @@ test("v107: Download links returns right away and the page stays usable while it
   assert.equal(Object.keys(p.run("moreView.linkJobs")).length, 0);
 });
 
+test("v108: a full-album video opened from a Mix shows Split next to This song and Whole Mix", async () => {
+  const p = page(); await settle();
+  p.run(`moreView.linkResults = [{line: "https://www.youtube.com/watch?v=x&list=RDx", choose: true, kind: "mix", count: 50, has_song: true, split: 12, title: "Mix"}]`);
+  const html = p.run("moreLinksResultsHtml()");
+  assert.match(html, /data-more-pick="song"[\s\S]*data-more-pick="split" data-index="0">⬇ Split into 12 tracks[\s\S]*data-more-pick="list"[^>]*>⬇ Whole Mix/);
+});
+
+test("v108: a link job the server no longer has stops the polling and shows its row as failed", async () => {
+  const p = page(); await settle();
+  p.run(`state.screen = "downloads";
+    moreView.linkResults = [{line: "https://youtu.be/x", reading: true}];
+    moreView.linkJobs = {gone: {kind: "pick", index: 0}};
+    moreLinksPoll([])`);
+  assert.equal(Object.keys(p.run("moreView.linkJobs")).length, 0);
+  assert.match(p.run("moreLinksResultsHtml()"), /Failed[\s\S]*restarted before this link was read/);
+  assert.equal(p.run("downloadsBusy()"), false);
+});
+
 test("v107: a Choose row shows Reading… right away, then resolves to its own result", async () => {
   const p = page(); await settle();
   p.run(`state.screen = "downloads";

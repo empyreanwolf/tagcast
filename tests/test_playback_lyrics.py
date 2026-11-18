@@ -630,7 +630,9 @@ class PlaybackLyricsIntegrationTests(unittest.TestCase):
         with patch('tagcast.playback_lyrics.fetch_unison', return_value=self.result):
             self.assertEqual(self.service.view({**self.body, 'fallback_lrclib': True}), self.result)
         self.service.cache.clear()
-        with patch('tagcast.playback_lyrics.fetch_unison', side_effect=SourceError('Offline')):
+        # fork v108: the fork's GD Studio lyrics fallback is offline too - it used to go out to the real site here
+        with patch('tagcast.playback_lyrics.fetch_unison', side_effect=SourceError('Offline')), \
+                patch('tagcast.playback_lyrics.fetch_gdstudio_lyrics', side_effect=SourceError('Offline')):
             self.assertEqual(self.service.view({**self.body, 'fallback_lrclib': True})['status'], 'unavailable')
         self.assertFalse(self.service.cache)
         self.assertIsNone(self.service.active)

@@ -37,6 +37,7 @@ class HelperTests(unittest.TestCase):
 class MoreTests(unittest.TestCase):
     def make(self, **kw):
         studio = LocalStudio()
+        kw.setdefault("info", lambda url: {})  # fork v108: never a real yt-dlp call from a test
         studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None, **kw)
         studio.moresources.ensure_worker = lambda: None
         return studio
@@ -84,6 +85,13 @@ class MoreTests(unittest.TestCase):
                          [("https://audiomack.com/a/song/one", True), ("https://example.com/not-a-site", False)])
         self.assertIn("Only youtube.com", done["results"][1]["note"])
 
+    def test_v108_a_finished_job_survives_the_next_one_starting(self):
+        studio = self.make(extract=lambda url: [entry("One")])
+        first = wait_links(studio.moresources.add_links("https://audiomack.com/a/song/one"))
+        second = wait_links(studio.moresources.add_links("https://audiomack.com/a/song/two"))
+        ids = {j["id"] for j in studio.moresources.active_links()["jobs"]}
+        self.assertEqual(ids, {first["id"], second["id"]})
+
     def test_an_unexpected_error_on_one_line_still_names_that_line_and_does_not_crash_the_job(self):
         def extract(url):
             if "boom" in url:
@@ -115,7 +123,7 @@ class YouTubeLinkTests(unittest.TestCase):
         studio = LocalStudio()
         flat = [{"id": "aaaaaaa1", "url": "aaaaaaa1", "title": "Jay - One (Official Video)", "channel": "Jay", "playlist_title": "Mix"},
                 {"id": "aaaaaaa2", "url": "aaaaaaa2", "title": "Two", "channel": "Kay - Topic"}]
-        studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None, extract=lambda url: flat)
+        studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None, extract=lambda url: flat, info=lambda url: {})
         studio.moresources.ensure_worker = lambda: None
         out = wait_links(studio.moresources.add_links("https://www.youtube.com/playlist?list=PL1"))["results"]
         self.assertTrue(out[0]["choose"])
@@ -133,7 +141,7 @@ class YouTubeLinkTests(unittest.TestCase):
 class V63LinkTests(unittest.TestCase):
     def make(self, extract):
         studio = LocalStudio()
-        studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None, extract=extract)
+        studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None, extract=extract, info=lambda url: {})
         studio.moresources.ensure_worker = lambda: None
         return studio
 
@@ -202,6 +210,26 @@ class V105SplitDescriptionTests(unittest.TestCase):
         rows = chapters_from_description("Tracklist:\n00:00 - One\n00:00 - Also One (dup)\nJust some text")
         self.assertEqual([r["title"] for r in rows], ["One"])
 
+    def test_v108_track_lengths_are_added_up_into_start_times(self):
+        rows = chapters_from_description("1. One - 3:45\n2. Two - 4:10\n3. Three - 2:30")
+        self.assertEqual([r["start_time"] for r in rows], [0.0, 225.0, 475.0])
+        rows = chapters_from_description("One 3:00\nTwo 3:30\nThree 4:00")  # counts up, but can't be start times
+        self.assertEqual([r["start_time"] for r in rows], [0.0, 180.0, 390.0])
+
+    def test_v108_bracketed_timestamps_are_read(self):
+        rows = chapters_from_description("[00:00] One\n(03:45) Two")
+        self.assertEqual([(r["title"], r["start_time"]) for r in rows], [("One", 0.0), ("Two", 225.0)])
+
+    def test_v108_album_and_track_names_lose_the_full_album_and_numbering_decoration(self):
+        from tagcast.moresources import split_album_name, split_track_title
+        self.assertEqual(split_album_name("Shakespeare Science (Full Album Stream)"), "Shakespeare Science")
+        self.assertEqual(split_album_name("Greatest Hits | FULL ALBUM"), "Greatest Hits")
+        self.assertEqual(split_album_name("Full Album"), "Full Album")
+        self.assertEqual([split_track_title(t, "Jay") for t in ("01. Intro", "03 - Song", "Jay - Song", "Other - Song")],
+                         ["Intro", "Song", "Song", "Other - Song"])
+        self.assertEqual([split_track_title(t) for t in ("7 Rings", "1.5 Degrees", "24-7", "10:00 PM")],
+                         ["7 Rings", "1.5 Degrees", "24-7", "10:00 PM"])
+
     def test_no_description_is_no_chapters(self):
         self.assertEqual(chapters_from_description(None), [])
         self.assertEqual(chapters_from_description("just a normal description, no tracklist here"), [])
@@ -241,9 +269,12 @@ class V105SplitAlbumVideoTests(unittest.TestCase):
         self.assertEqual(self.queued(studio), [])
 
     def test_a_video_with_no_tracklist_is_not_offered_a_split(self):
-        studio = self.make(info=lambda url: {"title": "Jay - One Song", "uploader": "Jay", "chapters": [], "description": "no timestamps here"})
+        # fork v108: extract is mocked too - this used to fall through to a real yt-dlp call (flaky, slow)
+        studio = self.make(info=lambda url: {"title": "Jay - One Song", "uploader": "Jay", "chapters": [], "description": "no timestamps here"},
+                           extract=lambda url: [{"title": "Jay - One Song", "uploader": "Jay", "url": url, "duration": 200}])
         out = wait_links(studio.moresources.add_links("https://www.youtube.com/watch?v=bbbbbbbbbbb"))["results"][0]
         self.assertFalse(out.get("choose"))
+        self.assertTrue(out["ok"])
 
     def test_clicking_split_queues_one_album_job_with_the_chapters(self):
         studio = self.make(info=lambda url: {"title": "Jay - Greatest Hits", "uploader": "Jay",
@@ -258,6 +289,18 @@ class V105SplitAlbumVideoTests(unittest.TestCase):
         self.assertEqual(q[0]["tracks"], 2)
         self.assertEqual([c["title"] for c in q[0]["payload"]["chapters"]], ["One", "Two"])
         self.assertEqual((q[0]["payload"]["album_artist"], q[0]["payload"]["album"]), ("Jay", "Greatest Hits"))
+
+    def test_v108_a_full_album_video_opened_from_a_mix_is_offered_a_split_too(self):
+        two = {"title": "Jay - Greatest Hits", "uploader": "Jay",
+               "chapters": [{"title": "One", "start_time": 0, "end_time": 90}, {"title": "Two", "start_time": 90}]}
+        studio = self.make(info=lambda url: two, extract=lambda url: [{"title": "x", "playlist_title": "Mix"}] * 3)
+        link = "https://www.youtube.com/watch?v=aaaaaaaaaaa&list=RDaaaaaaaaaaa&start_radio=1"
+        ask = wait_links(studio.moresources.add_links(link))["results"][0]
+        self.assertEqual((ask["choose"], ask["kind"], ask["split"]), (True, "mix", 2))
+        out = wait_links(studio.moresources.add_links(link, "split"))["results"][0]
+        self.assertTrue(out["ok"])
+        q = self.queued(studio)
+        self.assertEqual(q[0]["payload"]["url"], "https://www.youtube.com/watch?v=aaaaaaaaaaa")  # the video, not the Mix
 
     def test_add_split_rejects_a_bad_tracklist(self):
         studio = self.make()

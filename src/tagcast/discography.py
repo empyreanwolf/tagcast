@@ -744,6 +744,8 @@ class Discography:
         except LibraryError as error:
             log.info("Spotify search for %s - %s found nothing: %s", name, title, error)
             return None
+        if not rows:  # fork v108: an empty answer is a miss, not a crash in max()
+            return None
         row = max(rows, key=lambda r: sim(r.get("title") or "", title))
         if sim(row.get("title") or "", title) < 0.8:
             return None

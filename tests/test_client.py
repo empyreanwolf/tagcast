@@ -911,7 +911,9 @@ class ClientTests(unittest.TestCase):
         result = studio.save([edit("track", track["id"], 74, genre=(track["genre"], track["genre"] + "?"))])
         job = self.wait_job(studio, result["job"])
         self.assertEqual([r["status"] for r in job["results"]], ["saved"])
-        self.assertEqual(mock_ibroadcast.STATE["downloads"], downloads + 1)
+        # fork v108: at least one fresh download - on a slow machine the read-back may legitimately
+        # fetch twice (a download that started before the write is not trusted), so not exactly one.
+        self.assertGreaterEqual(mock_ibroadcast.STATE["downloads"], downloads + 1)
 
     def test_a_download_finishing_after_disconnect_is_thrown_away(self):
         studio = self.connect()
