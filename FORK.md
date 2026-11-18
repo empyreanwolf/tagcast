@@ -64,6 +64,22 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v109** **Credit to the artist you asked for, lyrics everywhere, real names for splits, same-audio check,
+  settings file.** (1) Songs downloaded *as by A* (Get the missing ones, the wishlist) are tagged Artist
+  **A first**, then everyone else credited; Album Artist **A**; "(feat. …)" leaves the title once those names
+  are in the Artist tag; the album name stays. From another artist's album only A's own songs are taken
+  (the rest is skipped and the log says so). (2) Lyrics from LRCLIB (timed, else plain) go into downloads from
+  YouTube, SoundCloud, Spotify, Bandcamp, Soulseek and split albums too - not only Galaxy's - with a .lrc file
+  when timed. (3) A split full-album video looks the album up on MusicBrainz, then Deezer: same track count and
+  matching track lengths give the official titles, year, genre and cover; no match keeps the video's names.
+  (4) **Same song, different name**: Downloads › Settings › "Install fpcalc" (Chromaprint, checked download)
+  then "Fingerprint my library" (streams the first 30 s of each song once, in the background, resumable).
+  Every download is then compared by sound; a match is noted on its queue row and the Upload page flags it as
+  "same audio" for Skip / Upload anyway. (5) Downloads › Settings › **Back up and restore (one file)**: download
+  your settings, wishlist and history (no tokens or passwords); restoring shows what changes first and restarts
+  Tagcast. (6) The Debug report also lists failed downloads, helper-program versions and free space.
+  (7) Tests: no test may touch the internet (tests/conftest.py refuses it); `pytest -m "not slow"` is a ~35 s
+  check, plain `pytest` still runs everything.
 - **v108** **Bug sweep: whole test suite green, no test touches the network.** Fixes: a full-album
   video opened from a Mix/playlist link (URL with `&list=`) now also offers **Split into N tracks**;
   split album names lose "(Full Album Stream)" / "[Full Album]" / "| FULL ALBUM", and track names lose

@@ -196,12 +196,13 @@ class MoreSources(YtdlpWorker):
     lossy_note = "lossy, from YouTube/SoundCloud/Audiomack"
     wait_text = "Reading the page…"
 
-    def __init__(self, studio, search=None, extract=None, chart_fetch=None, fetch_audio=None, info=None):
+    def __init__(self, studio, search=None, extract=None, chart_fetch=None, fetch_audio=None, info=None, lookup=None):
         self._search = search or self._yt_search
         self._extract = extract or self._yt_extract
         self._chart = chart_fetch or self._soundcloud_chart
         self._fetch_audio = fetch_audio or self._yt_fetch
         self._info = info or self._yt_full_info  # fork v105: a single video's full info (chapters, description)
+        self._lookup = lookup or self._album_lookup  # fork v109: real track names for a split (MusicBrainz/Deezer)
         self.on_failed = None  # fork v96: set by Discography: a Spotify song yt-dlp cannot serve tries other sources
         self.link_jobs = {}  # fork v107: pasted/picked links are read in the background, not on the request thread
         self._link_lock = threading.Lock()
@@ -244,13 +245,20 @@ class MoreSources(YtdlpWorker):
                        for i, c in enumerate(raw)]
         else:
             chapters = chapters_from_description(info.get("description"))
+        if chapters and not chapters[-1].get("end_time") and info.get("duration"):
+            chapters[-1]["end_time"] = float(info["duration"])  # v109: the last track's length is known too
         artist, album = split_title(info.get("title"), info.get("uploader") or info.get("channel"))
         album = split_album_name(album)
         for c in chapters:  # fork v108: "01. Song" / "Artist - Song" chapter names become just "Song"
             c["title"] = split_track_title(c["title"], artist)
         return chapters, artist, album
 
-    def add_split(self, url, chapters, album_artist, album, link=""):
+    def _album_lookup(self, artist, album, chapters):
+        from .split_lookup import album_info
+        discography = getattr(self.studio, "discography", None)
+        return album_info(getattr(discography, "http", None), artist, album, chapters)
+
+    def add_split(self, url, chapters, album_artist, album, link="", extra=None):
         """fork v105: queue "this video is a full album" as one job. Submitted as kind "album" so
         the usual album-ownership check applies first (an album you already have in full is held
         for your decision, same as any other album download, instead of being split again)."""
@@ -268,11 +276,27 @@ class MoreSources(YtdlpWorker):
             cleaned.append({"title": title, "start_time": float(start), "end_time": (c or {}).get("end_time")})
         payload = {"id": url, "source": "more", "site": "YouTube", "url": url, "chapters": cleaned,
                    "album_artist": album_artist, "album": album}
+        for key in ("year", "genre", "cover_url", "source"):  # v109: from MusicBrainz / Deezer, when they matched
+            if (extra or {}).get(key):
+                payload["names_from" if key == "source" else key] = str(extra[key])[:500]
         item = {"kind": "album", "title": album, "artist": album_artist, "album": album,
                 "tracks": len(cleaned), "link": link, "payload": payload}
         result = self.manager.submit([item], "more")
         self.ensure_worker()
         return result
+
+    @staticmethod
+    def _split_cover(url):
+        """v109: the matched release's cover (Cover Art Archive / Deezer), else None (the video's thumbnail is used)."""
+        if not url:
+            return None
+        from .galaxy import image_mime
+        try:
+            reply = requests.get(url, timeout=15)
+            data = reply.content if reply.ok else b""
+        except requests.RequestException:
+            return None
+        return data if image_mime(data) and len(data) < 10_000_000 else None
 
     def _ffmpeg_cut(self, src, dst, start, end):
         ffmpeg = ffmpeg_path()
@@ -314,18 +338,21 @@ class MoreSources(YtdlpWorker):
         Path(file).replace(whole)
         try:
             fmt = self.check_audio(whole)
-            cover = (self._cover or self._yt_cover)(info) if info else None
+            cover = self._split_cover(p.get("cover_url")) or ((self._cover or self._yt_cover)(info) if info else None)
             album_artist, album = p["album_artist"], p["album"]
             saved = []
             for i, ch in enumerate(chapters):
                 self._step(jid, 2, f"Splitting track {i + 1}/{len(chapters)}: {ch['title']}")
                 piece = folder / f"track{i + 1:03d}.{fmt}"
                 self._ffmpeg_cut(whole, piece, ch.get("start_time") or 0, ch.get("end_time"))
+                lyrics = self.find_lyrics(piece, fmt, ch["title"], [album_artist], album)  # v109
                 write_tags(piece, fmt, title=ch["title"], artists=[album_artist], album_artist=album_artist,
-                           album=album, track_no=i + 1, track_total=len(chapters), cover=cover)
+                           album=album, track_no=i + 1, track_total=len(chapters), cover=cover, lyrics=lyrics,
+                           year=p.get("year", ""), genre=p.get("genre", ""))
                 final = build_path(self.folder(), album_artist, album, i + 1, ch["title"], fmt)
                 final.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(piece, final)
+                self.write_lrc(final, lyrics)
                 for other in AUDIO_EXTS:
                     if other != fmt:
                         try:
@@ -339,7 +366,7 @@ class MoreSources(YtdlpWorker):
             self._tidy(saved)
             self.manager.update_item(jid, persist=True, state="done", step=4,
                                      step_detail=str(saved[-1]) if saved else "",
-                                     note=f"Split into {len(saved)} tracks", path=str(saved[0]) if saved else "",
+                                     note=f"Split into {len(saved)} tracks" + (f" · names from {p['names_from']}" if p.get("names_from") else ""), path=str(saved[0]) if saved else "",
                                      progress=100, finished=time.time(), format=fmt, speed=0, eta=0)
         finally:
             try:
@@ -603,8 +630,14 @@ class MoreSources(YtdlpWorker):
             if video and mode == "split":  # fork v105: queue the split, re-reading the tracklist
                 plain = f"https://www.youtube.com/watch?v={video}"  # v108: also from a Mix/playlist link
                 chapters, artist, album = self._chapters(plain)
-                result = self.add_split(plain, chapters, artist, album, link=url)
+                extra = self._lookup(artist, album, chapters) if len(chapters) >= 2 else None
+                if extra:  # v109: the official track names, year, genre and cover
+                    album = extra.get("album") or album
+                    for c, name in zip(chapters, extra["titles"]):
+                        c["title"] = name
+                result = self.add_split(plain, chapters, artist, album, link=url, extra=extra)
                 return {"line": url, "ok": True, "note": f"Split into {len(chapters)} tracks queued"
+                        + (f" (track names from {extra['source']})" if extra else " (track names from the video)")
                         + (f", {result['held']} waiting in Needs your decision" if result.get("held") else "")}
             if list_id and not mode:  # ask first: this song, or the whole list?
                 entries = [e for e in self._extract(read) if e]

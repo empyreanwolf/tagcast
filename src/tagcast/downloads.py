@@ -32,7 +32,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from . import activity
+from . import activity, featured
 from . import artist_match as match
 from .library import LibraryError, fold, number, text, title_key
 
@@ -357,6 +357,9 @@ def clean_item(raw, source="manual"):
         item["query"] = query[:500]
     if isinstance(raw.get("payload"), dict) and len(json.dumps(raw["payload"])) < 20000:
         item["payload"] = raw["payload"]  # what the source needs to fetch it (e.g. a Galaxy song id)
+    wanted = match.clean(raw.get("for_artist") or featured.current())[:500]
+    if wanted:
+        item["for_artist"] = wanted  # fork v109: asked for as a song by this artist - credit it to them
     return item
 
 

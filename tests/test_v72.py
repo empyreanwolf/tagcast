@@ -134,6 +134,26 @@ class UploaderTests(unittest.TestCase):
         self.assertNotIn(ids["b.mp3"], found)  # the remix is another song
         self.assertNotIn(ids["d.mp3"], found)
 
+    def test_v109_a_file_with_the_same_audio_as_a_library_song_is_flagged_whatever_its_name(self):
+        class Prints:
+            def ready(self):
+                return True
+
+            def is_cached(self, path):
+                return False
+
+            def match_file(self, path):
+                return {"track_id": "9", "title": "Real Name", "artist": "Jay", "album": "LP"} if path.endswith("d.mp3") else None
+
+            def save(self):
+                self.saved = True
+        self.up.studio.fingerprints = Prints()
+        view = self.up.scan(str(self.dir))
+        ids = {r["name"]: r["id"] for r in view["rows"]}
+        found = self.up.duplicates({"ids": list(ids.values())})["duplicates"]
+        self.assertEqual([(h["where"], h["how"], h["title"]) for h in found[ids["d.mp3"]]], [("ibroadcast", "same audio", "Real Name")])
+        self.assertTrue(self.up.studio.fingerprints.saved)
+
     def test_upload_keeps_files_marks_them_and_lists_failures(self):
         view = self.up.scan(str(self.dir))
         self.up.upload({"ids": [r["id"] for r in view["rows"]]})

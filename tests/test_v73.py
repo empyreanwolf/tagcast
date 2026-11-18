@@ -96,6 +96,25 @@ class DebugReportTests(unittest.TestCase):
             self.assertNotIn("SECRET", text)
             self.assertIn("info.json", z.namelist())
 
+    def test_v109_report_lists_failed_downloads_and_helper_programs(self):
+        home = Path(tempfile.mkdtemp())
+
+        class Studio:
+            def __init__(self):
+                self.home, self.activity = home, None
+
+            def _read(self, name):
+                if name == "downloads.json":
+                    return {"queue": [{"state": "failed", "title": "Song", "artist": "Jay", "note": "Preview only"},
+                                      {"state": "done", "title": "Fine"}]}
+                return {"items": [{"id": "1"}]} if name == "wishlist.json" else None
+        with _z.ZipFile(io.BytesIO(debug_report.build(Studio()))) as z:
+            failed = json.loads(z.read("failed-downloads.json"))
+            info = json.loads(z.read("info.json"))
+        self.assertEqual([(f["title"], f["note"]) for f in failed], [("Song", "Preview only")])
+        self.assertEqual(set(info["tools"]), {"ffmpeg", "yt-dlp", "fpcalc"})
+        self.assertEqual(info["wishlist_items"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -433,6 +433,17 @@ class Soulseek:
         outcome = summary.get("terminalOutcome")
         if outcome in ("Succeeded", "PartialSuccess"):
             files = self._files(payload)
+            # fork v109: credited to the artist you asked for (see featured.py), and lyrics added when missing
+            from .featured import retag_file
+            from .source_worker import find_lyrics
+            for f in files:
+                try:
+                    retag_file(f["path"], item.get("for_artist", ""), find_lyrics)
+                except Exception as error:  # a file we can't re-tag is still a download
+                    log.info("Could not finish the tags of %s: %s", f["path"], error)
+                fingerprints = getattr(self.studio, "fingerprints", None)  # same audio already in the library?
+                if fingerprints is not None:
+                    fingerprints.check_download(f["path"], item["id"])
             for f in files:
                 self.manager.record({"title": f["title"], "artists": [f["artist"] or item["artist"]],
                                      "album": f["album"] or (item["title"] if item["kind"] == "album" else item.get("album", "")),

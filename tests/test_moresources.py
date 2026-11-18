@@ -38,6 +38,7 @@ class MoreTests(unittest.TestCase):
     def make(self, **kw):
         studio = LocalStudio()
         kw.setdefault("info", lambda url: {})  # fork v108: never a real yt-dlp call from a test
+        kw.setdefault("lookup", lambda *a: None)
         studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None, **kw)
         studio.moresources.ensure_worker = lambda: None
         return studio
@@ -238,6 +239,7 @@ class V105SplitDescriptionTests(unittest.TestCase):
 class V105SplitAlbumVideoTests(unittest.TestCase):
     def make(self, info=None, **kw):
         studio = LocalStudio()
+        kw.setdefault("lookup", lambda *a: None)
         studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None, info=info, **kw)
         studio.moresources.ensure_worker = lambda: None
         return studio

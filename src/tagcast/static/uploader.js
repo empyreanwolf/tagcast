@@ -196,7 +196,7 @@ function uploaderCompareHtml(r, hits) {
   const where = {ibroadcast: "In iBroadcast", folder: "In this list", uploaded: "Uploaded before"};
   return `<tr class="upl-compare"><td></td><td colspan="${uploaderCols.length + 1}"><div class="upl-side">
     <div><b>This file</b><br>${escapeHtml(uploaderValue(r, "title"))}<br><span class="muted">${escapeHtml(uploaderValue(r, "artist"))} · ${escapeHtml(uploaderValue(r, "album"))}</span></div>
-    ${hits.map(h => `<div><b>${where[h.where] || h.where}</b> <span class="pill">${h.how === "same" ? "same title" : "close title"}</span><br>${escapeHtml(h.title)}<br><span class="muted">${escapeHtml(h.artist)}${h.album ? ` · ${escapeHtml(h.album)}` : h.name ? ` · ${escapeHtml(h.name)}` : ""}</span></div>`).join("")}</div>
+    ${hits.map(h => `<div><b>${where[h.where] || h.where}</b> <span class="pill">${h.how === "same" ? "same title" : h.how === "same audio" ? "same audio" : "close title"}</span><br>${escapeHtml(h.title)}<br><span class="muted">${escapeHtml(h.artist)}${h.album ? ` · ${escapeHtml(h.album)}` : h.name ? ` · ${escapeHtml(h.name)}` : ""}</span></div>`).join("")}</div>
     <div class="dl-actions"><button type="button" class="button small ${decision === "skip" ? "primary" : ""}" data-uploader-decide="skip" data-id="${r.id}">Skip</button>
       <button type="button" class="button small ${decision === "upload" ? "primary" : ""}" data-uploader-decide="upload" data-id="${r.id}">Upload anyway</button></div></td></tr>`;
 }
@@ -222,7 +222,7 @@ function uploaderPopupHtml() {
   };
   const hits = single ? v.dupes[r.id] : null, decision = single ? v.decisions.get(r.id) : "";
   const dupe = hits && !r.uploaded ? `<div class="upl-pop-dupe"><b>⚠ You may already have this song</b>
-      ${hits.map(h => `<div class="muted">${({ibroadcast: "In iBroadcast", folder: "In this list", uploaded: "Uploaded before"})[h.where] || h.where}: ${escapeHtml(h.title)} · ${escapeHtml(h.artist)}${h.album ? ` · ${escapeHtml(h.album)}` : ""} <span class="pill">${h.how === "same" ? "same title" : "close title"}</span></div>`).join("")}
+      ${hits.map(h => `<div class="muted">${({ibroadcast: "In iBroadcast", folder: "In this list", uploaded: "Uploaded before"})[h.where] || h.where}: ${escapeHtml(h.title)} · ${escapeHtml(h.artist)}${h.album ? ` · ${escapeHtml(h.album)}` : ""} <span class="pill">${h.how === "same" ? "same title" : h.how === "same audio" ? "same audio" : "close title"}</span></div>`).join("")}
       <div class="dl-actions"><button type="button" class="button small ${decision === "skip" ? "primary" : ""}" data-uploader-decide="skip" data-id="${r.id}">Skip</button>
         <button type="button" class="button small ${decision === "upload" ? "primary" : ""}" data-uploader-decide="upload" data-id="${r.id}">Upload anyway</button></div></div>` : "";
   return `<div class="upl-pop" role="dialog" aria-modal="true" aria-label="Edit tags"><div class="upl-pop-box">

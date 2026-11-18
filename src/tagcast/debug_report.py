@@ -28,13 +28,61 @@ def scrub(value):
     return value
 
 
+def _version(program, *args):
+    """First line of ``program --version`` (or the given args), or "" when it isn't installed."""
+    import shutil
+    import subprocess
+    exe = program if Path(str(program)).is_file() else shutil.which(program)
+    if not exe:
+        return ""
+    try:
+        out = subprocess.run([exe, *(args or ("--version",))], capture_output=True, text=True, timeout=10)
+        return (out.stdout or out.stderr).strip().splitlines()[0][:200]
+    except Exception as error:
+        return f"installed, but did not answer ({type(error).__name__})"
+
+
+def _tools(studio):
+    import shutil
+    tools = {}
+    try:
+        from .youtube import ffmpeg_path
+        tools["ffmpeg"] = _version(ffmpeg_path() or "ffmpeg", "-version") or "not found"
+    except Exception:
+        tools["ffmpeg"] = "unknown"
+    try:
+        import yt_dlp
+        tools["yt-dlp"] = yt_dlp.version.__version__
+    except Exception:
+        tools["yt-dlp"] = "not installed"
+    try:
+        from .fingerprint import fpcalc_path
+        tools["fpcalc"] = _version(fpcalc_path() or "fpcalc", "-version") or "not found"
+    except Exception:
+        tools["fpcalc"] = "unknown"
+    out = {"tools": tools}
+    try:
+        folder = studio.download_manager.folder()
+        free = shutil.disk_usage(folder).free
+        out["downloads_folder_free_gb"] = round(free / 1e9, 1)
+    except Exception:
+        pass
+    wishlist = studio._read("wishlist.json") or {}
+    out["wishlist_items"] = len(wishlist.get("items") or []) if isinstance(wishlist, dict) else 0
+    return out
+
+
 def build(studio):
     home = Path(studio.home)
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         info = {"tagcast": __version__, "fork": f"v{local_fork()}", "python": sys.version.split()[0], "system": platform.platform(),
                 "made": time.strftime("%Y-%m-%d %H:%M:%S"), "settings_folder": str(home)}
+        info.update(_tools(studio))  # fork v109: helper programs, free space, wishlist size
         z.writestr("info.json", json.dumps(info, indent=2))
+        failed = [{k: i.get(k) for k in ("source", "title", "artist", "album", "note", "query", "link", "finished")}
+                  for i in (studio._read("downloads.json") or {}).get("queue", []) if i.get("state") == "failed"]
+        z.writestr("failed-downloads.json", json.dumps(failed[-200:], indent=2, default=str))
         log = getattr(studio, "activity", None)
         z.writestr("activity.txt", log.export_text() if log else "No activity recorded.\n")
         for n, name in enumerate(["tagcast.log", "tagcast.log.1", "tagcast.log.2"]):

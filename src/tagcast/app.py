@@ -48,6 +48,28 @@ MAX_QUEUED = 100             # changes that may wait in the background queue at 
 EXTRA_HOSTS = {h.strip().lower() for h in os.environ.get("TAGCAST_EXTRA_HOSTS", "").split(",") if h.strip()}
 
 
+
+def restore_settings(home, data):
+    """Fork v109: write a settings backup back, then restart so every part of Tagcast reads it.
+    The files are written as Tagcast stops, so nothing still running can write over them."""
+    from . import selfupdate, settings_backup
+    changes = settings_backup.plan(home, data)
+    names = [n for n, _ in changes]
+    if not changes:
+        return {"restored": [], "restarting": False, "message": "Nothing to restore - your settings already match that backup."}
+
+    def finish(code):
+        try:
+            settings_backup.write(home, changes)
+        finally:
+            os._exit(code)
+    if selfupdate.restart(exit_now=finish):
+        return {"restored": names, "restarting": True,
+                "message": f"Restoring {len(names)} settings files. Tagcast is restarting…"}
+    result = settings_backup.write(home, changes)
+    return {**result, "restarting": False,
+            "message": f"Restored {len(names)} settings files. Close Tagcast and start it again to use them."}
+
 class Handler(SimpleHTTPRequestHandler):
     studio = None
     port = 8912
@@ -203,6 +225,23 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/zip")
             self.send_header("Content-Disposition", f'attachment; filename="tagcast-debug-{time.strftime("%Y%m%d-%H%M")}.zip"')
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if url.path == "/api/backup/export":  # fork v109: your settings as one file to keep
+            self._activity = None
+            from . import settings_backup
+            from .updates import local_fork
+            try:
+                body = settings_backup.export(self.studio.home, f"v{local_fork()}")
+            except Exception as error:
+                self._json(500, {"error": f"Could not make the backup ({type(error).__name__}: {error})"})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", f'attachment; filename="tagcast-settings-{time.strftime("%Y%m%d")}.zip"')
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -374,6 +413,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._run((lambda: self.studio.digest.part(query["part"])) if query.get("part") else self.studio.digest.view)
         elif url.path == "/api/wishlist":
             self._run(self.studio.wishlist.view)
+        elif url.path == "/api/fingerprints":
+            self._run(self.studio.fingerprints.view)
         elif url.path == "/api/backup":
             self._run(self.studio.backup.view)
         elif url.path == "/api/releases":
@@ -561,6 +602,13 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/sync/now": lambda b: self.studio.settings_sync.sync_now(),
             "/api/backup/settings": lambda b: self.studio.backup.save_settings(b.get("path")),
             "/api/backup/run": lambda b: self.studio.backup.run_now(),
+            "/api/fingerprints/install": lambda b: self.studio.fingerprints.install(),
+            "/api/fingerprints/start": lambda b: self.studio.fingerprints.start(),
+            "/api/fingerprints/stop": lambda b: self.studio.fingerprints.stop(),
+            "/api/fingerprints/retry": lambda b: self.studio.fingerprints.retry_failed(),
+            "/api/backup/restore/preview": lambda b: __import__("tagcast.settings_backup", fromlist=["preview"]).preview(
+                self.studio.home, b.get("data") or ""),
+            "/api/backup/restore": lambda b: restore_settings(self.studio.home, b.get("data") or ""),
             "/api/updates/check": lambda b: self.studio.check_updates(manual=True),
             "/api/artwork": self.studio.change_artwork,
             "/api/artwork/undo": self.studio.undo_artwork,
@@ -791,7 +839,7 @@ QUIET_ROUTES = {"/api/queue-sync", "/api/galaxy/cards", "/api/galaxy/album-years
                 "/api/lyrics-job", "/api/track-numbers", "/api/lyrics/translate"}
 _ROUTE_CATEGORIES = [
     (("/api/galaxy", "/api/bandcamp", "/api/soulseek", "/api/youtube", "/api/more", "/api/labels", "/api/spotify", "/api/downloads", "/api/discography", "/api/wishlist",
-      "/api/complete", "/api/charts", "/api/recommendations", "/api/releases", "/api/digest", "/api/uploader"), "downloads"),
+      "/api/complete", "/api/charts", "/api/recommendations", "/api/releases", "/api/digest", "/api/uploader", "/api/fingerprints"), "downloads"),
     (("/api/save", "/api/artwork", "/api/tags", "/api/lyrics", "/api/tagclean", "/api/trash", "/api/album-rating",
       "/api/artist-rating", "/api/favourite", "/api/album-favourite", "/api/artist-favourite", "/api/playlist",
       "/api/metadata-export"), "metadata"),

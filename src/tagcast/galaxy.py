@@ -366,9 +366,10 @@ class QuotaLimiter:
             _sleep(delay)
 
 
-def lrclib_synced(fetch, artist, title, album="", duration=0.0):
+def lrclib_synced(fetch, artist, title, album="", duration=0.0, plain=False):
     """Fork v83: timed lyrics from LRCLIB (free, outside the GD Studio quota).
-    Returns (text, instrumental). ("", False) when LRCLIB has nothing or doesn't answer."""
+    Returns (text, instrumental). ("", False) when LRCLIB has nothing or doesn't answer.
+    Fork v109: ``plain=True`` settles for untimed lyrics when no timed ones exist."""
     from .playback_lyrics import lyrics_title
     title = lyrics_title(title) or title
     if not (fetch and artist and title):
@@ -382,7 +383,7 @@ def lrclib_synced(fetch, artist, title, album="", duration=0.0):
             return None
         if hit.get("instrumental"):
             return "", True
-        text = hit.get("syncedLyrics") or ""
+        text = hit.get("syncedLyrics") or (hit.get("plainLyrics") if plain else "") or ""
         return (text, False) if isinstance(text, str) and text.strip() else None
 
     params = {"artist_name": artist, "track_name": title}
@@ -1432,10 +1433,13 @@ class Galaxy:
         lyrics = self.fetch_lyrics(link, p, job["title"], real, jid)
         t2 = time.monotonic()
         self._step(jid, 3, {"flac": "Writing FLAC tags…", "m4a": "Writing M4A tags…"}.get(fmt, "Writing ID3v2.4…"))
-        write_tags(part, fmt, title=job["title"], artists=p["artists"], album_artist=p["album_artist"],
+        # fork v109: asked for as a song by this artist: Artist A first, Album Artist A, no "feat." in the title
+        from .featured import credit_for
+        title, artists, album_artist = credit_for(job.get("for_artist", ""), job["title"], p["artists"], p["album_artist"])
+        write_tags(part, fmt, title=title, artists=artists, album_artist=album_artist,
                    album=p["album"], track_no=track_no, track_total=total, year=year, genre=genre, cover=cover,
                    mb_track_id=(mbinfo or {}).get("recording_id", ""), mb_release_id=(mbinfo or {}).get("release_id", ""), lyrics=lyrics)
-        final = build_path(self.folder(), p["album_artist"], p["album"], track_no, job["title"], fmt)
+        final = build_path(self.folder(), album_artist, p["album"], track_no, title, fmt)
         final.parent.mkdir(parents=True, exist_ok=True)
         os.replace(part, final)
         if lyrics:  # fork v79: the same timed lyrics next to the song, as a .lrc file
@@ -1468,7 +1472,7 @@ class Galaxy:
                                  timing=timing_text, took=round(sum(timing.values()), 1),
                                  progress=100, finished=time.time(), size_mb=round(nbytes / 1048576, 2),
                                  format=fmt, speed=0, eta=0, year=year, genre=genre, track_no=track_no)
-        self.manager.record({"title": job["title"], "artists": p["artists"], "album": p["album"],
+        self.manager.record({"title": title, "artists": artists, "album": p["album"],
                              "source": "galaxy", "path": str(final)})
         tagclean = getattr(self.studio, "tagclean", None)  # v46: artist "A; B", album artist, genre
         if tagclean is not None:
@@ -1476,6 +1480,9 @@ class Galaxy:
                 tagclean.tidy_downloaded([final])
             except Exception:
                 log.exception("Could not queue the tag clean-up for a download")
+        fingerprints = getattr(self.studio, "fingerprints", None)  # fork v109: same audio already in the library?
+        if fingerprints is not None:
+            fingerprints.check_download(final, jid)
 
     def get_link(self, job):
         p = job["payload"]

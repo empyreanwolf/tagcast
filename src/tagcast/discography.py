@@ -28,7 +28,7 @@ import threading
 import time
 from collections import Counter
 
-from . import activity
+from . import activity, featured
 from . import artist_match as match
 from .downloads import FEAT_BRACKET, album_key
 from .galaxy import FALLBACK_SOURCES, GalaxyBlocked, find_song, sim
@@ -45,6 +45,18 @@ GALAXY_PAUSE = 600.0   # after GD Studio blocks a request, Galaxy is skipped thi
 # this is the same thing for the automatic "Get missing album" path, which had no such check at all.
 INSTRUMENTAL_WORDS = re.compile(
     r"strumental|karaoke|off[\s-]?vocal|backing[\s-]?track|伴奏|纯音乐|純音樂|无人声|無人聲|消音|卡拉\s?ok", re.I)
+
+
+def _only_theirs(tracks, name, album_artist):
+    """fork v109: another artist's album (B's) that the artist you asked for (A) is only featured on:
+    keep just A's songs, not the whole of B's album. Returns (tracks, note for the log)."""
+    if not name or featured._same(album_artist, name):
+        return tracks, ""
+    mine = [t for t in tracks if featured.credits(name, t.get("title", ""), t.get("artists") or [])]
+    if not mine or len(mine) == len(tracks):
+        return tracks, ""
+    skipped = len(tracks) - len(mine)
+    return mine, f" (only {name}'s {len(mine)} of {len(tracks)} songs on {album_artist}'s album; {skipped} skipped)"
 
 
 def _not_instrumental(tracks):
@@ -615,6 +627,12 @@ class Discography:
             job["current"] = text
 
     def _run(self, job, albums, songs):
+        # fork v109: everything this job queues is credited to the artist you asked for
+        # (Artist A first, Album Artist A, no "feat." in the title) - see featured.py.
+        with featured.for_artist(job["name"]):
+            self._run_all(job, albums, songs)
+
+    def _run_all(self, job, albums, songs):
         ctx = {"bandcamp": None, "bandcamp_checked": False, "job": job}
         for a in albums:
             title = match.clean((a or {}).get("title"))
@@ -635,7 +653,8 @@ class Discography:
                     continue
                 # full_album on an appearance: search by album title alone (we don't know the main artist)
                 dl_name = "" if full_album and appearance else job["name"]
-                source, note = self._album(dl_name, title, a.get("status"), a.get("deezer_id"), ctx, a.get("tracks"))
+                with featured.for_artist(dl_name):  # the whole album, asked for on purpose: tagged as it comes
+                    source, note = self._album(dl_name, title, a.get("status"), a.get("deezer_id"), ctx, a.get("tracks"))
             except Exception as error:  # one album never stops the rest
                 log.exception("Getting %s failed", title)
                 source, note = None, str(error)
@@ -942,8 +961,9 @@ class Discography:
                     if data.get("found"):
                         # Saved under your own spelling of the artist, so it lands next to what you have (v70).
                         artist = name if spelling != name else data["album_artist"]
-                        tracks = _not_instrumental(data["tracks"])
-                        return "Galaxy", self._summary(galaxy.add(tracks, artist, len(tracks), album=True))
+                        tracks, others = _only_theirs(_not_instrumental(data["tracks"]), name, data["album_artist"])
+                        if tracks:
+                            return "Galaxy", self._summary(galaxy.add(tracks, artist, len(tracks), album=True)) + others
             # The album search found nothing: the title may be a song (a single, or an album that
             # shares its name with its first song), listed under another album name on Galaxy.
             best = find_song(galaxy.api, self._galaxy_sources(), name, title, deep=True)
@@ -952,8 +972,9 @@ class Discography:
                 if own and sim(own, title) < 0.9:   # the song's own album may be the whole thing
                     data = galaxy.album(own, name, best["source"])
                     if data.get("found"):
-                        tracks = _not_instrumental(data["tracks"])
-                        return "Galaxy", self._summary(galaxy.add(tracks, data["album_artist"], len(tracks), album=True)) + f" (album “{own}”)"
+                        tracks, others = _only_theirs(_not_instrumental(data["tracks"]), name, data["album_artist"])
+                        if tracks:
+                            return "Galaxy", self._summary(galaxy.add(tracks, data["album_artist"], len(tracks), album=True)) + f" (album “{own}”)" + others
                 return "Galaxy", self._summary(galaxy.add([best])) + " (found by song title)"
         except GalaxyBlocked as error:
             _galaxy_block["until"] = time.time() + GALAXY_PAUSE
@@ -1044,8 +1065,9 @@ class Discography:
         if not artist or not item.get("title"):
             return
         try:
-            source, note = self._song(artist, item["title"], item.get("album", ""), {"bandcamp": None, "bandcamp_checked": False},
-                                      skip_galaxy=True)
+            with featured.for_artist(item.get("for_artist", "")):  # v109: keep crediting the artist it was asked for
+                source, note = self._song(artist, item["title"], item.get("album", ""), {"bandcamp": None, "bandcamp_checked": False},
+                                          skip_galaxy=True)
         except Exception as error:
             log.info("Fallback for %s failed: %s", item["title"], error)
             source, note = None, str(error)
@@ -1070,11 +1092,12 @@ class Discography:
         ctx = {"bandcamp": None, "bandcamp_checked": False}
         try:
             source = None
-            found = self._youtube_song(artist, item["title"], item.get("album", ""), None, exclude={bad} if bad else ())
-            if found:
-                source, note = found
-            else:
-                source, note = self._song(artist, item["title"], item.get("album", ""), ctx, skip_youtube=True)
+            with featured.for_artist(item.get("for_artist", "")):  # v109: keep crediting the artist it was asked for
+                found = self._youtube_song(artist, item["title"], item.get("album", ""), None, exclude={bad} if bad else ())
+                if found:
+                    source, note = found
+                else:
+                    source, note = self._song(artist, item["title"], item.get("album", ""), ctx, skip_youtube=True)
         except Exception as error:
             log.info("Fallback for %s failed: %s", item["title"], error)
             source, note = None, str(error)

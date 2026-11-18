@@ -15,10 +15,35 @@ from pathlib import Path
 
 import requests
 
+from . import featured
 from .galaxy import (AUDIO_EXTS, JobCancelled, JobFailed, StopRequested, TransientHTTPError, build_path,
                      detect_audio_format, read_duration, to_int, write_tags)
 
 log = logging.getLogger("tagcast")
+
+
+def find_lyrics(path, fmt, title, artists, album, fetch=None):
+    """Fork v109: the song's lyrics from LRCLIB - timed when it has them, else plain - or "".
+    Free and outside every source's limits; never fails a download."""
+    if not title or not artists:
+        return ""
+    try:
+        seconds, _ = read_duration(path, fmt)
+    except Exception:
+        seconds = 0.0
+    try:
+        from .galaxy import lrclib_synced
+        from .playback_lyrics import MAX_TEXT
+        text, instrumental = lrclib_synced(fetch or requests.get, artists[0], title, album, seconds, plain=True)
+    except (StopRequested, JobCancelled):
+        raise
+    except Exception as error:
+        log.info("Lyrics for %s - %s failed: %s", artists[0], title, error)
+        return ""
+    text = (text or "").strip()
+    if instrumental or not text or len(text) > MAX_TEXT or "\x00" in text:
+        return ""
+    return text + "\n"
 
 
 class FileWorker:
@@ -224,23 +249,46 @@ class FileWorker:
             raise JobFailed(f"Preview only ({real:.0f}s of about {min_seconds / 0.6:.0f}s)")
         return fmt
 
+    embed_lyrics = True  # fork v109: lyrics go into every download, not only Galaxy's
+    lyrics_fetch = staticmethod(requests.get)
+
+    def find_lyrics(self, path, fmt, title, artists, album):
+        if not self.embed_lyrics:
+            return ""
+        return find_lyrics(path, fmt, title, artists, album, self.lyrics_fetch)
+
+    @staticmethod
+    def write_lrc(final, lyrics):
+        """Timed lyrics also go next to the song as a .lrc file, as Galaxy's do (v79)."""
+        if lyrics and lyrics.lstrip().startswith("["):
+            try:
+                final.with_suffix(".lrc").write_text(lyrics, encoding="utf-8")
+            except OSError as error:
+                log.info("Could not save the .lrc file for %s: %s", final, error)
+
     def save(self, job, part, fmt, nbytes, *, title, artists, album_artist, album, track_no, track_total,
-             year="", genre="", cover=None, extras=()):
+             year="", genre="", cover=None, extras=(), lyrics=None):
         """Tag the finished .part file, move it into place and add it to the history."""
         jid = job["id"]
+        # fork v109: asked for as a song by this artist: Artist A first, Album Artist A, no "feat." in the title
+        title, artists, album_artist = featured.credit_for(job.get("for_artist", ""), title, artists, album_artist)
+        if lyrics is None:
+            self._step(jid, 3, "Looking for lyrics…")
+            lyrics = self.find_lyrics(part, fmt, title, artists, album)
         self._step(jid, 3, {"flac": "Writing FLAC tags…", "m4a": "Writing M4A tags…"}.get(fmt, "Writing ID3v2.4…"))
         write_tags(part, fmt, title=title, artists=artists, album_artist=album_artist, album=album,
-                   track_no=track_no, track_total=track_total, year=year, genre=genre, cover=cover)
+                   track_no=track_no, track_total=track_total, year=year, genre=genre, cover=cover, lyrics=lyrics)
         final = build_path(self.folder(), album_artist, album, track_no, title, fmt)
         final.parent.mkdir(parents=True, exist_ok=True)
         os.replace(part, final)
+        self.write_lrc(final, lyrics)
         for other in AUDIO_EXTS:
             if other != fmt:
                 try:
                     final.with_suffix("." + other).unlink(missing_ok=True)
                 except OSError:
                     pass
-        notes = list(extras) + ([] if cover else ["no cover"])
+        notes = list(extras) + ([] if cover else ["no cover"]) + ([] if lyrics or not self.embed_lyrics else ["no lyrics found"])
         self.manager.update_item(jid, persist=True, state="done", step=4, step_detail=str(final),
                                  note="Saved" + (f" · {', '.join(notes)}" if notes else ""), path=str(final),
                                  progress=100, finished=time.time(), size_mb=round(nbytes / 1048576, 2),
@@ -249,4 +297,7 @@ class FileWorker:
                              "path": str(final), "site": (job.get("payload") or {}).get("site", ""),
                              "query": job.get("query", ""), "link": job.get("link", "")})
         self._tidy([final])
+        fingerprints = getattr(self.studio, "fingerprints", None)  # fork v109: same audio already in the library?
+        if fingerprints is not None:
+            fingerprints.check_download(final, jid)
         return final

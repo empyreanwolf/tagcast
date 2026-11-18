@@ -11978,3 +11978,33 @@ test('fork v96: YouTube settings have a SpotSaver back-up checkbox, on unless tu
   p.run('youtubeView.status.spotsaver = false');
   assert.doesNotMatch(p.run("youtubeSettingsHtml()"),/data-youtube-spotsaver checked>/);
 });
+
+test("fork v109: the settings-file card shows a restore preview before anything is written", async () => {
+  const p = page(); await settle();
+  assert.match(p.run("settingsFileCardHtml()"), /href="\/api\/backup\/export"[\s\S]*Restore from file/);
+  p.run(`settingsFileView.data = "x"; settingsFileView.preview = {made: "2026-11-19 00:30:00", fork: "v109", changes: 1,
+    files: [{file: "wishlist.json", status: "changed", now: "1 wished for", backup: "2 wished for"}, {file: "youtube.json", status: "same", now: "", backup: ""}]}`);
+  const html = p.run("settingsFileCardHtml()");
+  assert.match(html, /1 file changes/);
+  assert.match(html, /wishlist\.json[\s\S]*now: 1 wished for · backup: 2 wished for/);
+  assert.match(html, /data-settings-file="restore"/);
+  const requests = [];
+  p.setFetch((url, options) => { requests.push(url); return {ok: true, json: async () => ({message: "Restoring 1 settings files. Tagcast is restarting…", restarting: true})}; });
+  await p.click({"[data-settings-file]": {dataset: {settingsFile: "restore"}}});
+  assert.ok(requests.includes("/api/backup/restore"));
+  assert.match(p.run("settingsFileCardHtml()"), /Tagcast is restarting/);
+});
+
+test("fork v109: the fingerprint card offers install, then fingerprinting, then shows progress", async () => {
+  const p = page(); await settle();
+  p.run(`fingerprintView.data = {installed: false, installing: false, library_total: 100, done: 0, failed: 0, running: false}`);
+  assert.match(p.run("fingerprintCardHtml()"), /data-fingerprint="install"[^>]*>Install fpcalc/);
+  p.run(`fingerprintView.data = {installed: true, library_total: 100, done: 0, failed: 0, running: false}`);
+  assert.match(p.run("fingerprintCardHtml()"), /data-fingerprint="start"[^>]*>Fingerprint my library/);
+  p.run(`fingerprintView.data = {installed: true, library_total: 100, done: 40, failed: 0, running: true, progress: {done: 10, total: 60, current: "Song"}}`);
+  const html = p.run("fingerprintCardHtml()");
+  assert.match(html, /10 of 60 \(17%\) · Song/);
+  assert.match(html, /data-fingerprint="stop"/);
+  p.run(`fingerprintView.data = {installed: true, library_total: 100, done: 97, failed: 3, running: false}`);
+  assert.match(p.run("fingerprintCardHtml()"), /97 of 100 library songs fingerprinted, 3 couldn't be read[\s\S]*|Retry the 3 that failed/);
+});

@@ -59,6 +59,7 @@ from .lyrics import Lyrics
 from .lyrics_job import LyricsJob
 from .track_numbers import TrackNumberJob
 from .backup import Backup
+from .fingerprint import Fingerprints
 from .lyrics_translate import LyricsTranslator
 from .metadata_export import MetadataExport
 from .playlist_import import PlaylistImport
@@ -498,6 +499,7 @@ class Studio:
         self.uploader = Uploader(self)
         self.settings_sync = SettingsSync(self)
         self.backup = Backup(self)  # fork v100
+        self.fingerprints = Fingerprints(self)  # fork v109: same audio, different name
         self.charts = Charts(self)
         self.pagelist = PageList(self)
         self.labels = Labels(self)

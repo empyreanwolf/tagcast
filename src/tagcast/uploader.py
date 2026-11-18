@@ -27,6 +27,7 @@ from .tagclean import ARTIST_JOIN, DEFAULT_SEPARATORS, read_tags, split_artists
 
 log = logging.getLogger("tagcast")
 STATE_FILE = "uploader.json"
+FINGERPRINT_LIMIT = 60  # fork v109: new files fingerprinted per duplicate check (~0.3 s each; downloads are done already)
 DEFAULT_GENRES = ["Underground Hip Hop", "Chinese Hip Hop"]
 MAX_FILES = 3000
 MAX_FAILED = 500
@@ -473,7 +474,7 @@ class Uploader:
         rows = self._get((body or {}).get("ids"))
         everything = [r for r in self.rows.values() if r.get("title")]
         uploaded = [{"title": u.get("title", ""), "artist": u.get("artist", ""), "path": p} for p, u in self.state["uploaded"].items()]
-        found = {}
+        found, fingerprinted = {}, 0
         for row in rows:
             names = [a for a in re.split(r"\s*;\s*|\s*\\\s*", row["artist"] or "") if a] or ([row["album_artist"]] if row["album_artist"] else [])
             keys = artist_keys(*names) if names else set()
@@ -505,8 +506,17 @@ class Uploader:
                     how = self._title_match(row["title"], other["title"])
                     if how:
                         add("uploaded", other, how)
+            fingerprints = getattr(self.studio, "fingerprints", None)  # fork v109: the same recording, whatever its name
+            if fingerprints is not None and fingerprints.ready() and (
+                    fingerprints.is_cached(row["path"]) or fingerprinted < FINGERPRINT_LIMIT):
+                fingerprinted += 0 if fingerprints.is_cached(row["path"]) else 1
+                hit = fingerprints.match_file(row["path"])
+                if hit:
+                    add("ibroadcast", hit, "same audio", album=hit["album"])
             if hits:
                 found[row["id"]] = hits
+        if fingerprinted:
+            self.studio.fingerprints.save()
         return {"duplicates": found, "library": indexed is not None}
 
     def _library_artists(self):

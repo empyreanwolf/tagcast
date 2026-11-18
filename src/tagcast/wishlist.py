@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 from . import artist_match as match
+from . import featured
 from .downloads import album_key, artist_keys, song_key
 from .galaxy import find_existing_by_title, safe_name
 from .library import LibraryError
@@ -195,7 +196,8 @@ class Wishlist:
             for item in todo:
                 self.progress["title"] = item["title"]
                 try:
-                    self._try(item, ctx)
+                    with featured.for_artist(item.get("artist", "")):  # fork v109: credited to the artist wished for
+                        self._try(item, ctx)
                 except Exception as error:
                     log.info("Wishlist retry of %s failed: %s", item["title"], error)
                     self._update(item["id"], note=str(error))
