@@ -7,22 +7,38 @@
   soundcloud.com uses (a public client id is read through yt-dlp). It appears on the Charts page.
 - **Links (v61)**: YouTube links too. A YouTube playlist downloads every video, tagged as one album
   (album = playlist name, tracks in playlist order).
+- **Split a full album video (v105)**: a single video that is a whole album in one file - its
+  YouTube chapter markers, or a tracklist parsed out of the description (the same line formats
+  github.com/crisbal/album-splitter's ``tracks.txt`` takes), are offered as "Split into N tracks".
+  The video is downloaded once; ffmpeg (already bundled for MP3 conversion) cuts it at each
+  track's start time (stream copy, no re-encode) and each piece is tagged and saved like any
+  other song. No tracklist found -> no split option, just the usual single song.
 - Songs are saved like every other download (tagged, tidied, history), as MP3 with the page's cover art
   and tags when ffmpeg is available (v61). Files are lossy; the note says so.
 """
 
 import logging
+import os
 import re
+import subprocess
+import time
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import requests
 
 from . import artist_match as match
-from .galaxy import fold, plain_title, sim
+from .galaxy import AUDIO_EXTS, JobFailed, StopRequested, build_path, fold, plain_title, sim, write_tags
 from .library import LibraryError
-from .youtube import AgeRestricted, DownloadBlocked, FetchTimeout, YtdlpWorker, plain_error
+from .youtube import AgeRestricted, DownloadBlocked, FetchTimeout, YtdlpWorker, ffmpeg_path, plain_error
 
 log = logging.getLogger("tagcast")
+# fork v105: a track line in a "full album" video's description - "[hh:]mm:ss - Title",
+# "Title - [hh:]mm:ss" or "Title [hh:]mm:ss", the same formats album-splitter's tracks.txt takes.
+_TRACK_TS = r"(\d{1,2}(?::\d{2}){1,2})"
+_TS_FIRST = re.compile(rf"^{_TRACK_TS}\s*[-–—:.]?\s*(.+)$")
+_TS_LAST = re.compile(rf"^(.+?)\s*[-–—:]\s*{_TRACK_TS}$")
+_TS_TRAIL = re.compile(rf"^(.+?)\s+{_TRACK_TS}$")
 SEARCH_RESULTS = 20
 MIN_SECONDS, MAX_SECONDS = 20, 1800  # fork v96: a SoundCloud "song" under 20s or over 30min is not really one
 SITES = {"soundcloud.com": "SoundCloud", "audiomack.com": "Audiomack", "youtube.com": "YouTube", "youtu.be": "YouTube",
@@ -81,6 +97,56 @@ def list_kind(list_id):
     return "album" if list_id.startswith("OLAK5uy_") else "mix" if list_id.startswith("RD") else "playlist"
 
 
+def _parse_timestamp(text):
+    """"mm:ss" or "hh:mm:ss" -> seconds, or None if it isn't one."""
+    try:
+        parts = [int(p) for p in text.split(":")]
+    except ValueError:
+        return None
+    while len(parts) < 3:
+        parts.insert(0, 0)
+    h, m, s = parts[-3:]
+    return h * 3600 + m * 60 + s
+
+
+def _strip_dash(text):
+    return re.sub(r"^[\s\-–—:.]+|[\s\-–—:.]+$", "", text)
+
+
+def chapters_from_description(description):
+    """fork v105: when a "full album in one video" upload has no YouTube chapter markers, its
+    description often lists the tracklist as plain text instead - try to read that. Returns
+    [] when nothing in it looks like a timestamped tracklist."""
+    found = []
+    for raw in str(description or "").splitlines():
+        line = raw.strip()
+        if not line or len(line) > 200:
+            continue
+        m = _TS_FIRST.match(line)
+        if m:
+            ts, title = m.group(1), m.group(2)
+        else:
+            m = _TS_LAST.match(line) or _TS_TRAIL.match(line)
+            if not m:
+                continue
+            title, ts = m.group(1), m.group(2)
+        seconds = _parse_timestamp(ts)
+        title = match.clean(_strip_dash(title))
+        if seconds is None or not title:
+            continue
+        found.append((seconds, title))
+    found.sort(key=lambda t: t[0])
+    seen, rows = set(), []
+    for seconds, title in found:
+        if seconds in seen:  # fork v105: the same mm:ss line matched twice (e.g. a "Tracklist:" header)
+            continue
+        seen.add(seconds)
+        rows.append({"title": title, "start_time": float(seconds)})
+    for i, row in enumerate(rows):
+        row["end_time"] = rows[i + 1]["start_time"] if i + 1 < len(rows) else None
+    return rows
+
+
 def _entry_row(entry, site):
     url = entry.get("webpage_url") or entry.get("url") or ""
     artist, title = split_title(entry.get("title"), entry.get("uploader") or entry.get("channel") or entry.get("playlist_uploader"))
@@ -96,15 +162,19 @@ class MoreSources(YtdlpWorker):
     lossy_note = "lossy, from YouTube/SoundCloud/Audiomack"
     wait_text = "Reading the page…"
 
-    def __init__(self, studio, search=None, extract=None, chart_fetch=None, fetch_audio=None):
+    def __init__(self, studio, search=None, extract=None, chart_fetch=None, fetch_audio=None, info=None):
         self._search = search or self._yt_search
         self._extract = extract or self._yt_extract
         self._chart = chart_fetch or self._soundcloud_chart
         self._fetch_audio = fetch_audio or self._yt_fetch
+        self._info = info or self._yt_full_info  # fork v105: a single video's full info (chapters, description)
         self.on_failed = None  # fork v96: set by Discography: a Spotify song yt-dlp cannot serve tries other sources
         super().__init__(studio, None)
 
     def process(self, job):
+        if (job.get("payload") or {}).get("chapters"):  # fork v105: a full-album video to split
+            self._process_split(job)
+            return
         try:
             super().process(job)
         except (AgeRestricted, DownloadBlocked, FetchTimeout) as error:
@@ -112,6 +182,134 @@ class MoreSources(YtdlpWorker):
                 self._failover(job, error)
             else:
                 raise
+
+    # -- splitting a full-album video (v105) -------------------------------------------------
+
+    def _yt_full_info(self, url):
+        """The video's full info (not the flat form ``_extract`` uses for playlists) - has
+        ``chapters`` and ``description``, which a flat/playlist extraction does not carry."""
+        import yt_dlp
+        opts = {"quiet": True, "no_warnings": True, "skip_download": True, "socket_timeout": 20}
+        opts.update(self._cookie_opts())
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info(url, download=False) or {}
+        except Exception as error:
+            raise MoreError(f"Couldn't read this video ({plain_error(str(error))[:120]})") from None
+
+    def _chapters(self, url):
+        """YouTube's own chapters for this video, else a tracklist parsed from its description.
+        Returns (chapters, guessed artist, guessed album) - chapters is [] when neither is there."""
+        info = self._info(url)
+        raw = info.get("chapters") or []
+        if len(raw) >= 2:
+            chapters = [{"title": match.clean(c.get("title") or f"Track {i + 1}"),
+                        "start_time": c.get("start_time") or 0, "end_time": c.get("end_time")}
+                       for i, c in enumerate(raw)]
+        else:
+            chapters = chapters_from_description(info.get("description"))
+        artist, album = split_title(info.get("title"), info.get("uploader") or info.get("channel"))
+        return chapters, artist, album
+
+    def add_split(self, url, chapters, album_artist, album, link=""):
+        """fork v105: queue "this video is a full album" as one job. Submitted as kind "album" so
+        the usual album-ownership check applies first (an album you already have in full is held
+        for your decision, same as any other album download, instead of being split again)."""
+        if not isinstance(chapters, list) or len(chapters) < 2:
+            raise MoreError("No tracklist found to split this video by.")
+        if len(chapters) > 100:
+            raise MoreError("That looks like more than 100 tracks - too many to split at once.")
+        album_artist, album = match.clean(album_artist) or "Unknown Artist", match.clean(album) or "Album"
+        cleaned = []
+        for c in chapters[:100]:
+            title = match.clean((c or {}).get("title"))
+            start = (c or {}).get("start_time")
+            if not title or not isinstance(start, (int, float)):
+                raise MoreError("Each track needs a title and a start time.")
+            cleaned.append({"title": title, "start_time": float(start), "end_time": (c or {}).get("end_time")})
+        payload = {"id": url, "source": "more", "site": "YouTube", "url": url, "chapters": cleaned,
+                   "album_artist": album_artist, "album": album}
+        item = {"kind": "album", "title": album, "artist": album_artist, "album": album,
+                "tracks": len(cleaned), "link": link, "payload": payload}
+        result = self.manager.submit([item], "more")
+        self.ensure_worker()
+        return result
+
+    def _ffmpeg_cut(self, src, dst, start, end):
+        ffmpeg = ffmpeg_path()
+        if not ffmpeg:
+            raise JobFailed("ffmpeg is needed to split a full-album video into tracks.")
+        cmd = [ffmpeg, "-y", "-i", str(src), "-ss", str(max(0.0, start))]
+        if end:
+            cmd += ["-to", str(end)]
+        cmd += ["-c", "copy", "-map_metadata", "-1", str(dst)]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        if result.returncode != 0 or not Path(dst).exists():
+            raise JobFailed(f"ffmpeg could not cut this track ({result.stderr.strip()[-200:]})")
+
+    def _process_split(self, job):
+        """Download the full video once, then cut it into one file per chapter with ffmpeg
+        (stream copy, no re-encode) and tag/save/record each like any other finished download."""
+        p, jid = job["payload"], job["id"]
+        chapters = p.get("chapters") or []
+        if len(chapters) < 2:
+            raise JobFailed("No tracklist to split this video by.")
+        self.manager.update_item(jid, started=time.time(), speed=0, eta=0)
+        self._step(jid, 0, self.wait_text)
+        self._t0 = time.monotonic()
+
+        def hook(d):
+            if self.stopping:
+                raise StopRequested()
+            self._check_cancel()
+            if d.get("status") == "downloading":
+                done = d.get("downloaded_bytes") or 0
+                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                self._progress(jid, done, total)
+
+        folder = self._part_path(jid).parent / f"split-{jid}"
+        got = self._fetch_watched(p["url"], folder, hook)
+        file, info = got if isinstance(got, tuple) else (got, {})
+        whole = self._part_path(jid)
+        whole.parent.mkdir(parents=True, exist_ok=True)
+        Path(file).replace(whole)
+        try:
+            fmt = self.check_audio(whole)
+            cover = (self._cover or self._yt_cover)(info) if info else None
+            album_artist, album = p["album_artist"], p["album"]
+            saved = []
+            for i, ch in enumerate(chapters):
+                self._step(jid, 2, f"Splitting track {i + 1}/{len(chapters)}: {ch['title']}")
+                piece = folder / f"track{i + 1:03d}.{fmt}"
+                self._ffmpeg_cut(whole, piece, ch.get("start_time") or 0, ch.get("end_time"))
+                write_tags(piece, fmt, title=ch["title"], artists=[album_artist], album_artist=album_artist,
+                           album=album, track_no=i + 1, track_total=len(chapters), cover=cover)
+                final = build_path(self.folder(), album_artist, album, i + 1, ch["title"], fmt)
+                final.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(piece, final)
+                for other in AUDIO_EXTS:
+                    if other != fmt:
+                        try:
+                            final.with_suffix("." + other).unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                self.manager.record({"title": ch["title"], "artists": [album_artist], "album": album,
+                                     "source": self.source, "path": str(final), "site": "YouTube",
+                                     "query": job.get("query", ""), "link": job.get("link", "")})
+                saved.append(final)
+            self._tidy(saved)
+            self.manager.update_item(jid, persist=True, state="done", step=4,
+                                     step_detail=str(saved[-1]) if saved else "",
+                                     note=f"Split into {len(saved)} tracks", path=str(saved[0]) if saved else "",
+                                     progress=100, finished=time.time(), format=fmt, speed=0, eta=0)
+        finally:
+            try:
+                whole.unlink(missing_ok=True)
+                for leftover in folder.glob("*"):
+                    leftover.unlink(missing_ok=True)
+                folder.rmdir()
+            except OSError:
+                pass
 
     # -- yt-dlp -------------------------------------------------------------------------------
 
@@ -339,6 +537,17 @@ class MoreSources(YtdlpWorker):
                 return {"line": url, "ok": False, "choose": True, "kind": kind, "has_song": bool(video),
                         "count": len(entries), "title": re.sub(r"(?i)^album\s*-\s*", "", title),
                         "note": f"{len(entries)} songs in this {kind}"}
+            if not list_id and video and mode == "split":  # fork v105: queue the split, re-reading the tracklist
+                chapters, artist, album = self._chapters(read)
+                result = self.add_split(read, chapters, artist, album, link=url)
+                return {"line": url, "ok": True, "note": f"Split into {len(chapters)} tracks queued"
+                        + (f", {result['held']} waiting in Needs your decision" if result.get("held") else "")}
+            if not list_id and video and not mode:  # fork v105: offer a split when this looks like a full album
+                chapters, artist, album = self._chapters(read)
+                if len(chapters) >= 2:
+                    return {"line": url, "ok": False, "choose": True, "kind": "split", "has_song": True,
+                            "count": len(chapters), "title": f"{artist} - {album}".strip(" -"),
+                            "note": f"{len(chapters)} tracks found - looks like a full album in one video"}
         entries = [e for e in self._extract(read) if e]
         rows = [r for r in (_entry_row({**e, "url": _entry_url(e, read, site)}, site) for e in entries) if r]
         if site == "YouTube" and len(rows) == 1 and (not rows[0]["artist"] or "list=" in rows[0]["url"]):

@@ -1,7 +1,11 @@
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from test_discography import LocalStudio
-from tagcast.moresources import MoreError, MoreSources, site_of, split_title
+from tagcast.moresources import MoreError, MoreSources, chapters_from_description, site_of, split_title
+
+FIXTURE_MP3 = Path(__file__).parent / "fixtures" / "galaxy-silence.mp3"
 
 
 def entry(title, uploader="Someone", url=None):
@@ -139,3 +143,121 @@ class V63LinkTests(unittest.TestCase):
     def test_dashes_split(self):
         self.assertEqual(split_title("Metronomy – The Bay (Official Video)", "x"), ("Metronomy", "The Bay"))
         self.assertEqual(split_title("Poolside — Harvest Moon", "x"), ("Poolside", "Harvest Moon"))
+
+
+class V105SplitDescriptionTests(unittest.TestCase):
+    def test_timestamp_first_lines_are_read_in_order(self):
+        rows = chapters_from_description("00:00 - Intro\n01:30 - Second Song\n1:03:00 - Finale")
+        self.assertEqual([(r["title"], r["start_time"], r["end_time"]) for r in rows],
+                         [("Intro", 0.0, 90.0), ("Second Song", 90.0, 3780.0), ("Finale", 3780.0, None)])
+
+    def test_title_first_and_trailing_timestamp_formats_are_read(self):
+        rows = chapters_from_description("Opening Track - 00:00\nClosing Track 02:15")
+        self.assertEqual([(r["title"], r["start_time"]) for r in rows], [("Opening Track", 0.0), ("Closing Track", 135.0)])
+
+    def test_a_line_with_no_timestamp_or_a_duplicate_time_is_skipped(self):
+        rows = chapters_from_description("Tracklist:\n00:00 - One\n00:00 - Also One (dup)\nJust some text")
+        self.assertEqual([r["title"] for r in rows], ["One"])
+
+    def test_no_description_is_no_chapters(self):
+        self.assertEqual(chapters_from_description(None), [])
+        self.assertEqual(chapters_from_description("just a normal description, no tracklist here"), [])
+
+
+class V105SplitAlbumVideoTests(unittest.TestCase):
+    def make(self, info=None, **kw):
+        studio = LocalStudio()
+        studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None, info=info, **kw)
+        studio.moresources.ensure_worker = lambda: None
+        return studio
+
+    def queued(self, studio):
+        return [i for i in studio.download_manager.state["queue"] if i.get("source") == "more"]
+
+    def test_youtube_chapters_are_preferred_over_the_description(self):
+        studio = self.make(info=lambda url: {"title": "Jay - Greatest Hits", "uploader": "Jay",
+                                             "chapters": [{"title": "One", "start_time": 0, "end_time": 120},
+                                                         {"title": "Two", "start_time": 120, "end_time": 240}],
+                                             "description": "00:00 - Different One\n02:00 - Different Two"})
+        chapters, artist, album = studio.moresources._chapters("https://www.youtube.com/watch?v=abc")
+        self.assertEqual([c["title"] for c in chapters], ["One", "Two"])
+        self.assertEqual((artist, album), ("Jay", "Greatest Hits"))
+
+    def test_a_single_chapter_falls_back_to_the_description(self):
+        studio = self.make(info=lambda url: {"title": "Full Album", "uploader": "Jay", "chapters": [{"title": "Whole thing"}],
+                                             "description": "00:00 - One\n02:00 - Two\n04:00 - Three"})
+        chapters, artist, album = studio.moresources._chapters("https://www.youtube.com/watch?v=abc")
+        self.assertEqual([c["title"] for c in chapters], ["One", "Two", "Three"])
+
+    def test_pasting_a_full_album_video_offers_the_split_choice(self):
+        studio = self.make(info=lambda url: {"title": "Jay - Greatest Hits", "uploader": "Jay",
+                                             "chapters": [{"title": "One", "start_time": 0, "end_time": 90},
+                                                         {"title": "Two", "start_time": 90}]})
+        ask = studio.moresources.add_links("https://www.youtube.com/watch?v=aaaaaaaaaaa")["results"][0]
+        self.assertEqual((ask["choose"], ask["kind"], ask["count"], ask["has_song"]), (True, "split", 2, True))
+        self.assertEqual(self.queued(studio), [])
+
+    def test_a_video_with_no_tracklist_is_not_offered_a_split(self):
+        studio = self.make(info=lambda url: {"title": "Jay - One Song", "uploader": "Jay", "chapters": [], "description": "no timestamps here"})
+        out = studio.moresources.add_links("https://www.youtube.com/watch?v=bbbbbbbbbbb")["results"][0]
+        self.assertFalse(out.get("choose"))
+
+    def test_clicking_split_queues_one_album_job_with_the_chapters(self):
+        studio = self.make(info=lambda url: {"title": "Jay - Greatest Hits", "uploader": "Jay",
+                                             "chapters": [{"title": "One", "start_time": 0, "end_time": 90},
+                                                         {"title": "Two", "start_time": 90, "end_time": None}]})
+        out = studio.moresources.add_links("https://www.youtube.com/watch?v=aaaaaaaaaaa", "split")["results"][0]
+        self.assertTrue(out["ok"])
+        self.assertIn("Split into 2 tracks", out["note"])
+        q = self.queued(studio)
+        self.assertEqual(len(q), 1)
+        self.assertEqual(q[0]["kind"], "album")
+        self.assertEqual(q[0]["tracks"], 2)
+        self.assertEqual([c["title"] for c in q[0]["payload"]["chapters"]], ["One", "Two"])
+        self.assertEqual((q[0]["payload"]["album_artist"], q[0]["payload"]["album"]), ("Jay", "Greatest Hits"))
+
+    def test_add_split_rejects_a_bad_tracklist(self):
+        studio = self.make()
+        with self.assertRaises(MoreError):
+            studio.moresources.add_split("https://x", [{"title": "Only one", "start_time": 0}], "Jay", "Album")
+        with self.assertRaises(MoreError):
+            studio.moresources.add_split("https://x", [{"title": "No start time"}, {"title": "Two", "start_time": 5}], "Jay", "Album")
+
+    def test_process_routes_a_chaptered_job_to_the_splitter_not_the_normal_download(self):
+        studio = self.make()
+        called = []
+        studio.moresources._process_split = lambda job: called.append(job["id"])
+        studio.moresources.process({"id": "x1", "payload": {"chapters": [{"title": "A", "start_time": 0}]}})
+        self.assertEqual(called, ["x1"])
+
+    def test_process_split_downloads_once_cuts_tags_and_records_each_track(self):
+        studio = self.make()
+        more = studio.moresources
+        chapters = [{"title": "One", "start_time": 0, "end_time": 1}, {"title": "Two", "start_time": 1, "end_time": None}]
+        item = studio.moresources.add_split("https://www.youtube.com/watch?v=ccccccccccc", chapters, "Jay", "Greatest Hits",
+                                            link="https://www.youtube.com/watch?v=ccccccccccc")
+        job = self.queued(studio)[0]
+
+        def fetch(url, folder, hook):
+            # a copy, not FIXTURE_MP3 itself - _process_split moves (Path.replace) whatever this returns
+            folder.mkdir(parents=True, exist_ok=True)
+            copy = folder / "whole.mp3"
+            copy.write_bytes(FIXTURE_MP3.read_bytes())
+            return str(copy), {"title": "Jay - Greatest Hits"}
+
+        more._fetch_watched = fetch
+
+        def fake_cut(src, dst, start, end):
+            Path(dst).parent.mkdir(parents=True, exist_ok=True)
+            Path(dst).write_bytes(Path(src).read_bytes())
+
+        more._ffmpeg_cut = fake_cut
+        more.process(job)
+        done = studio.download_manager.item(job["id"])
+        self.assertEqual(done["state"], "done")
+        self.assertIn("Split into 2 tracks", done["note"])
+        history = [h for h in studio.download_manager.state["history"] if h.get("album") == "Greatest Hits"]
+        self.assertEqual(sorted(h["title"] for h in history), ["One", "Two"])
+        for h in history:
+            self.assertTrue(Path(h["path"]).exists())
+            self.assertEqual(Path(h["path"]).read_bytes()[:3], Path(h["path"]).read_bytes()[:3])  # sanity: file is readable

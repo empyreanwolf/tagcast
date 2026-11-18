@@ -64,6 +64,12 @@ control.
 The fork version is shown beside the **Artist cleanup** title and in its error messages.
 A short alert sound plays when a run stops with an error or an action fails.
 
+- **v106** **Split a full-album YouTube video into tracks.** Pasting a plain YouTube video link (no
+  playlist) that has a tracklist - either YouTube's own chapter markers, or a tracklist written in the
+  description (same formats as `album-splitter`'s `tracks.txt`) - now offers a third choice alongside
+  "This song": **Split into N tracks**. Picking it downloads the video once and cuts it at each
+  track's start time with ffmpeg (no re-encoding), tagging and saving each piece like any other
+  download. No separate dependency; reuses Tagcast's own yt-dlp download and tagging.
 - **v59** **YouTube source (yt-dlp), tried first.**
   - New **YouTube** tab in Downloads (one `Artist - Title` per line) and a switch in Settings (on by default). Tagcast uses the open-source
     yt-dlp library (installed automatically at the next start), picks the official audio (the "Artist - Topic" upload first; live, remix,

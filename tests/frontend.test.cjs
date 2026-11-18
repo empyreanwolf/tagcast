@@ -10863,6 +10863,13 @@ test("a YouTube link with a list waits for This song or Whole album", async () =
   assert.match(html, /<b>Mine<\/b><div class="muted">[^<]*<\/div><\/div>\s*<span class="dl-row-actions">\s*<button type="button" class="button primary" data-more-pick="list" data-index="1">⬇ Whole playlist \(3 songs\)/);
 });
 
+test("fork v105: a full-album video waits for This song or Split into tracks", async () => {
+  const p = page(); await settle();
+  p.run(`moreView.linkResults = [{line: "https://www.youtube.com/watch?v=x", choose: true, kind: "split", count: 9, has_song: true, title: "Jay - Greatest Hits"}]`);
+  const html = p.run("moreLinksHtml()");
+  assert.match(html, /<b>Jay - Greatest Hits<\/b>[\s\S]*data-more-pick="song" data-index="0">⬇ This song[\s\S]*data-more-pick="split" data-index="0">⬇ Split into 9 tracks/);
+});
+
 test("Labels tab lists a catalogue with one-click downloads", async () => {
   const p = page(); await settle();
   assert.ok(p.run('downloadsTabs.some(t => t[0] === "labels")'));

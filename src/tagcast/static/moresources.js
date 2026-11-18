@@ -86,13 +86,15 @@ function moreLinksHtml() {
     ${v.linkResults ? `<ul class="dl-list dl-nofold">${v.linkResults.map((r, i) => r.choose ? `<li><span class="dl-badge partly">Choose</span>
       <div><b>${escapeHtml(r.title || r.line)}</b><div class="muted">${escapeHtml(r.line)}</div></div>
       <span class="dl-row-actions">${r.has_song ? `<button type="button" class="button" data-more-pick="song" data-index="${i}">⬇ This song</button>` : ""}
-      <button type="button" class="button primary" data-more-pick="list" data-index="${i}">⬇ ${moreListLabel(r)}</button></span></li>`
+      <button type="button" class="button primary" data-more-pick="${r.kind === "split" ? "split" : "list"}" data-index="${i}">⬇ ${moreListLabel(r)}</button></span></li>`
       : `<li><span class="dl-badge ${r.ok ? "have" : "partly"}">${r.ok ? "Queued" : "Failed"}</span>
       <div><b>${escapeHtml(r.line)}</b><div class="dl-have">${escapeHtml(r.note)}</div></div></li>`).join("")}</ul>` : ""}`;
 }
 
 // v63: a YouTube link with a list waits for a click: only that song, or the whole album, playlist or Mix.
+// v105: a single video that looks like a full album offers a third choice - split into tracks.
 function moreListLabel(r) {
+  if (r.kind === "split") return `Split into ${r.count} tracks`;
   const what = {album: "Whole album", mix: "Whole Mix", playlist: "Whole playlist"}[r.kind] || "Whole playlist";
   return `${what} (${r.count} ${r.count === 1 ? "song" : "songs"})`;
 }
