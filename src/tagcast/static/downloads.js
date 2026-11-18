@@ -244,7 +244,7 @@ function downloadsOriginHtml(i) {
 function downloadsQueueBoxHtml() {
   const queue = downloadsView.queue || [], g = downloadsView.galaxy;
   const count = st => queue.filter(i => i.state === st).length;
-  const order = {active: 0, queued: 1, failed: 2, done: 3, skipped: 4};
+  const order = {failed: 0, active: 1, queued: 2, done: 3, skipped: 4};  // v104: failed first - needs your attention
   const rows = [...queue].map((item, index) => ({item, index})).sort((a, b) => (order[a.item.state] ?? 5) - (order[b.item.state] ?? 5)
     || (["done", "skipped"].includes(a.item.state) ? b.index - a.index : a.index - b.index)).map(r => r.item);
   const queuedTotal = count("queued") + count("active"), doneTotal = count("done");

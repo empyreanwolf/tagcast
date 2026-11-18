@@ -3,7 +3,7 @@
 // "Missing" on the Downloads page (fork v16+): New releases of the artists you follow,
 // albums in your library that are only partly there, and the wishlist of things no source had.
 // "Get the missing" sends each artist's albums through Galaxy → Bandcamp → Soulseek.
-const missingView = {complete: null, completeQuery: "", completeOpen: new Map(), wishlist: null, wishKind: "album", settingsOpen: false, sub: "releases", releases: null, picked: new Set(), jobs: [], timer: null, jobTimer: null};
+const missingView = {complete: null, completeQuery: "", completeOpen: new Map(), wishlist: null, wishKind: "album", settingsOpen: false, sub: "wishlist", releases: null, picked: new Set(), jobs: [], timer: null, jobTimer: null};
 const missingSubs = [["releases", "New releases"], ["complete", "Complete my albums"], ["wishlist", "Wishlist"]];
 
 function missingHtml() {
@@ -225,14 +225,10 @@ async function missingGet(groups) {
 }
 
 function missingJobsHtml() {
-  const jobs = missingView.jobs;
-  if (!jobs.length) return '<div id="missing-jobs"></div>';
-  const done = jobs.reduce((n, j) => n + j.done, 0), total = jobs.reduce((n, j) => n + j.total, 0);
-  const finished = jobs.every(j => j.state === "done");
-  return `<div id="missing-jobs"><section class="dl-card" role="status"><h3>Getting the missing ${finished ? "· done" : `· ${done} of ${total}`}</h3>
-    <ul class="dl-list">${jobs.flatMap(j => j.log.map(e => `<li><span class="dl-badge ${e.source ? "have" : "partly"}">${escapeHtml(e.source || "Not found")}</span>
-      <div><b>${escapeHtml(e.title)}</b> <span class="muted">· ${escapeHtml(j.name)} · ${escapeHtml(e.note || "")}</span></div></li>`)).join("")}</ul>
-    ${finished ? '<div class="dl-actions"><button type="button" class="button small" data-downloads-tab="queue">Open the queue</button><button type="button" class="text-action" data-missing="close-jobs">Close</button></div>' : ""}</section></div>`;
+  // v104: no panel here any more - "Get the missing" still runs, still polls, still sounds the
+  // alarm on a failure and refreshes the page when done (see missingGet() above); it just no
+  // longer shows its own progress log or an "Open the queue" link on the Missing page itself.
+  return '<div id="missing-jobs"></div>';
 }
 
 function missingJobsRefresh() {

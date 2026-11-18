@@ -5,6 +5,7 @@ import json
 import tempfile
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from tagcast import bandcamp as bc
@@ -149,6 +150,49 @@ class ServiceTests(unittest.TestCase):
         tags = ID3(str(path))
         self.assertEqual((str(tags["TRCK"]), str(tags["TDRC"]), tags["APIC:Cover"].mime), ("2/3", "2014", "image/jpeg"))
         self.assertEqual(self.b.album("https://coldplay.bandcamp.com/album/ghost-stories")["status"], "have")
+
+    def test_a_dropped_connection_is_retried_before_giving_up(self):
+        # v104: one ReadTimeout used to fail the page read outright - now it's retried (same
+        # idea as Galaxy's own request_with_backoff(), just without an API quota to manage).
+        import requests
+        url = "https://coldplay.bandcamp.com/album/ghost-stories"
+        calls = {"n": 0}
+        real_get = self.studio.get
+
+        def flaky(u):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise requests.Timeout("slow")
+            return real_get(u)
+
+        self.b.get = flaky
+        with unittest.mock.patch("tagcast.bandcamp.time.sleep"):
+            self.b.album(url)
+        self.assertEqual(calls["n"], 2)
+
+    def test_a_503_is_also_retried_before_giving_up(self):
+        url = "https://coldplay.bandcamp.com/album/ghost-stories"
+        calls = {"n": 0}
+        real_get = self.studio.get
+
+        def busy_then_ok(u):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return type("R", (), {"status_code": 503, "text": ""})()
+            return real_get(u)
+
+        self.b.get = busy_then_ok
+        with unittest.mock.patch("tagcast.bandcamp.time.sleep"):
+            self.b.album(url)
+        self.assertEqual(calls["n"], 2)
+
+    def test_gives_up_as_bandcamperror_after_retries_are_exhausted(self):
+        import requests
+        self.b.get = unittest.mock.Mock(side_effect=requests.Timeout("slow"))
+        with unittest.mock.patch("tagcast.bandcamp.time.sleep"):
+            with self.assertRaises(BandcampError):
+                self.b.album("https://coldplay.bandcamp.com/album/ghost-stories")
+        self.assertEqual(self.b.get.call_count, 3)  # first try + 2 retries
 
     def test_only_paid_songs(self):
         PAGES["https://x.bandcamp.com/album/paid"] = album_page("Paid", "X", [("A", False)])

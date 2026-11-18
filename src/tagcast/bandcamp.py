@@ -41,6 +41,30 @@ class BandcampError(LibraryError):
 
 log = logging.getLogger(__name__)
 
+
+def _fetch_with_retry(get, url, retries=2, base_delay=2.0):
+    """fork v104: a dropped connection, a slow response, or a 429/5xx (Bandcamp returning 503
+    while it's busy, say) used to fail the whole page read on the spot - now retried first
+    (a short, doubling pause), the same idea as Galaxy's own request_with_backoff() for GD
+    Studio, just without an API quota of its own to manage."""
+    attempt = 0
+    while True:
+        try:
+            r = get(url)
+        except (requests.Timeout, requests.ConnectionError):
+            if attempt >= retries:
+                raise
+            time.sleep(base_delay * (2 ** attempt))
+            attempt += 1
+            continue
+        if r.status_code == 429 or 500 <= r.status_code < 600:
+            if attempt >= retries:
+                return r  # let page()'s own status-code check report it, as before
+            time.sleep(base_delay * (2 ** attempt))
+            attempt += 1
+            continue
+        return r
+
 # What every browser sends; requests without them are a common trigger for "checking your
 # browser" pages (fork v33).
 HEADERS = {"User-Agent": UA, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -190,7 +214,7 @@ class Bandcamp(FileWorker):
                 time.sleep(wait)
             self._last = time.monotonic()
         try:
-            r = self.get(url)
+            r = _fetch_with_retry(self.get, url)
         except requests.RequestException as error:
             raise BandcampError(f"Bandcamp could not be reached ({error.__class__.__name__}).") from None
         if r.status_code == 404:
