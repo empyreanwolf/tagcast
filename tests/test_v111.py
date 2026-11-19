@@ -4,9 +4,9 @@ import time
 import unittest
 from unittest import mock
 
-from tagcast.pagelist import PageList, candidates_from_lines, dedupe, html_to_lines
-
 from test_pagelist import Studio
+
+from tagcast.pagelist import PageList, candidates_from_lines, dedupe, html_to_lines
 
 TABLE = """<table><tr><th>Artist</th><th>Song</th><th>Radio station / source</th></tr>
 <tr><td>!!!</td><td>All U Writers</td><td>Stockyard FM</td></tr>
