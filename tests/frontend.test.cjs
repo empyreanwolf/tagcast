@@ -12065,3 +12065,17 @@ test("fork v109: the fingerprint card offers install, then fingerprinting, then 
   p.run(`fingerprintView.data = {installed: true, library_total: 100, done: 97, failed: 3, running: false}`);
   assert.match(p.run("fingerprintCardHtml()"), /97 of 100 library songs fingerprinted, 3 couldn't be read[\s\S]*|Retry the 3 that failed/);
 });
+
+test("v111: From a page has a flip button per row and a Flip ticked/all button", () => {
+  const p = page();
+  p.run(`pagelistView.job = {id: "j", state: "done", done: 2, total: 2, source: "x", items: [
+    {id: "0", artist: "Dance With Me", album: "112", year: "", raw: "r", state: "ok", status: "new", you_have: [], cover: ""},
+    {id: "1", artist: "A", album: "B", year: "", raw: "r", state: "checking", status: "", you_have: [], cover: ""}]};
+    pagelistView.picked = new Set()`);
+  let html = p.run("pagelistHtml()");
+  assert.match(html, /data-pagelist-flip="0"/);
+  assert.doesNotMatch(html, /data-pagelist-flip="1"/);
+  assert.match(html, /Flip title \/ artist on all/);
+  p.run(`pagelistView.picked = new Set(["0"])`);
+  assert.match(p.run("pagelistHtml()"), /Flip title \/ artist on 1 ticked/);
+});

@@ -75,6 +75,34 @@ def check_link(link):
     return link
 
 
+ARTIST_HEADS = {"artist", "artists", "band", "performer", "musician", "act", "singer"}
+TITLE_HEADS = {"song", "songs", "title", "track", "tracks", "single", "album", "release", "name"}
+
+
+def table_lines(table_html):
+    """fork v111: a table whose header row names an artist column and a song / album column is read in the order
+    the header says ("Artist | Song" or "Song | Artist"), and a cell like "112" or "!!!" is kept. Returns the
+    "• artist – title" lines, or None for a table without such a header. (An en dash, so a leading number is not
+    taken for a rank.)"""
+    rows = [[clean_text(TAG.sub(" ", c)) for c in re.findall(r"(?is)<t[dh]\b[^>]*>(.*?)</t[dh]>", row)]
+            for row in re.findall(r"(?is)<tr\b[^>]*>(.*?)</tr>", table_html)]
+
+    def head(cell):
+        m = re.match(r"[a-z]+", cell.casefold())
+        return m.group(0) if m else ""
+    for n, cells in enumerate(rows[:3]):
+        words = [head(c) for c in cells]
+        artist = next((i for i, w in enumerate(words) if w in ARTIST_HEADS), None)
+        title = next((i for i, w in enumerate(words) if w in TITLE_HEADS and i != artist), None)
+        if artist is not None and title is not None:
+            break
+    else:
+        return None
+    lines = [f"• {cells[artist]} – {cells[title]}" for cells in rows[n + 1:]
+             if len(cells) > max(artist, title) and cells[artist] and cells[title]]
+    return "\n" + "\n".join(lines) + "\n" if lines else None
+
+
 def html_to_lines(source):
     """Page HTML -> plain lines. List items and headings get a bullet so they can be told from
     prose; a table row becomes "A - B" with the rank/year cells dropped."""
@@ -87,6 +115,7 @@ def html_to_lines(source):
         if len(cells) >= 2 and not {w.casefold() for w in cells[:2]} <= HEADER_WORDS:
             return f"\n• {cells[0]} - {cells[1]}\n"
         return "\n"
+    source = re.sub(r"(?is)<table\b[^>]*>(.*?)</table>", lambda m: table_lines(m.group(1)) or m.group(0), source)  # fork v111
     source = re.sub(r"(?is)<tr\b[^>]*>(.*?)</tr>", row, source)
     source = re.sub(r"(?i)<(?:li|h[1-6])\b[^>]*>", "\n• ", source)
     source = re.sub(r"(?i)</?(?:p|div|br|ul|ol|section|article|table|tr|blockquote|figure|figcaption|dt|dd|li|h[1-6])\b[^>]*>", "\n", source)
@@ -400,9 +429,9 @@ class PageList:
         threading.Thread(target=self._verify, args=(job,), daemon=True, name="page-list").start()
         return self.view(job["id"])
 
-    def _verify(self, job):
+    def _verify(self, job, items=None):
         try:
-            for item in job["items"]:
+            for item in items or job["items"]:
                 try:
                     self.resolve(item)
                 except Exception:
@@ -438,6 +467,25 @@ class PageList:
         self.resolve(item)
         self._status([item])
         return item
+
+    def flip(self, job_id, ids=None):
+        """fork v111: swap artist and title on the given rows (every row when none are given) and check them again
+        online in the background, as the page list's own checking does."""
+        job = self.jobs.get(str(job_id))
+        if not job:
+            raise PageError("That page is no longer loaded. Read it again.")
+        if job["state"] == "running":
+            raise PageError("Wait until the page has been checked, then flip.")
+        wanted = set(map(str, ids)) if ids else None
+        items = [i for i in job["items"] if (wanted is None or i["id"] in wanted) and i["artist"] and i["album"]]
+        if not items:
+            raise PageError("Nothing to flip.")
+        for i in items:
+            i.update(artist=i["album"], album=i["artist"], song=False, state="checking", status="", you_have=[], cover="")
+        job.update(state="running", done=0, total=len(items))
+        view = self.view(job["id"])   # taken before the check starts, so it says "running"
+        threading.Thread(target=self._verify, args=(job, items), daemon=True, name="page-list-flip").start()
+        return view
 
     def get(self, job_id, ids):
         """Fetch the ticked albums: grouped per artist, through Discography's chain."""

@@ -46,6 +46,7 @@ function pagelistHtml() {
       <span class="dl-badge new">${counts.new} New</span> <span class="dl-badge partly">${counts.partly} Partly</span> <span class="dl-badge have">${counts.have + counts.other} Have</span>
       ${counts.unsure ? `<span class="dl-badge">${counts.unsure} Not sure</span>` : ""}</p>
       <div class="dl-actions"><button type="button" class="button" data-pagelist-tick-new>Tick all New</button>
+        <button type="button" class="button" data-pagelist-flip-many ${job.state === "running" || v.busy ? "disabled" : ""} title="Swap the title and the artist, when the page lists them the other way round">⇄ Flip title / artist on ${v.picked.size ? `${v.picked.size} ticked` : "all"}</button>
         <button type="button" class="button primary" data-pagelist-get ${v.picked.size && !v.busy ? "" : "disabled"}>Download chosen albums (${v.picked.size})</button></div>
       <ul class="dl-list">${items.map(pagelistRowHtml).join("")}</ul>` : ""}`;
 }
@@ -58,7 +59,8 @@ function pagelistRowHtml(i) {
     <label><input type="checkbox" data-pagelist-pick="${escapeHtml(i.id)}" ${v.picked.has(i.id) ? "checked" : ""} ${i.album ? "" : "disabled"} aria-label="Choose ${escapeHtml(i.album || i.raw)}"></label>
     ${i.cover ? `<img class="dl-cover" src="${escapeHtml(i.cover)}" alt="" width="48" height="48" loading="lazy">` : ""}
     <div><div>${i.album ? `<b>${escapeHtml(i.album)}</b> · ${escapeHtml(i.artist)}${i.year ? ` · ${escapeHtml(i.year)}` : ""}` : `<i>${escapeHtml(i.raw)}</i>`}
-      ${i.state === "unsure" ? ` <span class="dl-badge" title="No online source knew this exact album">Not sure</span> <button type="button" class="button" data-pagelist-edit="${escapeHtml(i.id)}">Edit</button>` : ""}</div>
+      ${i.state === "unsure" ? ` <span class="dl-badge" title="No online source knew this exact album">Not sure</span> <button type="button" class="button" data-pagelist-edit="${escapeHtml(i.id)}">Edit</button>` : ""}
+      ${i.album && i.artist && i.state !== "checking" ? ` <button type="button" class="button" data-pagelist-flip="${escapeHtml(i.id)}" title="Swap the title and the artist of this row" aria-label="Flip title and artist of ${escapeHtml(i.album)}">⇄</button>` : ""}</div>
       ${i.status && i.status !== "new" ? `<div class="dl-have">${downloadsYouHave(i.you_have)}</div>` : ""}
       ${edit ? `<div class="dl-actions" data-pagelist-edit-row><input data-pagelist-artist maxlength="200" value="${escapeHtml(i.artist)}" aria-label="Artist"> <input data-pagelist-album maxlength="200" value="${escapeHtml(i.album)}" aria-label="Album">
         <button type="button" class="button" data-pagelist-recheck="${escapeHtml(i.id)}">Check again</button></div>` : ""}</div></li>`;
@@ -114,6 +116,12 @@ document.addEventListener("click", async event => {
   }
   if (target.closest("[data-pagelist-tick-new]")) {
     v.picked = new Set((v.job?.items || []).filter(i => i.status === "new" && i.album).map(i => i.id)); pagelistRender(); return;
+  }
+  const flip = target.closest("[data-pagelist-flip], [data-pagelist-flip-many]");
+  if (flip) {   // fork v111: swap title and artist of one row, or of the ticked rows (every row when none is ticked)
+    const ids = flip.dataset.pagelistFlip ? [flip.dataset.pagelistFlip] : [...v.picked];
+    try { v.job = await api("/api/pagelist/flip", {id: v.job.id, ids}); v.editing = null; pagelistPoll(); } catch (error) { toast(error.message); }
+    pagelistRender(); return;
   }
   const edit = target.closest("[data-pagelist-edit]");
   if (edit) { v.editing = v.editing === edit.dataset.pagelistEdit ? null : edit.dataset.pagelistEdit; pagelistRender(); return; }

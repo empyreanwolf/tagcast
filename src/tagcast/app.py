@@ -561,6 +561,7 @@ class Handler(SimpleHTTPRequestHandler):
                                                                   b.get("singles") is True, b.get("refresh") is True),
             "/api/labels/get": lambda b: self.studio.labels.get(b.get("rows")),
             "/api/pagelist/read": lambda b: self.studio.pagelist.read(str(b.get("link") or "")[:2000], str(b.get("text") or "")),
+            "/api/pagelist/flip": lambda b: self.studio.pagelist.flip(b.get("id"), b.get("ids")),
             "/api/pagelist/recheck": lambda b: self.studio.pagelist.recheck(b.get("id"), b.get("item"), b.get("artist"), b.get("album")),
             "/api/pagelist/get": lambda b: self.studio.pagelist.get(b.get("id"), b.get("ids")),
             "/api/youtube/settings": lambda b: self.studio.youtube.save_settings(b),
