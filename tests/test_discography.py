@@ -111,15 +111,29 @@ class DiscographyTests(unittest.TestCase):
         studio.discography.view("Coldplay")  # cached: no new tracklist fetch
         self.assertEqual(len(studio.http.calls), calls)
 
-    def test_a_discogs_token_skips_the_track_count_check(self):
+    def test_a_discogs_token_does_not_skip_the_track_count_check(self):
+        # fork v110: Discogs' "Appearance" role misses releases (Jus' Allah on Madecipha & 5:am's album), so the
+        # tracklist / credited-artist check now runs with a token too.
         studio = LocalStudio()
         studio.source_keys = lambda: {"discogs_token": "tok"}
-        studio.http.answers.update({"/album/11/tracks": {"data": [{"artist": {"name": "Someone Else"}}] * 14},
+        studio.http.answers.update({"/album/11/tracks": {"data": [{"artist": {"name": "Someone Else"}}] * 13
+                                                         + [{"artist": {"name": "Coldplay"}}]},
                                     "/database/search": {"results": []}})
         data = studio.discography.view("Coldplay")
         rel = {r["title"]: r for r in data["releases"]}
-        self.assertEqual(rel["Parachutes"]["type"], "album")  # Discogs' own role field is trusted instead
-        self.assertFalse(any(url.endswith("/album/11/tracks") for url in studio.http.calls))
+        self.assertEqual(rel["Parachutes"]["type"], "compile")
+        self.assertTrue(rel["Parachutes"]["appearance"])
+        self.assertTrue(any(url.endswith("/album/11/tracks") for url in studio.http.calls))
+
+    def test_a_release_credited_to_someone_else_is_a_guest_appearance_with_that_main_artist(self):
+        # fork v110: "Completely Disrespectful" is Madecipha & 5:am's album; Jus' Allah is only a guest on it.
+        studio = LocalStudio()
+        studio.http.answers.update({"/album/11/tracks": {"data": [{"artist": {"name": "Coldplay"}}] * 2},
+                                    "/album/11": {"artist": {"name": "Madecipha & 5:am"}, "contributors": [], "nb_tracks": 2}})
+        data = studio.discography.view("Coldplay")
+        rel = {r["title"]: r for r in data["releases"]}
+        self.assertTrue(rel["Parachutes"]["appearance"])
+        self.assertEqual(rel["Parachutes"]["main_artist"], "Madecipha & 5:am")
 
     def test_feat_in_title_is_flagged_as_an_appearance_with_no_extra_fetch(self):
         # fork v102: "Title (feat. <this artist>)" means they're a guest on someone else's song,

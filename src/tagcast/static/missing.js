@@ -3,12 +3,16 @@
 // "Missing" on the Downloads page (fork v16+): New releases of the artists you follow,
 // albums in your library that are only partly there, and the wishlist of things no source had.
 // "Get the missing" sends each artist's albums through Galaxy → Bandcamp → Soulseek.
-const missingView = {complete: null, completeQuery: "", completeOpen: new Map(), wishlist: null, wishKind: "album", settingsOpen: false, sub: "wishlist", releases: null, picked: new Set(), jobs: [], timer: null, jobTimer: null};
+const missingView = {complete: null, completeQuery: "", completeOpen: new Map(), wishlist: null, wishKind: "album", search: {q: "", data: null, busy: false}, settingsOpen: false, sub: "wishlist", releases: null, picked: new Set(), jobs: [], timer: null, jobTimer: null};
 const missingSubs = [["releases", "New releases"], ["complete", "Complete my albums"], ["wishlist", "Wishlist"]];
 
 function missingHtml() {
   const view = missingView;
-  return `<div class="missing-subs" role="tablist" aria-label="Missing music">${missingSubs.map(([key, label]) =>
+  return `<div class="missing-search" id="missing-search-box"><div class="search"><span aria-hidden="true">⌕</span>
+      <input id="missing-search" maxlength="200" placeholder="Search everything you have: songs, albums, artists" aria-label="Search your library, download history and Music folder" value="${escapeHtml(view.search.q)}" autocomplete="off">
+      ${view.search.q ? '<button type="button" class="text-action" data-missing-search-clear aria-label="Clear the search">✕</button>' : ""}</div>
+      <div id="missing-search-results" class="missing-search-results">${missingSearchHtml()}</div></div>
+    <div class="missing-subs" role="tablist" aria-label="Missing music">${missingSubs.map(([key, label]) =>
       `<button type="button" role="tab" aria-selected="${view.sub === key}" data-missing-sub="${key}">${label}${key === "releases" && view.releases?.unseen ? ` <b class="dl-count">${view.releases.unseen}</b>` : ""}</button>`).join("")}</div>
     ${missingJobsHtml()}
     <div id="missing-body">${missingBodyHtml()}</div>`;
@@ -21,6 +25,45 @@ function missingBodyHtml() {
 
 function missingRefresh() {
   if (downloadsView.tab === "missing" && $("#missing-body")) $("#missing-body").innerHTML = missingBodyHtml();
+}
+
+// fork v110: the search box that stays at the top while you scroll: what you already have (iBroadcast, download history,
+// Music folder) and which wishes match, each wish with a one-click remove.
+function missingSearchHtml() {
+  const q = missingView.search.q.trim(), d = missingView.search.data;
+  if (q.length < 2) return "";
+  if (!d) return '<p class="muted" role="status">Searching…</p>';
+  if (d.error) return `<p class="error-text">${escapeHtml(d.error)}</p>`;
+  const wish = ws => (ws || []).map(w => `<button type="button" class="button small wish-remove-one" data-missing-search-remove="${escapeHtml(w.id)}" title="Remove this from the wishlist">On wishlist${w.release ? ` (${escapeHtml(missingReleaseLabels[w.release] || w.release)})` : ""} · Remove</button>`).join(" ");
+  const section = (title, key, rows, line) => rows.length ? `<h4>${title} <span class="muted">${rows.length}${d.counts && d.counts[key] > rows.length ? ` of ${d.counts[key]}` : ""}</span></h4>
+    <ul class="dl-list dl-nofold missing-search-list">${rows.map(r => `<li>${line(r)}</li>`).join("")}</ul>` : "";
+  const wished = d.wished || [];
+  const body = [
+    wished.length ? `<h4>On your wishlist <span class="muted">${wished.length}</span></h4><ul class="dl-list dl-nofold missing-search-list">${wished.map(w => `<li><span class="dl-badge new">${escapeHtml(wishlistReleaseLabel(w))}</span>
+      <div><b>${escapeHtml(w.title)}</b> <span class="muted">· ${escapeHtml(w.artist)}${w.owned ? " · flagged as in your library" : ""}</span></div>
+      <button type="button" class="button small wish-remove-one" data-missing-search-remove="${escapeHtml(w.id)}">Remove</button></li>`).join("")}</ul>` : "",
+    section("Songs in your library", "songs", d.songs, r => `<span class="dl-badge have">Song</span><div><b>${escapeHtml(r.title)}</b> <span class="muted">· ${escapeHtml(r.artist)} · <i>${escapeHtml(r.album)}</i></span> ${wish(r.wishes)}</div>`),
+    section("Albums in your library", "albums", d.albums, r => `<span class="dl-badge have">Album</span><div><b>${escapeHtml(r.title)}</b> <span class="muted">· ${escapeHtml(r.artist)} · ${r.tracks} ${r.tracks === 1 ? "song" : "songs"}</span> ${wish(r.wishes)}</div>`),
+    section("History: downloaded", "history", d.history, r => `<span class="dl-badge downloaded">Downloaded</span><div><b>${escapeHtml(r.title)}</b> <span class="muted">· ${escapeHtml(r.artist)}${r.album ? ` · <i>${escapeHtml(r.album)}</i>` : ""}${r.pc ? ` · ${escapeHtml(r.pc)}` : ""}</span> ${wish(r.wishes)}</div>`),
+    section("Files in your Music folder", "files", d.files, r => `<span class="dl-badge folder">File</span><div class="muted">${escapeHtml(r)}</div>`),
+  ].join("");
+  return body || `<p class="muted" role="status">Nothing matches “${escapeHtml(q)}” in your library, history or Music folder.</p>`;
+}
+
+async function missingSearchRun() {
+  const s = missingView.search, q = s.q.trim();
+  if (q.length < 2) { s.data = null; if ($("#missing-search-results")) $("#missing-search-results").innerHTML = ""; return; }
+  s.data = null;
+  if ($("#missing-search-results")) $("#missing-search-results").innerHTML = missingSearchHtml();
+  try { s.data = await api(`/api/wishlist/search?q=${encodeURIComponent(q)}`); } catch (error) { s.data = {error: error.message}; }
+  if (s.q.trim() === q && $("#missing-search-results")) $("#missing-search-results").innerHTML = missingSearchHtml();
+}
+
+const missingReleaseLabels = {album: "Album", ep: "EP", single: "Single", song: "Song"};
+
+// fork v110: a wish says what it is: Album, EP, Single or Song ("Release" while the type is not known yet).
+function wishlistReleaseLabel(i) {
+  return missingReleaseLabels[i.release] || (i.kind === "song" ? "Song" : "Release");
 }
 
 // v72: copy a row's title, artist, album or all three ("Artist - Title (Album)") with one click.
@@ -162,10 +205,10 @@ function wishlistOwnedHtml(w) {
   const ticked = rows.filter(wishlistOwnTicked).length;
   return `${checked}<div class="wishlist-owned"><h3>Found in your library (${rows.length})</h3>
     <ul class="dl-list">${rows.map(i => {
-      const have = (i.owned.you_have || []).map(h => `${escapeHtml(h.title || "")} · ${escapeHtml(h.artist || "")}${h.album ? ` · ${escapeHtml(h.album)}` : ""}${h.tracks ? ` (${h.tracks} songs)` : ""}`).join("; ");
+      const have = (i.owned.you_have || []).map(h => `${escapeHtml(h.title || "")} · ${escapeHtml(h.artist || "")}${h.album ? ` · ${escapeHtml(h.album)}` : ""}${h.tracks ? ` (${h.tracks} songs)` : ""}${h.downloaded ? " · downloaded, not uploaded yet" : ""}`).join("; ");
       return `<li><input type="checkbox" data-wishlist-own="${escapeHtml(i.id)}" aria-label="Remove ${escapeHtml(i.title)}" ${wishlistOwnTicked(i) ? "checked" : ""}>
-        <span class="dl-badge ${i.owned.sure ? "have" : "partly"}">${i.owned.sure ? "Sure" : "Maybe"}</span>
-        <div><b>${escapeHtml(i.title)}</b> <span class="muted">· ${escapeHtml(i.artist)}</span>
+        <span class="dl-badge ${i.owned.sure ? "have" : "partly"}">${i.owned.sure ? "Sure" : "Maybe"}</span> <span class="dl-badge new">${escapeHtml(wishlistReleaseLabel(i))}</span>
+        <div><b>${escapeHtml(i.title)}</b> <span class="muted">· ${escapeHtml(i.artist)}${i.owned.all_songs ? " · you have every song of it" : ""}</span>
           <div class="muted">You have: ${have}</div></div></li>`;
     }).join("")}</ul>
     <div class="dl-actions"><button type="button" class="button primary" data-wishlist="own-remove" ${ticked ? "" : "disabled"}>Remove ticked (${ticked})</button>
@@ -179,8 +222,8 @@ function wishlistHtml() {
   const picked = w.items.filter(i => missingView.picked.has(i.id)).length, p = w.progress;
   return `<p class="muted">Albums and songs that Bandcamp, Galaxy and Soulseek didn't have. Tagcast tries them again every
       <input id="wishlist-days" type="number" min="1" max="30" value="${w.every_days}" class="releases-days" aria-label="Days between tries"> days while it is open.</p>
-    <div class="dl-actions"><input id="wishlist-line" class="dl-path" maxlength="300" placeholder="${missingView.wishKind === "album" ? "Artist - Album" : "Artist - Title"}" aria-label="Add a wish">
-      <select id="wishlist-kind" aria-label="Album or song"><option value="album" ${missingView.wishKind === "album" ? "selected" : ""}>Album</option><option value="song" ${missingView.wishKind === "song" ? "selected" : ""}>Song</option></select>
+    <div class="dl-actions"><input id="wishlist-line" class="dl-path" maxlength="300" placeholder="${missingView.wishKind !== "song" ? "Artist - Album" : "Artist - Title"}" aria-label="Add a wish">
+      <select id="wishlist-kind" aria-label="Album, EP, single or song">${[["album", "Album"], ["ep", "EP"], ["single", "Single"], ["song", "Song"]].map(([v, l]) => `<option value="${v}" ${missingView.wishKind === v ? "selected" : ""}>${l}</option>`).join("")}</select>
       <button type="button" class="button" data-wishlist="add">Add to wishlist</button></div>
     ${p ? `<p class="muted" role="status">Trying ${p.done + 1 > p.total ? p.total : p.done + 1} of ${p.total}: ${escapeHtml(p.title || "")}…</p>` : ""}
     ${w.items.length ? `<div class="dl-actions">
@@ -190,9 +233,11 @@ function wishlistHtml() {
         <button type="button" class="button" data-wishlist="check-library" ${p ? "disabled" : ""} title="Compare the wishlist with your iBroadcast library">Check my library</button></div>
       ${wishlistOwnedHtml(w)}
       <ul class="dl-list">${w.items.map(i => `<li><input type="checkbox" data-wishlist-pick="${i.id}" aria-label="Select ${escapeHtml(i.title)}" ${missingView.picked.has(i.id) ? "checked" : ""}>
-        <span class="dl-badge new">${i.kind === "album" ? "Album" : "Song"}</span>${i.owned ? ' <span class="dl-badge have">In your library?</span>' : ""}
-        <div><b>${escapeHtml(i.title)}</b> <span class="muted">· ${escapeHtml(i.artist)}${i.album ? ` · ${escapeHtml(i.album)}` : ""}</span>
+        <span class="dl-badge new">${escapeHtml(wishlistReleaseLabel(i))}</span>${i.owned ? ' <span class="dl-badge have">In your library?</span>' : ""}${i.partial ? ` <span class="dl-badge partly">Have ${i.partial.have.length} of ${i.partial.total}</span>` : ""}
+        <div><b>${escapeHtml(i.title)}</b> <span class="muted">· ${escapeHtml(i.artist)}${i.featured ? ` · featured: ${escapeHtml(i.featured)}` : ""}${i.album ? ` · ${escapeHtml(i.album)}` : ""}</span>
           <div class="muted">${i.tries} ${i.tries === 1 ? "try" : "tries"} · ${escapeHtml(i.note || "")} · next try ${missingDate(i.next_try)}</div>
+          ${i.partial ? `<div class="muted">You have: ${i.partial.have.map(h => escapeHtml(h.title) + (h.album ? ` (<i>${escapeHtml(h.album)}</i>)` : "")).join("; ")} · Missing: ${i.partial.missing.map(escapeHtml).join("; ") || "nothing"}</div>
+            ${i.partial.missing.length ? `<div class="dl-actions"><button type="button" class="button primary" data-wishlist="split" data-wish-id="${escapeHtml(i.id)}" ${p ? "disabled" : ""}>Keep only the missing songs (${i.partial.missing.length})</button></div>` : ""}` : ""}
           ${wishlistSearchAsHtml(i)}
           ${missingCopyHtml(i.title, i.artist, i.kind === "album" ? i.title : i.album)}</div>
         <button type="button" class="button wish-remove-one" data-wishlist="remove-one" data-wish-id="${escapeHtml(i.id)}" ${p ? "disabled" : ""} aria-label="Remove ${escapeHtml(i.title)} from the wishlist">Remove</button></li>`).join("")}</ul>`
@@ -297,6 +342,9 @@ document.addEventListener("click", event => {
       const ids = rows.filter(i => wishlistOwnTicked(i) === (action === "own-remove")).map(i => i.id);
       if (!ids.length) return;
       downloadsRun(async () => { view.wishlist = await api(action === "own-remove" ? "/api/wishlist/remove" : "/api/wishlist/keep", {ids}); ids.forEach(id => { view.ownTicked?.delete(id); view.picked.delete(id); }); missingRefresh(); });
+    } else if (action === "split") {
+      const id = wish.dataset.wishId;
+      downloadsRun(async () => { view.wishlist = await api("/api/wishlist/split", {ids: [id]}); view.picked.delete(id); missingRefresh(); });
     } else if (action === "searchas-open") {
       view.searchAs = view.searchAs === wish.dataset.wishId ? null : wish.dataset.wishId; missingRefresh();
     } else if (action === "suggest" || action === "searchas") {
@@ -307,6 +355,19 @@ document.addEventListener("click", event => {
       view.searchAs = null;
       downloadsRun(async () => { view.wishlist = await api("/api/wishlist/search-as", {id, artist, title}); missingRefresh(); wishlistLoad(); });
     }
+    return;
+  }
+  const searchRemove = target.closest("[data-missing-search-remove]");
+  if (searchRemove) {
+    const id = searchRemove.dataset.missingSearchRemove;
+    downloadsRun(async () => { view.wishlist = await api("/api/wishlist/remove", {ids: [id]}); view.picked.delete(id); missingRefresh(); await missingSearchRun(); });
+    return;
+  }
+  if (target.closest("[data-missing-search-clear]")) {
+    view.search.q = ""; view.search.data = null;
+    const box = $("#missing-search"); if (box) { box.value = ""; box.focus(); }
+    $("#missing-search-results").innerHTML = "";
+    target.closest("[data-missing-search-clear]").remove();
     return;
   }
   const button = target.closest("[data-releases]");
@@ -348,6 +409,12 @@ document.addEventListener("toggle", event => {
 }, true);
 
 document.addEventListener("input", event => {
+  if (event.target.id === "missing-search") {
+    missingView.search.q = event.target.value;
+    clearTimeout(missingView.searchRunTimer);
+    missingView.searchRunTimer = setTimeout(missingSearchRun, 350);
+    return;
+  }
   if (event.target.id !== "complete-search") return;
   missingView.completeQuery = event.target.value;
   clearTimeout(missingView.searchTimer);

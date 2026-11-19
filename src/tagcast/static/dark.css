@@ -244,6 +244,11 @@
 :root[data-theme="dark"] .release-kinds .chip.active{color:#1b2520}
 :root[data-theme="dark"] .release-kinds .chip.active .muted{color:#1f1f1fc0}
 :root[data-theme="dark"] .wish-remove-one:hover{color:#1b2520;background:#ff8881;border-color:#ff8881}
+:root[data-theme="dark"] .dl-dot{background:#6e6e6e}
+:root[data-theme="dark"] .dl-dot.downloaded{background:#81abff}
+:root[data-theme="dark"] .dl-dot.have{background:#60bc68}
+:root[data-theme="dark"] .dl-dot.partly{background:#b78100}
+:root[data-theme="dark"] ul.dl-failed>li{border:1px solid #a3706a}
 
 /* set by hand */
 :root[data-theme="dark"]{color-scheme:dark}
@@ -503,6 +508,11 @@
 :root:not([data-theme="light"]) .release-kinds .chip.active{color:#1b2520}
 :root:not([data-theme="light"]) .release-kinds .chip.active .muted{color:#1f1f1fc0}
 :root:not([data-theme="light"]) .wish-remove-one:hover{color:#1b2520;background:#ff8881;border-color:#ff8881}
+:root:not([data-theme="light"]) .dl-dot{background:#6e6e6e}
+:root:not([data-theme="light"]) .dl-dot.downloaded{background:#81abff}
+:root:not([data-theme="light"]) .dl-dot.have{background:#60bc68}
+:root:not([data-theme="light"]) .dl-dot.partly{background:#b78100}
+:root:not([data-theme="light"]) ul.dl-failed>li{border:1px solid #a3706a}
 
 /* set by hand */
 :root:not([data-theme="light"]){color-scheme:dark}

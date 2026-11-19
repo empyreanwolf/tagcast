@@ -172,12 +172,12 @@ document.addEventListener("click", event => {
     // or a "(feat. <artist>)" title match) instead of re-guessing it from type + source here - that
     // guess missed a Deezer-only guest detection (no Discogs source string to match).
     const albums = view.data.releases.filter(r => view.types.has(r.type) && view.picked.has(r.title))
-      .map(r => ({title: r.title, status: r.status, deezer_id: r.deezer_id, tracks: r.tracks, appearance: !!r.appearance}));
+      .map(r => ({title: r.title, status: r.status, deezer_id: r.deezer_id, tracks: r.tracks, appearance: !!r.appearance, type: r.type, main_artist: r.main_artist || ""}));
     downloadsRun(() => discographyGet(albums, []));
   } else if (action === "get-full-album") {
     const title = button.dataset.discographyTitle;
     const r = view.data.releases.find(rel => rel.title === title);
-    if (r) downloadsRun(() => discographyGet([{title: r.title, status: r.status, deezer_id: r.deezer_id, tracks: r.tracks, appearance: true, full_album: true}], []));
+    if (r) downloadsRun(() => discographyGet([{title: r.title, status: r.status, deezer_id: r.deezer_id, tracks: r.tracks, appearance: true, full_album: true, type: r.type, main_artist: r.main_artist || ""}], []));
   } else if (action === "get-songs") {
     const songs = view.top.songs.filter(s => view.pickedSongs.has(s.title)).map(s => ({title: s.title, album: s.album}));
     downloadsRun(() => discographyGet([], songs));

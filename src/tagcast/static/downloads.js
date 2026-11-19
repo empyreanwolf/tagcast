@@ -71,6 +71,12 @@ function downloadsPoll() {
       const [queue, galaxy, finding, info, moreLinks] = await Promise.all([api("/api/downloads/queue"), api("/api/galaxy/status"), api("/api/discography/active"), api("/api/downloads"), api("/api/more/links/active")]);
       const waitingBefore = downloadsView.info?.genre_waiting || 0;
       if (info && downloadsView.info) downloadsView.info.genre_waiting = info.genre_waiting || 0;
+      // fork v110: a finished download adds a row to the history; reload the table while you are looking at it (not while you type in its search).
+      if (info && downloadsView.info && info.history !== downloadsView.info.history) {
+        downloadsView.info.history = info.history;
+        if (info.history_sources) downloadsView.info.history_sources = info.history_sources;
+        if (downloadsView.tab === "queue" && document.activeElement?.id !== "downloads-history-search") { await loadDownloadsHistory(); renderDownloads(); }
+      }
       downloadsView.finding = finding.jobs;
       const failed = (downloadsView.queue || []).filter(i => i.state === "failed").length;
       downloadsView.queue = queue.queue; downloadsView.held = queue.held; downloadsView.galaxy = galaxy;
@@ -179,12 +185,20 @@ function renderDownloads() {
 function downloadsYouHave(rows) {
   return (rows || []).map(r => r.where === "folder" ? `<span>In your download folder: ${escapeHtml(r.path || r.title)}</span>` : r.where === "ibroadcast"
     ? `<span>iBroadcast: ${escapeHtml(r.title)} · ${escapeHtml(r.artist)}${r.album ? ` · <i>${escapeHtml(r.album)}</i>` : ""}${r.tracks ? ` · ${r.tracks} ${r.tracks === 1 ? "track" : "tracks"}` : ""}${r.edition ? " · other edition" : ""}</span>`
-    : `<span>Downloaded ${escapeHtml(downloadsDate(r.when) || "before")} via ${escapeHtml(downloadsSourceLabels[r.source] || r.source || "?")}${r.pc ? ` at <b>${escapeHtml(r.pc)}</b>` : ""}, not uploaded yet: ${escapeHtml(r.title)}${r.artist ? ` · ${escapeHtml(r.artist)}` : ""}${r.songs ? ` (${r.songs} songs)` : ""}</span>`).join("");
+    : `<span>Downloaded ${escapeHtml(downloadsDate(r.when) || "before")} via ${escapeHtml(downloadsSourceLabels[r.source] || r.source || "?")}${r.pc ? ` at <b>${escapeHtml(r.pc)}</b>` : ""}, not uploaded yet: ${escapeHtml(r.title)}${r.artist ? ` · ${escapeHtml(r.artist)}` : ""}${r.songs ? ` (${r.songs <= 3 ? "Single" : r.songs <= 6 ? "EP" : "Album"}, ${r.songs} songs)` : r.album ? ` · <i>${escapeHtml(r.album)}</i>` : ""}</span>`).join("");
+}
+
+// fork v110: Album, EP, Single or Song - from the release type when it is known, else from the song count.
+function downloadsReleaseName(item) {
+  if (item.kind !== "album") return "Song";
+  const type = item.release || (item.tracks ? (item.tracks <= 3 ? "single" : item.tracks <= 6 ? "ep" : "album") : "album");
+  return {album: "Album", ep: "EP", single: "Single"}[type] || "Album";
 }
 
 function downloadsItemLabel(item) {
-  const tracks = item.kind === "album" && item.tracks ? ` · ${item.tracks} tracks` : "";
-  return `${item.kind === "album" ? "Album: " : ""}<b>${escapeHtml(item.title)}</b>${item.artist ? ` · ${escapeHtml(item.artist)}` : ""}${tracks}`;
+  const tracks = item.kind === "album" && item.tracks ? ` · ${item.tracks} ${item.tracks === 1 ? "song" : "songs"}` : "";
+  const album = item.kind !== "album" && item.album ? ` · <i>${escapeHtml(item.album)}</i>` : "";
+  return `<span class="dl-type">${downloadsReleaseName(item)}</span> <b>${escapeHtml(item.title)}</b>${item.artist ? ` · ${escapeHtml(item.artist)}` : ""}${album}${tracks}`;
 }
 
 function downloadsCheckHtml() {
@@ -257,6 +271,8 @@ function downloadsQueueBoxHtml() {
   const order = {failed: 0, active: 1, queued: 2, done: 3, skipped: 4};  // v104: failed first - needs your attention
   const rows = [...queue].map((item, index) => ({item, index})).sort((a, b) => (order[a.item.state] ?? 5) - (order[b.item.state] ?? 5)
     || (["done", "skipped"].includes(a.item.state) ? b.index - a.index : a.index - b.index)).map(r => r.item);
+  const failedRows = rows.filter(i => i.state === "failed"), otherRows = rows.filter(i => i.state !== "failed");
+  const shown = downloadsView.queueShown || 50;  // fork v110: 50 at first, then 50 more at a time
   const queuedTotal = count("queued") + count("active"), doneTotal = count("done");
   const overall = queuedTotal + doneTotal ? Math.round(doneTotal / (queuedTotal + doneTotal) * 100) : 0;
   const label = i => i.state === "active" ? `Step ${Math.max(1, (i.step ?? 0) + 1)}/5 · ${downloadsSteps[i.step] || "Starting"}`
@@ -272,25 +288,50 @@ function downloadsQueueBoxHtml() {
       <button type="button" class="button small" data-activity-open data-activity-cat="downloads" title="Every queue step, with why it failed">Activity log</button></div>
     <p class="muted" role="status">${galaxyStatusHtml()}</p>
     ${queuedTotal + doneTotal ? `<div class="dl-overall"><span>Overall: ${doneTotal} of ${queuedTotal + doneTotal} saved</span><progress max="100" value="${overall}" aria-label="Overall progress"></progress></div>` : ""}
-    ${rows.length ? `<ul class="dl-list">${rows.map(i => `<li class="dl-job ${escapeHtml(i.state)}"><span class="dl-badge ${badge(i)}">${escapeHtml(label(i))}</span>
-      ${i.payload ? galaxyThumb(i.payload.source, i.payload.pic_id, 100) : ""}
-      <div>${downloadsItemLabel(i)}${i.album ? ` <span class="muted">· ${escapeHtml(i.album)}</span>` : ""}
-        ${i.state === "active" ? `<div class="dl-progress"><progress max="100" value="${i.progress || 0}" aria-label="Download progress"></progress>
-          <span class="${(i.idle || 0) >= 600 ? "error-text" : (i.idle || 0) >= 120 ? "dl-stuck" : "muted"}">${escapeHtml(i.step_detail || "")}${i.eta ? ` · ${downloadsSeconds(i.eta)} left` : ""}</span></div>` : ""}
-        <div class="muted">${escapeHtml(downloadsSourceName(i))}${downloadsOriginHtml(i)}${i.state === "done" ? ` · ${escapeHtml(i.path || "")}` : ""}${i.note && i.state !== "done" ? ` · ${escapeHtml(i.note)}` : i.state === "done" && i.note && i.note !== "Saved" ? ` · ${escapeHtml(i.note)}` : ""}</div></div>
-      <div class="dl-row-actions">
-        ${i.state === "failed" ? `<button type="button" class="button small" data-galaxy-control="retry" data-id="${escapeHtml(i.id)}">Retry</button>` : ""}
-        ${i.state === "failed" ? (i.kind === "album"
-          ? (i.artist && i.album ? `<button type="button" class="button small" data-dl-copy="${escapeHtml(`${i.artist} ${i.album}`)}" title="Copy artist and album, to search for it yourself">Copy artist &amp; album</button>` : "")
-          : (i.artist ? `<button type="button" class="button small" data-dl-copy="${escapeHtml(`${i.artist} ${i.title}`)}" title="Copy artist and title, to search for it yourself">Copy artist &amp; title</button>` : "")) : ""}
-        ${i.state === "failed" && i.kind !== "album" && i.source !== "youtube" ? `<button type="button" class="button small" data-dl-try-youtube="${escapeHtml(i.id)}" title="Look this song up on YouTube instead">⬇ Try YouTube</button>` : ""}
-        ${i.state === "failed" && i.youtube_near?.id ? `<button type="button" class="button small" data-dl-use-near="${escapeHtml(i.id)}" title="${escapeHtml(i.youtube_near.title)}">⬇ Use this one</button>` : ""}
-        ${i.state === "failed" && i.short_seconds ? `<button type="button" class="button small" data-galaxy-control="allow_short" data-id="${escapeHtml(i.id)}" title="It is a real ${escapeHtml(String(i.short_seconds))}-second track (an intro or skit): download it again and keep it">Keep it (short track)</button>` : ""}
-        ${i.state === "queued" && i.link && queue.filter(q => q.state === "queued" && q.link === i.link).length > 1 ? `<button type="button" class="button small" data-dl-cancel-link="${escapeHtml(i.link)}" title="Remove every waiting song from this link">✕ All from link (${queue.filter(q => q.state === "queued" && q.link === i.link).length})</button>` : ""}
-        ${i.state === "queued" && i.payload ? `<button type="button" class="button small" data-galaxy-control="top" data-id="${escapeHtml(i.id)}" title="Move to top">⤒</button>` : ""}
-        <button type="button" class="button small" ${i.payload ? `data-galaxy-control="remove" data-id="${escapeHtml(i.id)}"` : `data-downloads-remove="${escapeHtml(i.id)}"`}
-          aria-label="${i.state === "active" ? "Cancel" : "Remove"} ${escapeHtml(i.title)}">${i.state === "active" ? "Cancel" : "✕"}</button></div></li>`).join("")}</ul>`
-      : '<p class="muted">The queue is empty. Search on the Galaxy tab and press Download.</p>'}`;
+    ${failedRows.length ? `<h3>Failed <span class="muted">${failedRows.length}</span></h3>
+      <ul class="dl-list dl-failed">${failedRows.map(downloadsFailedRowHtml).join("")}</ul>` : ""}
+    ${otherRows.length ? `<h3>Queue <span class="muted">${otherRows.length}</span></h3>
+      <ul class="dl-list dl-compact">${otherRows.slice(0, shown).map(i => downloadsCompactCellHtml(i, label, badge)).join("")}</ul>
+      ${otherRows.length > 50 ? `<div class="dl-more"><span class="muted">Showing ${Math.min(shown, otherRows.length)} of ${otherRows.length}</span>
+        ${shown < otherRows.length ? `<button type="button" class="button small" data-dl-queue-more>Show next 50</button><button type="button" class="button small" data-dl-queue-all>Show all ${otherRows.length}</button>` : ""}
+        ${shown > 50 ? `<button type="button" class="button small" data-dl-queue-fewer>Show fewer</button>` : ""}</div>` : ""}`
+      : failedRows.length ? "" : '<p class="muted">The queue is empty. Search on the Galaxy tab and press Download.</p>'}`;
+}
+
+// fork v110: a failed item has its own list, with the same helpers as the wishlist: copy title / artist / album / all, a web search,
+// Try YouTube, Retry and Remove.
+function downloadsFailedRowHtml(i) {
+  const copy = typeof missingCopyHtml === "function" ? missingCopyHtml(i.title, i.artist, i.kind === "album" ? i.title : i.album) : "";
+  return `<li class="dl-job failed"><span class="dl-badge partly">Failed</span>
+    <div>${downloadsItemLabel(i)}
+      <div class="muted">${escapeHtml(downloadsSourceName(i))}${downloadsOriginHtml(i)}${i.note ? ` · ${escapeHtml(i.note)}` : ""}</div>
+      <div class="dl-row-actions dl-failed-actions">
+        <button type="button" class="button small" data-galaxy-control="retry" data-id="${escapeHtml(i.id)}">Retry</button>
+        ${i.kind !== "album" && i.source !== "youtube" ? `<button type="button" class="button small" data-dl-try-youtube="${escapeHtml(i.id)}" title="Look this song up on YouTube instead">⬇ Try YouTube</button>` : ""}
+        ${i.youtube_near?.id ? `<button type="button" class="button small" data-dl-use-near="${escapeHtml(i.id)}" title="${escapeHtml(i.youtube_near.title)}">⬇ Use this one</button>` : ""}
+        ${i.short_seconds ? `<button type="button" class="button small" data-galaxy-control="allow_short" data-id="${escapeHtml(i.id)}" title="It is a real ${escapeHtml(String(i.short_seconds))}-second track (an intro or skit): download it again and keep it">Keep it (short track)</button>` : ""}
+        ${copy}</div></div>
+    <div class="dl-row-actions"><button type="button" class="button small wish-remove-one" ${i.payload ? `data-galaxy-control="remove" data-id="${escapeHtml(i.id)}"` : `data-downloads-remove="${escapeHtml(i.id)}"`} aria-label="Remove ${escapeHtml(i.title)}">Remove</button></div></li>`;
+}
+
+// fork v110: one waiting / active / saved item in the compact grid: title and artist on one line, the album very small
+// underneath (bigger on hover), the source as a small tag, move-to-top and remove as small icons.
+function downloadsCompactCellHtml(i, label, badge) {
+  const sameLink = i.link ? (downloadsView.queue || []).filter(q => q.state === "queued" && q.link === i.link).length : 0;
+  const name = `${escapeHtml(i.title)}${i.artist ? ` <span class="muted">· ${escapeHtml(i.artist)}</span>` : ""}`;
+  const album = i.kind === "album" ? `${downloadsReleaseName(i)}${i.tracks ? `, ${i.tracks} songs` : ""}` : i.album || "";
+  return `<li class="dl-job dl-cell ${escapeHtml(i.state)}" title="${escapeHtml(label(i))}">
+    <span class="dl-dot ${badge(i)}" aria-hidden="true"></span>
+    <div class="dl-cell-body"><div class="dl-cell-name"><span class="dl-type">${downloadsReleaseName(i)}</span> ${name}</div>
+      ${album ? `<div class="dl-cell-album">${escapeHtml(album)}</div>` : ""}
+      ${i.state === "active" ? `<div class="dl-progress"><progress max="100" value="${i.progress || 0}" aria-label="Download progress"></progress> <span class="muted">${escapeHtml(label(i))}${i.eta ? ` · ${downloadsSeconds(i.eta)} left` : ""}</span></div>` : ""}
+      ${i.state === "done" && i.note && i.note !== "Saved" ? `<div class="dl-cell-album">${escapeHtml(i.note)}</div>` : ""}
+      ${downloadsOriginHtml(i) ? `<div class="dl-cell-origin">${downloadsOriginHtml(i).replace(/^ · /, "")}</div>` : ""}</div>
+    <span class="dl-cell-src">${escapeHtml(downloadsSourceName(i))}</span>
+    ${i.state === "queued" && i.link && sameLink > 1 ? `<button type="button" class="dl-icon" data-dl-cancel-link="${escapeHtml(i.link)}" title="Remove every waiting song from this link">✕ all (${sameLink})</button>` : ""}
+    ${i.state === "queued" && i.payload ? `<button type="button" class="dl-icon" data-galaxy-control="top" data-id="${escapeHtml(i.id)}" title="Move to top" aria-label="Move ${escapeHtml(i.title)} to the top">⤒</button>` : ""}
+    <button type="button" class="dl-icon" ${i.payload ? `data-galaxy-control="remove" data-id="${escapeHtml(i.id)}"` : `data-downloads-remove="${escapeHtml(i.id)}"`}
+      aria-label="${i.state === "active" ? "Cancel" : "Remove"} ${escapeHtml(i.title)}" title="${i.state === "active" ? "Cancel" : "Remove"}">${i.state === "active" ? "⏹" : "✕"}</button></li>`;
 }
 
 function downloadsQueueHtml() {
@@ -403,6 +444,11 @@ document.addEventListener("click", event => {
       downloadsNote(`${data.decided} ${action === "skip" ? "skipped" : "added to the queue"}.`);
       await loadDownloads();
     });
+    return;
+  }
+  if (target.closest("[data-dl-queue-more], [data-dl-queue-all], [data-dl-queue-fewer]")) {
+    downloadsView.queueShown = target.closest("[data-dl-queue-all]") ? Infinity : target.closest("[data-dl-queue-fewer]") ? 50 : (downloadsView.queueShown || 50) + 50;
+    downloadsManagerRender();
     return;
   }
   const fold = target.closest("[data-dl-fold-toggle]");

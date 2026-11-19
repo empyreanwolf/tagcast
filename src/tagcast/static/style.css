@@ -1358,3 +1358,31 @@ th.sortable-th .sort-arrow{font-size:calc(10px*var(--ts));color:var(--accent,cur
 /* Fork v96: a per-row "Remove" on the wishlist, apart from Search as... so a stray click doesn't hit it */
 .wish-remove-one{align-self:center;margin-left:16px;color:var(--muted);border-color:var(--line)}
 .wish-remove-one:hover{color:#fff;background:#b23b3b;border-color:#b23b3b}
+
+/* fork v110: sticky Missing search, compact two-column queue, separate failed list, type badges */
+.missing-search{position:sticky;top:0;z-index:30;background:var(--paper);padding:8px 0 6px;border-bottom:1px solid var(--line);margin-bottom:10px}
+.missing-search .search{max-width:760px}
+.missing-search-results{max-height:55vh;overflow:auto}
+.missing-search-results h4{margin:10px 0 4px;font-size:calc(13px*var(--ts))}
+.missing-search-list{margin:0 0 8px}
+.missing-search-list li{padding:6px 0;align-items:center}
+.dl-type{display:inline-block;font-size:calc(11px*var(--ts));font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-right:4px}
+ul.dl-compact{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;border-top:0;margin-top:6px}
+ul.dl-compact>li{padding:4px 8px;gap:6px;border:1px solid var(--line);border-radius:6px;align-items:flex-start}
+ul.dl-compact>li:hover{border-color:var(--muted)}
+.dl-dot{flex:none;width:8px;height:8px;border-radius:50%;margin-top:6px;background:#bdbdbd}
+.dl-dot.downloaded{background:#4a6fc7}.dl-dot.have{background:#3c9a47}.dl-dot.partly{background:#d29a2a}
+.dl-cell-body{flex:1;min-width:0}
+.dl-cell-name{font-size:calc(13px*var(--ts));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dl-cell-album{font-size:calc(11px*var(--ts));color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:font-size .12s}
+.dl-cell:hover .dl-cell-name,.dl-cell:hover .dl-cell-album{white-space:normal}
+.dl-cell:hover .dl-cell-album{font-size:calc(14px*var(--ts))}
+.dl-cell-src{flex:none;font-size:calc(11px*var(--ts));color:var(--muted);margin-top:3px}
+.dl-icon{flex:none;border:0;background:none;color:var(--muted);padding:0 4px;font-size:calc(14px*var(--ts));line-height:1.4}
+.dl-icon:hover{color:var(--ink)}
+.dl-more{display:flex;gap:8px;align-items:center;margin:8px 0 18px}
+ul.dl-failed>li{border:1px solid #d9a39c;border-radius:8px;padding:10px 12px;margin-bottom:6px;border-bottom-width:1px}
+.dl-failed-actions{flex-wrap:wrap;align-items:center;margin-top:6px}
+@media (max-width:760px){ul.dl-compact{grid-template-columns:minmax(0,1fr)}}
+.dl-cell-origin{display:none;font-size:calc(11px*var(--ts));color:var(--muted)}
+.dl-cell:hover .dl-cell-origin{display:block}

@@ -413,6 +413,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._run((lambda: self.studio.digest.part(query["part"])) if query.get("part") else self.studio.digest.view)
         elif url.path == "/api/wishlist":
             self._run(self.studio.wishlist.view)
+        elif url.path == "/api/wishlist/search":
+            self._run(lambda: self.studio.wishlist.search(query.get("q", "")))
         elif url.path == "/api/fingerprints":
             self._run(self.studio.fingerprints.view)
         elif url.path == "/api/backup":
@@ -540,9 +542,10 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/wishlist/remove": lambda b: self.studio.wishlist.remove(b.get("ids")),
             "/api/wishlist/check-library": lambda b: self.studio.wishlist.check_library(),
             "/api/wishlist/keep": lambda b: self.studio.wishlist.keep(b.get("ids")),
+            "/api/wishlist/split": lambda b: self.studio.wishlist.split(b.get("ids")),
             "/api/wishlist/search-as": lambda b: self.studio.wishlist.search_as(b),
             "/api/wishlist/settings": lambda b: self.studio.wishlist.save_settings(b),
-            "/api/wishlist/add": lambda b: self.studio.wishlist.add(b.get("kind"), b.get("artist"), b.get("title"), b.get("album") or ""),
+            "/api/wishlist/add": lambda b: self.studio.wishlist.add(b.get("kind"), b.get("artist"), b.get("title"), b.get("album") or "", release=b.get("kind")),
             "/api/uploads/checked": lambda b: self.studio.uploads_checked(b),
             "/api/releases/settings": lambda b: self.studio.new_releases.save_settings(b),
             "/api/releases/check": lambda b: self.studio.new_releases.check(),

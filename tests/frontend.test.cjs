@@ -10744,20 +10744,76 @@ test("a genre lists each album artist once with its albums and songs", async () 
   assert.match(p.run(`browseArtistCard({name: "Afterjourney", albums: 2, tracks: 13, image: ""})`), /2 albums[\s\S]*13 songs/);
 });
 
-test("fork v103: a failed single offers one-click copy of artist & title, not artist & album", async () => {
+test("fork v110: a failed single sits in the Failed list with the wishlist's copy and search buttons", async () => {
   const p = page(); await settle();
   p.run('downloadsView.queue = [{id: "1", state: "failed", title: "暫時", artist: "MC仁", album: "自行判斷", kind: "song", source: "galaxy", payload: {}}]');
   const html = p.run("downloadsQueueBoxHtml()");
-  assert.match(html, /data-dl-copy="MC仁 暫時"[^>]*>Copy artist &amp; title/);
-  assert.doesNotMatch(html, /Copy artist &amp; album/);
+  assert.match(html, /<h3>Failed <span class="muted">1<\/span><\/h3>/);
+  assert.match(html, /data-dl-copy="MC仁 - 暫時 \(自行判斷\)"[^>]*>All/);
+  assert.match(html, /data-dl-copy="自行判斷"[^>]*>Album/);
+  assert.match(html, /⌕ Search/);
+  assert.match(html, /data-dl-try-youtube="1"/);
+  assert.match(html, /<span class="dl-type">Song<\/span>/);
 });
 
-test("fork v103: a failed album offers one-click copy of artist & album, not artist & title", async () => {
+test("fork v110: a failed album is labelled Album, EP or Single by its song count", async () => {
   const p = page(); await settle();
-  p.run('downloadsView.queue = [{id: "2", state: "failed", title: "Rise Of Babel", artist: "派克特 PACT", album: "Rise Of Babel", kind: "album", source: "galaxy", payload: {}}]');
+  p.run('downloadsView.queue = [{id: "2", state: "failed", title: "Rise Of Babel", artist: "派克特 PACT", album: "Rise Of Babel", kind: "album", tracks: 12, source: "galaxy", payload: {}},' +
+        '{id: "3", state: "failed", title: "Cali Soul", artist: "Abstract Rude", kind: "album", tracks: 1, source: "galaxy", payload: {}},' +
+        '{id: "4", state: "failed", title: "Some EP", artist: "X", kind: "album", release: "ep", source: "galaxy", payload: {}}]');
   const html = p.run("downloadsQueueBoxHtml()");
-  assert.match(html, /data-dl-copy="派克特 PACT Rise Of Babel"[^>]*>Copy artist &amp; album/);
-  assert.doesNotMatch(html, /Copy artist &amp; title/);
+  assert.match(html, /<span class="dl-type">Album<\/span> <b>Rise Of Babel<\/b>/);
+  assert.match(html, /<span class="dl-type">Single<\/span> <b>Cali Soul<\/b>/);
+  assert.match(html, /<span class="dl-type">EP<\/span> <b>Some EP<\/b>/);
+});
+
+test("fork v110: the waiting queue shows 50 compact cells and a Show next 50 button", async () => {
+  const p = page(); await settle();
+  p.run('downloadsView.queueShown = 0; downloadsView.queue = Array.from({length: 120}, (_, n) => ({id: "q" + n, state: "queued", source: "bandcamp", kind: "song", title: "Song " + n, artist: "A", album: "Alb", payload: {}}))');
+  let html = p.run("downloadsQueueBoxHtml()");
+  assert.equal((html.match(/class="dl-job dl-cell /g) || []).length, 50);
+  assert.match(html, /Showing 50 of 120/);
+  assert.match(html, /<div class="dl-cell-album">Alb<\/div>/);
+  assert.match(html, /data-dl-queue-more>Show next 50/);
+  p.run("downloadsView.queueShown = 100");
+  html = p.run("downloadsQueueBoxHtml()");
+  assert.equal((html.match(/class="dl-job dl-cell /g) || []).length, 100);
+  assert.match(html, /data-dl-queue-fewer/);
+});
+
+test("fork v110: a held decision row names the kind and the album on both sides", async () => {
+  const p = page(); await settle();
+  p.run('downloadsView.held = [{id: "h1", status: "downloaded", source: "bandcamp", kind: "album", title: "As If The World Gave Up", artist: "Blue Sky Black Death", tracks: 12, you_have: [{where: "history", when: 1795000000, source: "bandcamp", pc: "PC1", title: "As If The World Gave Up", artist: "Blue Sky Black Death", songs: 12}]},' +
+        '{id: "h2", status: "have", source: "youtube", kind: "song", title: "No Image", artist: "Blue Sky Black Death", album: "The Holocaust", you_have: [{where: "ibroadcast", title: "No Image", artist: "Blue Sky Black Death", album: "The Holocaust"}]}]');
+  const html = p.run("downloadsDecideHtml()");
+  assert.match(html, /<span class="dl-type">Album<\/span> <b>As If The World Gave Up<\/b>[^]*\(Album, 12 songs\)/);
+  assert.match(html, /<span class="dl-type">Song<\/span> <b>No Image<\/b> · Blue Sky Black Death · <i>The Holocaust<\/i>/);
+});
+
+test("fork v110: wishes say Album, EP, Single or Song, and a partly owned release can keep only its missing songs", async () => {
+  const p = page(); await settle();
+  p.run('missingView.picked = new Set(); missingView.wishlist = {every_days: 3, found: [], progress: null, items: [' +
+        '{id: "w1", kind: "album", release: "single", artist: "Abstract Rude", title: "Cali Soul", tries: 5, note: "x", next_try: 1, last_try: 1},' +
+        '{id: "w2", kind: "album", release: "single", artist: "Blue Sky Black Death", title: "The Ocean / No Image", tries: 5, note: "x", next_try: 1, last_try: 1, partial: {total: 2, have: [{title: "No Image", album: "The Holocaust"}], missing: ["The Ocean"]}},' +
+        '{id: "w3", kind: "album", artist: "Old", title: "Old wish", tries: 1, note: "x", next_try: 1, last_try: 1}]}');
+  const html = p.run("wishlistHtml()");
+  assert.match(html, /<span class="dl-badge new">Single<\/span>[^]*<b>Cali Soul<\/b>/);
+  assert.match(html, /<span class="dl-badge new">Release<\/span>[^]*<b>Old wish<\/b>/);
+  assert.match(html, /Have 1 of 2/);
+  assert.match(html, /data-wishlist="split" data-wish-id="w2"[^>]*>Keep only the missing songs \(1\)/);
+  assert.match(html, /<option value="ep"/);
+  assert.match(html, /<option value="single"/);
+});
+
+test("fork v110: the Missing search box shows library hits with a one-click remove for the matching wish", async () => {
+  const p = page(); await settle();
+  p.run('missingView.search = {q: "no image", busy: false, data: {songs: [{title: "No Image", artist: "BSBD", album: "The Holocaust", wishes: [{id: "w9", release: "single"}]}], albums: [], history: [], files: [], wished: [{id: "w9", kind: "album", release: "single", title: "The Ocean / No Image", artist: "BSBD", owned: false}], counts: {songs: 1}}}');
+  const html = p.run("missingSearchHtml()");
+  assert.match(html, /On your wishlist/);
+  assert.match(html, /data-missing-search-remove="w9"/);
+  assert.match(html, /Songs in your library/);
+  const page2 = p.run("missingHtml()");
+  assert.match(page2, /id="missing-search"/);
 });
 
 test("an artist created in a credit is offered in the artist list right after saving", async () => {
@@ -10848,9 +10904,10 @@ test("queue rows show the real site, the query or link, and remove all from a li
     {id: "b", state: "queued", source: "more", title: "Juno Love", artist: "Nico", link: "https://www.youtube.com/watch?v=BXa5&list=RDBXa5", payload: {site: "YouTube", source: "more"}},
     {id: "c", state: "queued", source: "youtube", title: "Yellow", artist: "Coldplay", query: "Coldplay Yellow", payload: {source: "youtube"}}]`);
   const html = p.run("downloadsQueueBoxHtml()");
-  assert.match(html, /YouTube · <span title="https:\/\/www\.youtube\.com\/watch\?v=BXa5&amp;list=RDBXa5">from: youtube\.com\/watch/);
+  assert.match(html, /<span class="dl-cell-src">YouTube<\/span>/);
+  assert.match(html, /<span title="https:\/\/www\.youtube\.com\/watch\?v=BXa5&amp;list=RDBXa5">from: youtube\.com\/watch/);
   assert.match(html, /query: Coldplay Yellow/);
-  assert.match(html, /data-dl-cancel-link="[^"]+"[^>]*>✕ All from link \(2\)/);
+  assert.match(html, /data-dl-cancel-link="[^"]+"[^>]*>✕ all \(2\)/);
   assert.doesNotMatch(html, /SoundCloud\/Audiomack ·/);
 });
 

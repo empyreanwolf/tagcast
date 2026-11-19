@@ -459,26 +459,39 @@ class Discography:
         return {"releases": out, "notes": [] if same else ["Discogs has no artist with exactly this name"]}
 
     def _guest_only(self, deezer_id, artist_name):
-        """v99: without a Discogs token, Deezer's own "album" type doesn't distinguish a various-
-        artists compilation that merely credits us as a guest on a track or two from one of our
-        own albums (Discogs' "Appearance" role, used in ``_discogs``, already tells the two apart).
-        Fetch the tracklist once (cached 7 days) and call it a guest appearance when we're not
-        the credited artist on at least half the tracks."""
-        key = f"guestonly|{deezer_id}"
+        """v99: Deezer's own "album" type doesn't distinguish a various-artists compilation that merely
+        credits us as a guest on a track or two from one of our own albums. Fetch the tracklist once
+        (cached 7 days) and call it a guest appearance when we're not the credited artist on at least
+        half the tracks.
+        fork v110: also look at who Deezer credits the whole release to - a release credited to someone
+        else is a guest appearance however few tracks it has (Jus' Allah on Madecipha & 5:am's album),
+        and that credited artist is the real main artist."""
+        key = f"guestonly2|{deezer_id}"
         hit = self.cache.get(key)
         if hit and hit.get("when", 0) > time.time() - CACHE_DAYS * 86400:
             return hit["data"]
+        want = match.match_key(artist_name)
         try:
             rows = (self.http.json(f"{DEEZER}/album/{deezer_id}/tracks", {"limit": 100}) or {}).get("data") or []
         except SourceError:
             return None
+        try:
+            meta = self.http.json(f"{DEEZER}/album/{deezer_id}") or {}
+        except SourceError:
+            meta = {}
         total = len(rows)
-        if total < GUEST_MIN_TRACKS:
-            data = {"guest": False, "tracks": total or None}
-        else:
-            want = match.match_key(artist_name)
+        main = match.clean((meta.get("artist") or {}).get("name"))
+        mains = [main] if main else []
+        mains += [match.clean(c.get("name")) for c in meta.get("contributors") or [] if c.get("role") in (None, "Main")]
+        credited = any(want == match.match_key(m) or want in {match.match_key(x) for x in match.split_parts(m)[1]}
+                       for m in mains if m)
+        by_credit = bool(main) and not credited
+        by_tracks = False
+        if total >= GUEST_MIN_TRACKS:
             mine = sum(1 for r in rows if match.match_key((r.get("artist") or {}).get("name")) == want)
-            data = {"guest": bool(mine) and mine < total / 2, "tracks": total}
+            by_tracks = bool(mine) and mine < total / 2
+        data = {"guest": by_credit or by_tracks, "tracks": total or meta.get("nb_tracks") or None,
+                "main": main if by_credit else ""}
         self.cache[key] = {"when": time.time(), "data": data}
         self._save_cache()
         return data
@@ -495,16 +508,20 @@ class Discography:
             names, _ = match.featured(r["title"])
             if any(match.match_key(n) == want for n in names):
                 r["appearance"] = True
+                r["feat_title"] = True  # fork v110: already known from the title - no Deezer look-up needed
                 r["type"] = "compile"
 
     def _check_guest_only(self, data):
-        if self._discogs_token():
-            return  # Discogs' own "Appearance" role already tells these apart, more accurately
+        """fork v110: runs with or without a Discogs token (a token's "Appearance" role misses releases)."""
         budget = GUEST_CHECK_MAX
         for r in data["releases"]:
-            if r.get("appearance") or r.get("type") != "album" or not r.get("deezer_id"):
-                continue  # already known to be a guest appearance (e.g. the title says so) - skip the fetch
-            fresh = self.cache.get(f"guestonly|{r['deezer_id']}", {}).get("when", 0) > time.time() - CACHE_DAYS * 86400
+            if not r.get("deezer_id") or r.get("type") not in ("album", "ep", "single", "compile"):
+                continue
+            if r.get("feat_title") or (r.get("appearance") and r.get("main_artist")):
+                continue  # already known (the title says so, or the real main artist is there)
+            if r.get("type") == "compile" and not r.get("appearance"):
+                continue  # a real compilation, not a guest spot
+            fresh = self.cache.get(f"guestonly2|{r['deezer_id']}", {}).get("when", 0) > time.time() - CACHE_DAYS * 86400
             if not fresh:
                 if budget <= 0:
                     continue
@@ -516,6 +533,8 @@ class Discography:
             if found["guest"]:
                 r["type"] = "compile"
                 r["appearance"] = True  # fork v102: so "Get" downloads their songs, not the whole thing
+                if found.get("main"):
+                    r["main_artist"] = found["main"]  # fork v110: the artist the release really belongs to
 
     def _add_musicbrainz(self, data):
         try:
@@ -639,6 +658,7 @@ class Discography:
             self._step(ctx, f"{title}: searching Galaxy…")
             appearance = a.get("appearance")  # True = artist appears on this album; get their songs, not the whole album
             full_album = a.get("full_album")  # True = override: download the whole album (from album title search)
+            dl_name = job["name"]
             try:
                 if appearance and not full_album:
                     # Featured-artist case: search for the artist's own songs by using the album title as a song query.
@@ -651,16 +671,18 @@ class Discography:
                                        "note": f"{log_note}: {note}" if note else log_note})
                     job["done"] += 1
                     continue
-                # full_album on an appearance: search by album title alone (we don't know the main artist)
-                dl_name = "" if full_album and appearance else job["name"]
+                # full_album on an appearance: the real main artist (fork v110), else search by album title alone
+                main = match.clean(a.get("main_artist"))
+                dl_name = (main if full_album and appearance else job["name"])
                 with featured.for_artist(dl_name):  # the whole album, asked for on purpose: tagged as it comes
                     source, note = self._album(dl_name, title, a.get("status"), a.get("deezer_id"), ctx, a.get("tracks"))
             except Exception as error:  # one album never stops the rest
                 log.exception("Getting %s failed", title)
                 source, note = None, str(error)
             if not source:
-                dl_name = "" if full_album and appearance else job["name"]
-                note = self._wish("album", dl_name, title, status=a.get("status"), note=note)
+                release = a.get("release") or {"compile": "album"}.get(a.get("type"), a.get("type") or "")
+                note = self._wish("album", dl_name, title, status=a.get("status"), note=note,
+                                  release=release, featured=job["name"] if dl_name and dl_name != job["name"] else "")
             job["log"].append({"kind": "album", "title": title, "source": source, "note": note})
             job["done"] += 1
         for s in songs:
@@ -910,6 +932,69 @@ class Discography:
                 return True
         return False
 
+    def album_credit(self, name, title):
+        """fork v110: the one artist Deezer credits releases with this exact title to, when that is not ``name``
+        and ``name`` is not one of the credited artists ("Completely Disrespectful": Madecipha & 5:am, not Jus'
+        Allah, who is only a guest on it). "" when unsure. Cached 30 days."""
+        key = f"credit|{match.match_key(name)}|{release_key(title)}"
+        hit = self.cache.get(key)
+        if hit and hit.get("when", 0) > time.time() - 30 * 86400:
+            return hit["data"]
+        try:
+            rows = (self.http.json(f"{DEEZER}/search/album", {"q": f'album:"{title}"', "limit": 25}) or {}).get("data") or []
+        except SourceError:
+            return ""
+        want, wanted = release_key(title), match.match_key(name)
+        credited = {}
+        for row in rows:
+            if release_key(row.get("title")) == want:
+                artist = match.clean((row.get("artist") or {}).get("name"))
+                if artist:
+                    credited[match.match_key(artist)] = artist
+        answer = ""
+        if len(credited) == 1 and wanted not in credited:
+            only = next(iter(credited.values()))
+            if wanted not in {match.match_key(x) for x in match.split_parts(only)[1]}:
+                answer = only
+        self.cache[key] = {"when": time.time(), "data": answer}
+        self._save_cache()
+        return answer
+
+    def tracklist(self, name, title):
+        """fork v110: ({song titles}, release type) of one release from Discogs; ([], "") without a token or a match.
+        Cached 30 days."""
+        token = self._discogs_token()
+        if not token:
+            return [], ""
+        key = f"tracklist|{match.match_key(name)}|{release_key(title)}"
+        hit = self.cache.get(key)
+        if hit and hit.get("when", 0) > time.time() - 30 * 86400:
+            return hit["data"]["titles"], hit["data"]["release"]
+        headers = {"Authorization": f"Discogs token={token}"}
+        titles = []
+        try:
+            for kind in ("master", "release"):
+                found = (self.http.json(f"{DISCOGS}/database/search", {"type": kind, "artist": name, "release_title": title,
+                                                                      "per_page": 5}, headers=headers) or {}).get("results") or []
+                best = next((f for f in found if release_key(discogs_name(f.get("title", "")).split(" - ", 1)[-1]) == release_key(title)
+                             or release_key(str(f.get("title", "")).split(" - ", 1)[-1]) == release_key(title)), None)
+                if not best:
+                    continue
+                path = "masters" if kind == "master" else "releases"
+                detail = self.http.json(f"{DISCOGS}/{path}/{best['id']}", headers=headers) or {}
+                titles = [match.clean(t.get("title")) for t in detail.get("tracklist") or []
+                          if t.get("type_", "track") == "track" and match.clean(t.get("title"))]
+                if titles:
+                    break
+        except SourceError as error:
+            log.info("Discogs tracklist for %s - %s failed: %s", name, title, error)
+            return [], ""
+        count = len(titles)
+        release = "" if not count else "single" if count <= 3 else "ep" if count <= 6 else "album"
+        self.cache[key] = {"when": time.time(), "data": {"titles": titles, "release": release}}
+        self._save_cache()
+        return titles, release
+
     def credited_as(self, name, title):
         """Fork v91: a different artist name MusicBrainz credits an album with this exact title to, when there is
         exactly one ("Jus Allah" / "Shakespeare Science" -> "Poetic Death"). Only ever a suggestion."""
@@ -1045,13 +1130,14 @@ class Discography:
             return None, NOT_FOUND
         return "Galaxy", self._summary(galaxy.add([best]))
 
-    def _wish(self, kind, artist, title, album="", status="missing", note=""):
+    def _wish(self, kind, artist, title, album="", status="missing", note="", release="", featured=""):
         """Not found anywhere: put it on the wishlist, which tries again every few days."""
         wishlist = getattr(self.studio, "wishlist", None)
         if wishlist is None or not title:
             return note
         try:
-            wishlist.add(kind, artist, title, album, status or "missing", note)
+            extra = {k: v for k, v in (("release", release), ("featured", featured)) if v}  # fork v110
+            wishlist.add(kind, artist, title, album, status or "missing", note, **extra)
             return f"{note} · on your wishlist"
         except LibraryError:
             return note

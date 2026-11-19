@@ -29,6 +29,7 @@ import re
 import secrets
 import threading
 import time
+import unicodedata
 from collections import Counter
 from pathlib import Path
 
@@ -56,23 +57,64 @@ SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "__pycache__", "appdata", 
 
 # -- matching --------------------------------------------------------------------
 
+# fork v110: "13" = "Thirteen", "Pt. 2" = "Part 2", "Björk" = "Bjork", "&" = "and", "Don't" = "Dont" and a
+# stray "!" or "-" no longer hide a song or album you already have. Applied to every title and artist key.
+_NUMBER_WORDS = {w: str(n) for n, w in enumerate(
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen "
+    "seventeen eighteen nineteen twenty".split())}
+_NUMBER_WORDS.update({"thirty": "30", "forty": "40", "fifty": "50", "sixty": "60", "seventy": "70",
+                      "eighty": "80", "ninety": "90", "hundred": "100"})
+_WORD_FORMS = {"pt": "part", "vol": "volume", "vols": "volumes", "ft": "feat"}
+_ROMAN = {"ii": "2", "iii": "3", "iv": "4", "vi": "6", "vii": "7", "viii": "8", "ix": "9", "xi": "11",
+          "xii": "12", "xiii": "13", "xiv": "14", "xv": "15", "xvi": "16", "xvii": "17", "xviii": "18",
+          "xix": "19", "xx": "20"}
+
+
+def fold_accents(value):
+    """Drop accents from Latin letters only ("Björk" -> "Bjork"); kana, hangul and Chinese stay as they are."""
+    value = str(value or "")
+    if value.isascii():
+        return value
+    out = []
+    for char in value:
+        base = unicodedata.normalize("NFD", char)
+        out.append(base[0] if len(base) > 1 and base[0].isascii() and base[0].isalpha() else char)
+    return "".join(out)
+
+
+def loose_key(value, roman=False, numbers=True):
+    """A title or name key that ignores accents, punctuation, "&" / "and", "Pt." / "Part" and number words."""
+    original = str(value or "").casefold()
+    folded = fold_accents(original).replace("&", " and ").replace("'", "").replace("’", "")
+    folded = "".join(c if (c.isalnum() or c.isspace()) else " " for c in folded)
+    words = []
+    for word in folded.split():
+        word = _WORD_FORMS.get(word, word)
+        if numbers:
+            word = _NUMBER_WORDS.get(word, word)
+        if roman:
+            word = _ROMAN.get(word, word)
+        words.append(word)
+    return " ".join(words) or original.strip()
+
+
 def song_key(title):
-    """Titles ignore "(feat. …)", case, spacing, quotes and Chinese script; version words stay."""
+    """Titles ignore "(feat. …)", case, spacing, quotes, accents, punctuation and Chinese script; version words stay."""
     value = match.clean(title)
     value = FEAT_BRACKET.sub("", value)
     value = FEAT_TAIL.sub("", value)
-    return match.simplified(title_key(value))
+    return loose_key(match.simplified(title_key(value)))
 
 
 def album_key(title):
-    return match.simplified(title_key(match.clean(title)))
+    return loose_key(match.simplified(title_key(match.clean(title))))
 
 
 def album_key_loose(title):
     """fork v105: album_key() without the actual spaces, as a last-resort fallback - a tag typo'd
     as one run-together word ("CloudNineteen" for "Cloud Nineteen") shouldn't make an album you
     already own look missing forever."""
-    return album_key(title).replace(" ", "")
+    return loose_key(match.simplified(title_key(match.clean(title))), numbers=False).replace(" ", "")
 
 
 # Fork v91: a typo ("Feaks"), a spelling ("Kems" / "Kem's") or a tag in brackets ("(Intro)") no longer hides a song
@@ -94,7 +136,7 @@ def fuzzy_title_key(title):
     value = FEAT_TAIL.sub("", FEAT_BRACKET.sub("", match.clean(title)))
     value = _FROM_TAG.sub("", value)
     value = _ANY_BRACKET.sub(lambda m: m.group(0) if _VERSION_RE.search(m.group(0)) else "", value)
-    return match.simplified(title_key(value))
+    return loose_key(match.simplified(title_key(value)), roman=True)  # v110: Roman numerals only count here ("maybe")
 
 
 def close_title(a, b):
@@ -124,6 +166,12 @@ def album_base_key(title):
     return album_key(value) if value else album_key(title)
 
 
+def _artist_loose(name):
+    """fork v110: an artist name without accents and punctuation, and without a leading "The"."""
+    key = loose_key(match.simplified(match.clean(name).casefold()))
+    return key[4:] if key.startswith("the ") and len(key) > 6 else key
+
+
 def artist_keys(*names):
     """Every key a credited name can match on: the whole name, its parts ("A/B") and the
     Latin and Chinese halves of a bilingual name ("Faye Wong 王菲")."""
@@ -134,9 +182,11 @@ def artist_keys(*names):
             if not part:
                 continue
             keys.add(match.match_key(part))
+            keys.add(_artist_loose(part))
             pair = match.bilingual(part)
             if pair:
                 keys.update(match.match_key(p) for p in pair)
+                keys.update(_artist_loose(p) for p in pair)
     keys.discard("")
     keys.discard(match.match_key("Various Artists"))
     return keys
@@ -546,6 +596,71 @@ class Downloads:
 
     def folder(self):
         return self.state["folder"] or default_folder()
+
+    # -- Search everything you have (fork v110) -------------------------------------------------
+
+    def _folder_files(self):
+        """Audio file paths under the Music folder, kept 2 minutes (a walk of a big folder is slow)."""
+        folder = self.folder()
+        cached = getattr(self, "_files_cache", None)
+        if cached and cached[0] == folder and time.time() - cached[1] < 120:
+            return cached[2]
+        files, root = [], Path(folder)
+        try:
+            for dirpath, dirs, names in os.walk(root):
+                dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS]
+                for name in names:
+                    if AUDIO_EXT.search(name):
+                        files.append(str(Path(dirpath, name).relative_to(root)))
+                if len(files) >= 200000:
+                    break
+        except OSError:
+            pass
+        self._files_cache = (folder, time.time(), files)
+        return files
+
+    def library_search(self, query, limit=40):
+        """Songs, albums, download history and files that match ``query`` (accents, punctuation, "&" and number
+        words do not count), so a wish can be checked by hand."""
+        words = loose_key(match.simplified(match.clean(query).casefold())).split()
+        if not words:
+            return {"songs": [], "albums": [], "history": [], "files": [], "more": False}
+
+        def hit(*parts):
+            hay = loose_key(match.simplified(match.clean(" ".join(str(p or "") for p in parts)).casefold()))
+            return all(w in hay for w in words)
+
+        try:
+            library_index = self._index()[0]
+        except LibraryError:
+            library_index = None  # not signed in to iBroadcast: history and files can still be searched
+        songs, albums = [], []
+        if library_index is not None:
+            seen = set()
+            for rows in library_index.songs.values():
+                for row in rows:
+                    if row["track_id"] not in seen and hit(row["title"], row["artist"], row["album"]):
+                        seen.add(row["track_id"])
+                        songs.append({"title": row["title"], "artist": row["artist"], "album": row["album"],
+                                      "album_id": row["album_id"]})
+            for rows in library_index.albums.values():
+                albums += [{"title": e["title"], "artist": e["artist"], "tracks": e["tracks"], "album_id": e["album_id"]}
+                           for e in rows if hit(e["title"], e["artist"])]
+        history = []
+        with self.lock:
+            entries = list(self.state["history"]) + list(self._other_rows())
+        for e in entries:
+            if hit(e.get("title"), " ".join(e.get("artists", [])), e.get("album"), e.get("file")):
+                history.append({"title": e.get("title", ""), "artist": ", ".join(e.get("artists", [])),
+                                "album": e.get("album", ""), "source": e.get("source", ""), "pc": e.get("pc", ""),
+                                "when": e.get("when")})
+        files = [f for f in self._folder_files() if hit(f.replace("\\", " ").replace("/", " "))]
+        songs.sort(key=lambda r: (loose_key(r["artist"]), loose_key(r["album"]), loose_key(r["title"])))
+        albums.sort(key=lambda r: (loose_key(r["artist"]), loose_key(r["title"])))
+        more = any(len(x) > limit for x in (songs, albums, history, files))
+        return {"songs": songs[:limit], "albums": albums[:limit], "history": history[:limit], "files": files[:limit],
+                "counts": {"songs": len(songs), "albums": len(albums), "history": len(history), "files": len(files)},
+                "more": more}
 
     # -- Which PC downloaded what (fork v54) ----------------------------------------------------
     # Every download is stamped with this PC's name. With a shared folder (OneDrive, Dropbox, a network
