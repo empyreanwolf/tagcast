@@ -37,6 +37,7 @@ from .sources import PACING, Http, SourceError
 
 log = logging.getLogger("tagcast")
 NOT_FOUND = "Not found on Galaxy, Bandcamp, SoundCloud or Soulseek"
+JOB_GAP = 2.5            # fork v113: seconds between two queued "get" jobs (the page list starts one per artist)
 GALAXY_PAUSE = 600.0   # after GD Studio blocks a request, Galaxy is skipped this long (fork v54)
 
 # fork v103: same word list as static/galaxy.js's galaxyInstrumentalWords - a bonus instrumental,
@@ -153,6 +154,8 @@ class Discography:
         data = studio._read(CACHE_FILE)
         self.cache = data if isinstance(data, dict) else {}
         self.jobs = {}
+        self._turns = []              # fork v113: "get" jobs wait here and run one at a time, in order
+        self._turns_lock = threading.Condition()
         self._chinese_artists = {}  # name -> NetEase artist ({} = not there), this session only (v70)
         soulseek = getattr(studio, "soulseek", None)
         if soulseek is not None:
@@ -648,8 +651,25 @@ class Discography:
     def _run(self, job, albums, songs):
         # fork v109: everything this job queues is credited to the artist you asked for
         # (Artist A first, Album Artist A, no "feat." in the title) - see featured.py.
-        with featured.for_artist(job["name"]):
-            self._run_all(job, albums, songs)
+        # fork v113: one job at a time, first come first served. "From a page" starts one job per artist;
+        # all at once they flooded the sources with searches and got Galaxy blocked.
+        with self._turns_lock:
+            self._turns.append(job)
+            if self._turns[0] is not job:
+                job["current"] = f"{job['name']}: waiting for its turn…"
+            while self._turns[0] is not job:
+                self._turns_lock.wait()
+        try:
+            with featured.for_artist(job["name"]):
+                self._run_all(job, albums, songs)
+        finally:
+            with self._turns_lock:
+                self._turns.remove(job)
+                more = bool(self._turns)
+            if more:
+                time.sleep(JOB_GAP)   # a breather between artists
+            with self._turns_lock:
+                self._turns_lock.notify_all()
 
     def _run_all(self, job, albums, songs):
         ctx = {"bandcamp": None, "bandcamp_checked": False, "job": job}
