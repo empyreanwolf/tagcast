@@ -43,6 +43,9 @@ STATE_FILE = "downloads.json"
 KINDS = ("song", "album")
 SOURCES = ("youtube", "galaxy", "telegram", "bandcamp", "soulseek", "more", "manual")
 MAX_ITEMS = 500           # per check or submit
+STUCK_RESET = 120         # fork v114: no progress for this many seconds -> that song is reset by itself
+RESET_ABANDON = 10        # fork v114: a reset that the worker has not obeyed after this long gives the thread up
+MAX_AUTO_RESETS = 3       # fork v114: a song reset by itself this many times already goes to Failed
 MAX_IMPORT_BYTES = 50 * 1024 * 1024
 HISTORY_PAGE = 50
 EXAMPLES = 3
@@ -564,6 +567,10 @@ class Downloads:
         self._library_index = (None, None)
         self.state["paused"] = bool(data.get("paused"))
         self.workers = {}  # source name -> its download worker (Galaxy, Bandcamp, Soulseek)
+        self._clock = time.time   # fork v114: kept apart so the stuck watcher never reads a clock a test has faked
+        self._moved = {}       # fork v114: item id -> when its progress last changed
+        self._resetting = {}   # fork v114: item id -> "requeue" | "fail" while a reset is under way
+        self._stuck_thread = None
         self._last_persist = 0.0
         self.persist_error = ""  # fork, v29: last failure saving the queue to disk, if any
 
@@ -949,6 +956,89 @@ class Downloads:
 
     def register(self, source, worker):
         self.workers[source] = worker
+        if self._stuck_thread is None:   # fork v114: one watcher for every source
+            self._stuck_thread = threading.Thread(target=self._stuck_loop, name="stuck-downloads", daemon=True)
+            self._stuck_thread.start()
+
+    # -- fork v114: reset a jammed song ----------------------------------------------------
+
+    def _stuck_loop(self):
+        gate = threading.Event()   # a wait on an Event, not time.sleep: tests that fake time.sleep must not turn this into a busy loop
+        while not gate.wait(5):
+            try:
+                self.reset_stuck()
+            except Exception:
+                log.exception("Checking for stuck downloads failed")
+
+    def reset_stuck(self, now=None, limit=STUCK_RESET):
+        """Reset every active song that made no progress for ``limit`` seconds (a wait for the API limit is not a jam)."""
+        with self.lock:
+            rows = [dict(i) for i in self.state["queue"] if i.get("state") == "active"]
+        if not rows:
+            return []
+        now = now or self._clock()
+        done = []
+        for item in rows:
+            if item["id"] in self._resetting:
+                continue
+            thread = getattr(self.workers.get(item.get("source")), "thread", None)
+            if not (thread and thread.is_alive()):
+                continue   # no worker is running it: the watchdog above requeues such a song, a reset would do nothing
+            if item.get("source") == "soulseek":
+                stuck = (item.get("idle") or 0) >= limit
+            else:
+                if str(item.get("step_detail") or "").startswith("Waiting"):
+                    continue
+                stuck = now - (self._moved.get(item["id"]) or item.get("started_at") or now) >= limit
+            if stuck and self.reset(item["id"], auto=True):
+                done.append(item["id"])
+        return done
+
+    def reset(self, item_id, auto=False):
+        """Stop this one song and put the same song back in its place in the line. A song the worker cannot
+        let go of within RESET_ABANDON seconds has its thread given up. A song reset by itself more than
+        MAX_AUTO_RESETS times goes to Failed instead of looping."""
+        item = self.item(item_id)
+        worker = self.workers.get((item or {}).get("source"))
+        if not item or item.get("state") != "active" or worker is None:
+            return False
+        tries = int(item.get("resets") or 0) + 1
+        with self.lock:
+            self._resetting[item_id] = "fail" if auto and tries > MAX_AUTO_RESETS else "requeue"
+        self.update_item(item_id, resets=tries, step_detail="Resetting…")
+        activity.record("downloads", "info", f"Reset {_name(item)}" + (" (no progress)" if auto else ""), source=item.get("source"))
+        worker.cancel(item_id)
+        threading.Thread(target=self._finish_reset, args=(item_id, worker), name="reset-download", daemon=True).start()
+        return True
+
+    def _finish_reset(self, item_id, worker, wait=RESET_ABANDON):
+        end = time.monotonic() + wait
+        while time.monotonic() < end:
+            if item_id not in worker.active_ids():
+                return   # the worker let go of it by itself
+            time.sleep(0.2)
+        with self.lock:
+            pending = item_id in self._resetting
+        if not pending:
+            return
+        abandon = getattr(worker, "abandon", None)
+        if abandon:
+            abandon(item_id)
+        self.cancelled(item_id)
+
+    def cancelled(self, item_id):
+        """A worker stopped on this song: back in line after a Reset (Failed after too many automatic ones),
+        removed otherwise."""
+        with self.lock:
+            mode = self._resetting.pop(item_id, None)
+        if mode == "requeue":
+            self.update_item(item_id, persist=True, state="queued", step=-1, step_detail="Reset: starting again",
+                             progress=0, speed=0, eta=0, idle=0, note="")
+        elif mode == "fail":
+            self.update_item(item_id, persist=True, state="failed", speed=0, eta=0,
+                             note=f"No progress for {STUCK_RESET} s, {MAX_AUTO_RESETS} times in a row: given up. Retry it when the source is back.")
+        else:
+            self.remove([item_id])
 
     def wake_workers(self):
         for worker in list(self.workers.values()):
@@ -979,6 +1069,9 @@ class Downloads:
             for worker in self.workers.values():
                 for item_id in worker.active_ids():
                     worker.cancel(item_id)
+        elif action == "reset":   # fork v114: the songs given, or every active one
+            for item_id in ids or sorted(active):
+                self.reset(item_id)
         elif action == "remove":
             for worker in self.workers.values():
                 for item_id in set(worker.active_ids()) & set(ids):
@@ -1021,6 +1114,8 @@ class Downloads:
             for item in self.state["queue"]:
                 if item["id"] == item_id:
                     before = item.get("state")
+                    if any(k in fields and fields[k] != item.get(k) for k in ("progress", "step_detail", "step")):
+                        self._moved[item_id] = self._clock()   # fork v114: for the stuck check
                     item.update(fields)
                     if "state" in fields and fields["state"] != before:
                         _record_state(item)
@@ -1037,6 +1132,7 @@ class Downloads:
                 if item.get("state") == "queued" and item.get("source") == source and item.get("payload"):
                     item.update(state="active", step=0, step_detail="Requesting link…", progress=0, note="",
                                 started_at=time.time())
+                    self._moved[item["id"]] = self._clock()
                     activity.record("downloads", "info", f"Started {_name(item)}", source=source)
                     self._persist()
                     return dict(item)

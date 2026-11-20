@@ -277,7 +277,7 @@ class DiscographyTests(unittest.TestCase):
         shown = studio.discography.active()["jobs"][0]
         self.assertEqual((shown["state"], shown["current"]), ("done", ""))
         self.assertEqual(len(shown["log"]), 4)
-        self.assertEqual(studio.discography.dismiss(), {"jobs": []})
+        self.assertEqual(studio.discography.dismiss()["jobs"], [])
 
     def test_galaxy_is_tried_before_bandcamp_even_when_bandcamp_has_the_album(self):
         studio = LocalStudio()

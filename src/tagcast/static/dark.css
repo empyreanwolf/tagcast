@@ -249,6 +249,7 @@
 :root[data-theme="dark"] .dl-dot.have{background:#60bc68}
 :root[data-theme="dark"] .dl-dot.partly{background:#b78100}
 :root[data-theme="dark"] ul.dl-failed>li{border:1px solid #a3706a}
+:root[data-theme="dark"] .dl-idle{color: #ae7b00}
 
 /* set by hand */
 :root[data-theme="dark"]{color-scheme:dark}
@@ -513,6 +514,7 @@
 :root:not([data-theme="light"]) .dl-dot.have{background:#60bc68}
 :root:not([data-theme="light"]) .dl-dot.partly{background:#b78100}
 :root:not([data-theme="light"]) ul.dl-failed>li{border:1px solid #a3706a}
+:root:not([data-theme="light"]) .dl-idle{color: #ae7b00}
 
 /* set by hand */
 :root:not([data-theme="light"]){color-scheme:dark}

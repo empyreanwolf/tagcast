@@ -299,7 +299,7 @@ class Soulseek:
                 self._call("POST", f"/api/jobs/{item['job_id']}/cancel")
             except SoulseekError:
                 pass
-        self.manager.remove([item_id])
+        self.manager.cancelled(item_id)   # fork v114: removed, or (after a Reset) back in line
 
     def ensure_worker(self):
         with self.lock:

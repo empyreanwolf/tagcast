@@ -12080,3 +12080,37 @@ test("v111: From a page has a flip button per row and a Flip ticked/all button",
   p.run(`pagelistView.picked = new Set(["0"])`);
   assert.match(p.run("pagelistHtml()"), /Flip title \/ artist on 1 ticked/);
 });
+
+test("v114: an active row shows percent, speed and a Reset button; a stuck one says so", () => {
+  const p = page();
+  const row = p.run(`downloadsCompactCellHtml({id: "x1", state: "active", source: "galaxy", kind: "song", title: "Song", artist: "A", payload: {},
+    step: 1, progress: 45.4, speed: 1.2, eta: 130, idle: 75, resets: 2}, i => "Step 2/5 · Downloading", () => "active")`);
+  assert.match(row, /45% · 1\.20 MB\/s · 2 min 10 s left/);
+  assert.match(row, /no data for 1 min 15 s/);
+  assert.match(row, /reset 2×/);
+  assert.match(row, /data-galaxy-control="reset" data-id="x1"/);
+  const quiet = p.run(`downloadsCompactCellHtml({id: "x2", state: "queued", source: "galaxy", kind: "song", title: "S", artist: "A", payload: {}}, i => "Waiting", () => "queued")`);
+  assert.doesNotMatch(quiet, /data-galaxy-control="reset"/);
+  assert.doesNotMatch(quiet, /MB\/s/);
+});
+
+test("v114: Finding sources has pause, stop, source switches and a restored note", () => {
+  const p = page();
+  p.run(`downloadsView.finding = [{id: "j", name: "Artist", state: "running", done: 1, total: 4, current: "Song: searching Galaxy…", log: []}];
+    downloadsView.search = {paused: false, skipped: ["galaxy"], restored: 0, sources: ["galaxy", "bandcamp", "soulseek", "youtube", "soundcloud", "spotify"]}`);
+  let html = p.run("downloadsFindingHtml()");
+  assert.match(html, /data-search-control="pause"/);
+  assert.match(html, /data-search-control="stop"/);
+  assert.match(html, /data-search-source="galaxy"\s*>/);              // Galaxy is switched off: not checked
+  assert.match(html, /data-search-source="bandcamp" checked/);
+  assert.match(html, /Looking…/);
+  p.run(`downloadsView.search = {...downloadsView.search, paused: true, restored: 5}`);
+  html = p.run("downloadsFindingHtml()");
+  assert.match(html, /data-search-control="resume"/);
+  assert.match(html, /Restored 5 searches from before Tagcast closed/);
+  assert.match(html, /Paused/);
+  p.run(`downloadsView.finding = []; downloadsView.search = {paused: false, skipped: [], restored: 0, sources: []}`);
+  assert.equal(p.run("downloadsFindingHtml()"), "");
+  p.run(`downloadsView.search = {paused: false, skipped: ["galaxy"], restored: 0, sources: ["galaxy"]}`);
+  assert.match(p.run("downloadsFindingHtml()"), /data-search-source="galaxy"/);   // a switched-off source stays visible to switch back on
+});

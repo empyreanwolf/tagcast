@@ -16,8 +16,19 @@ from pathlib import Path
 import requests
 
 from . import featured
-from .galaxy import (AUDIO_EXTS, JobCancelled, JobFailed, StopRequested, TransientHTTPError, build_path,
-                     detect_audio_format, read_duration, to_int, write_tags)
+from .galaxy import (
+    AUDIO_EXTS,
+    Abandoned,
+    JobCancelled,
+    JobFailed,
+    StopRequested,
+    TransientHTTPError,
+    build_path,
+    detect_audio_format,
+    read_duration,
+    to_int,
+    write_tags,
+)
 
 log = logging.getLogger("tagcast")
 
@@ -59,6 +70,7 @@ class FileWorker:
         self.stopping = False
         self.active = None
         self.cancel_id = None
+        self._orphans = set()   # fork v114: thread ids given up on by a Reset
         self._t0 = 0.0
         manager = studio.download_manager
         manager.register(self.source, self)
@@ -84,6 +96,15 @@ class FileWorker:
     def cancel(self, item_id):
         if item_id == self.active:
             self.cancel_id = item_id
+
+    def abandon(self, item_id):
+        """fork v114: a Reset could not stop this song (its thread is jammed): give the thread up, start a new one."""
+        with self.lock:
+            if item_id == self.active and self.thread:
+                self._orphans.add(self.thread.ident)
+                self.thread = None
+                self.active = self.cancel_id = None
+            self.ensure_worker()
 
     def ensure_worker(self):
         with self.lock:
@@ -112,6 +133,8 @@ class FileWorker:
             time.sleep(min(0.2, r))
 
     def _check_cancel(self):
+        if threading.get_ident() in self._orphans:
+            raise Abandoned()
         if self.active and self.cancel_id == self.active:
             raise JobCancelled()
 
@@ -147,20 +170,25 @@ class FileWorker:
                     self.manager.update_item(job["id"], persist=True, state="queued", step=-1, step_detail="", progress=0)
                     break
                 except JobCancelled:
-                    self.manager.remove([job["id"]])
+                    self.manager.cancelled(job["id"])
                 except (JobFailed, ValueError) as e:  # LibraryError is a ValueError
                     self.manager.update_item(job["id"], persist=True, state="failed", note=str(e), speed=0, eta=0)
                 except Exception as e:
                     log.exception("%s download failed", self.source)
                     self.manager.update_item(job["id"], persist=True, state="failed", note=f"{type(e).__name__}: {e}")
                 finally:
-                    self._cleanup(job["id"])
-                    self.active = self.cancel_id = None
+                    if threading.get_ident() not in self._orphans:
+                        self._cleanup(job["id"])
+                        self.active = self.cancel_id = None
+                if threading.get_ident() in self._orphans:
+                    return
                 if self.manager.has_queued(self.source) and not self.manager.is_paused() and not self.stopping:
                     try:
                         self._sleep(self.track_delay)
                     except (StopRequested, JobCancelled):
                         pass
+            except Abandoned:
+                return
             except Exception:
                 log.exception("%s download thread hit an unexpected error; continuing", self.source)
                 self.active = self.cancel_id = None

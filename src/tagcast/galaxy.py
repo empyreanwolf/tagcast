@@ -81,6 +81,11 @@ class StopRequested(Exception):
     pass
 
 
+class Abandoned(BaseException):
+    """fork v114: this thread was given up on after a Reset (it was jammed); it ends quietly when it wakes up.
+    A BaseException so no ``except Exception`` on the way up handles it as a failed song."""
+
+
 class JobCancelled(Exception):
     pass
 
@@ -998,6 +1003,7 @@ class Galaxy:
         # fork v83: a second thread finishes (MusicBrainz, cover, lyrics, tags) while the next song downloads
         self.finishing = None
         self.finish_cancel_id = None
+        self._orphans = set()   # fork v114: thread ids given up on by a Reset
         self._finish_q = queue.Queue(maxsize=1)
         self.finisher = None
         self._last_done = 0.0
@@ -1162,6 +1168,20 @@ class Galaxy:
         if item_id == self.finishing:
             self.finish_cancel_id = item_id
 
+    def abandon(self, item_id):
+        """fork v114: a Reset could not stop this song (its thread is jammed): give that thread up and start a new one.
+        The old thread ends by itself, without touching the queue, if it ever wakes up."""
+        with self.lock:
+            if item_id == self.active and self.thread:
+                self._orphans.add(self.thread.ident)
+                self.thread = None
+                self.active = self.cancel_id = None
+            if item_id == self.finishing and self.finisher:
+                self._orphans.add(self.finisher.ident)
+                self.finisher = None
+                self.finishing = self.finish_cancel_id = None
+            self.ensure_worker()
+
     def _finish_idle(self):
         return self.finishing is None and self._finish_q.empty()
 
@@ -1202,6 +1222,8 @@ class Galaxy:
             time.sleep(min(0.2, r))
 
     def _check_cancel(self):
+        if threading.get_ident() in self._orphans:
+            raise Abandoned()
         if self.active and self.cancel_id == self.active:
             raise JobCancelled()
 
@@ -1256,13 +1278,14 @@ class Galaxy:
                     self.manager.update_item(job["id"], persist=True, state="queued", step=-1, step_detail="", progress=0)
                     break
                 except JobCancelled:
-                    self.manager.remove([job["id"]])
+                    self.manager.cancelled(job["id"])
                 except Exception as e:
                     self._fail(job["id"], e)
                 finally:
-                    if not handed:
-                        self._cleanup(job["id"])
-                    self.active = self.cancel_id = None
+                    if threading.get_ident() not in self._orphans:
+                        if not handed:
+                            self._cleanup(job["id"])
+                        self.active = self.cancel_id = None
                 if self.manager.has_queued("galaxy") and not self.manager.is_paused() and not self.stopping:
                     self.waiting_until = time.monotonic() + self.track_delay
                     try:
@@ -1270,6 +1293,8 @@ class Galaxy:
                     except (StopRequested, JobCancelled):
                         pass
                     self.waiting_until = 0.0
+            except Abandoned:
+                return
             except Exception:
                 log.exception("Galaxy download thread hit an unexpected error; continuing")
                 self.active = self.cancel_id = None
@@ -1296,6 +1321,8 @@ class Galaxy:
             time.sleep(min(0.2, r))
 
     def _check_finish_cancel(self):
+        if threading.get_ident() in self._orphans:
+            raise Abandoned()
         if self.finishing and self.finish_cancel_id == self.finishing:
             raise JobCancelled()
 
@@ -1315,12 +1342,15 @@ class Galaxy:
             except StopRequested:
                 self.manager.update_item(job["id"], persist=True, state="queued", step=-1, step_detail="", progress=0)
             except JobCancelled:
-                self.manager.remove([job["id"]])
+                self.manager.cancelled(job["id"])
+            except Abandoned:
+                return
             except Exception as e:
                 self._fail(job["id"], e)
             finally:
-                self._cleanup(job["id"])
-                self.finishing = self.finish_cancel_id = None
+                if threading.get_ident() not in self._orphans:
+                    self._cleanup(job["id"])
+                    self.finishing = self.finish_cancel_id = None
 
     def _part_path(self, item_id):
         return Path(self.folder()) / "_incomplete" / f"{item_id}.part"

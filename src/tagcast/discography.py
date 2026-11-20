@@ -37,6 +37,8 @@ from .sources import PACING, Http, SourceError
 
 log = logging.getLogger("tagcast")
 NOT_FOUND = "Not found on Galaxy, Bandcamp, SoundCloud or Soulseek"
+LINE_FILE = "search_line.json"   # fork v114: the searches still waiting, kept across a restart
+SEARCH_SOURCES = ("galaxy", "bandcamp", "soulseek", "youtube", "soundcloud", "spotify")
 JOB_GAP = 2.5            # fork v113: seconds between two queued "get" jobs (the page list starts one per artist)
 GALAXY_PAUSE = 600.0   # after GD Studio blocks a request, Galaxy is skipped this long (fork v54)
 
@@ -147,6 +149,10 @@ def discogs_kind(row):
     return "album"
 
 
+class SearchStopped(BaseException):
+    """fork v114: "Stop search" was pressed; unwinds the running search without it counting as a failed item."""
+
+
 class Discography:
     def __init__(self, studio, http=None):
         self.studio = studio
@@ -154,6 +160,11 @@ class Discography:
         data = studio._read(CACHE_FILE)
         self.cache = data if isinstance(data, dict) else {}
         self.jobs = {}
+        self.search_paused = False    # fork v114: "Pause search" holds every job before its next item
+        self.skipped = set()          # fork v114: sources switched off for searching
+        self.restored = 0             # fork v114: searches loaded back after a restart
+        self._stop_gen = 0
+        self._line_lock = threading.Lock()
         self._turns = []              # fork v113: "get" jobs wait here and run one at a time, in order
         self._turns_lock = threading.Condition()
         self._chinese_artists = {}  # name -> NetEase artist ({} = not there), this session only (v70)
@@ -169,6 +180,7 @@ class Discography:
         more = getattr(studio, "moresources", None)
         if more is not None:
             more.on_failed = self.youtube_fallback  # fork v96: a Spotify song that yt-dlp cannot serve
+        self._load_line()
 
     @property
     def manager(self):
@@ -613,8 +625,9 @@ class Discography:
         if not name or not (albums or songs):
             raise DiscographyError("Choose albums or songs to get.")
         job = {"id": secrets.token_hex(6), "name": name, "state": "running", "done": 0,
-               "total": len(albums) + len(songs), "log": []}
+               "total": len(albums) + len(songs), "log": [], "albums": albums, "songs": songs, "gen": self._stop_gen}
         self.jobs = {k: v for k, v in self.jobs.items() if v["state"] == "running"} | {job["id"]: job}
+        self._save_line()
         threading.Thread(target=self._run, args=(job, albums, songs), daemon=True, name="get-missing").start()
         return job
 
@@ -636,32 +649,126 @@ class Discography:
 
     def active(self):
         """Every "get" in flight or just finished, for the Downloads queue page (v46)."""
-        return {"jobs": [{k: j.get(k) for k in ("id", "name", "state", "done", "total", "current", "log")} for j in self.jobs.values()]}
+        return {"jobs": [{k: j.get(k) for k in ("id", "name", "state", "done", "total", "current", "log")} for j in self.jobs.values()],
+                "search": {"paused": self.search_paused, "skipped": sorted(self.skipped), "restored": self.restored,
+                           "sources": list(SEARCH_SOURCES)}}
 
     def dismiss(self):
         self.jobs = {k: v for k, v in self.jobs.items() if v["state"] == "running"}
         return self.active()
 
-    @staticmethod
-    def _step(ctx, text):
+    def _step(self, ctx, text):
         job = (ctx or {}).get("job")
         if job is not None:
+            self._hold(job)
             job["current"] = text
 
+    # -- fork v114: pause, stop and skip for the search step; the line survives a restart ---------
+
+    def _stopped(self, job):
+        return job.get("gen", 0) < self._stop_gen
+
+    def _hold(self, job):
+        """Wait here while the search is paused; unwind when it was stopped."""
+        while True:
+            if self._stopped(job):
+                raise SearchStopped()
+            if not self.search_paused:
+                return
+            job["current"] = f"{job['name']}: search paused"
+            time.sleep(0.3)
+
+    def _end_stopped(self, job):
+        left = max(0, job["total"] - job["done"])
+        job["log"].append({"kind": "stop", "title": "Search stopped", "source": "Stopped",
+                           "note": f"{left} not searched. Pick them again to search them."})
+        job["state"] = "done"
+        job["current"] = ""
+        self._save_line()
+
+    def search_control(self, action, source=None, off=None):
+        if action == "pause":
+            self.search_paused = True
+        elif action == "resume":
+            self.search_paused, self.restored = False, 0
+        elif action == "stop":
+            self._stop_gen += 1
+            self.search_paused, self.restored = False, 0
+        elif action == "skip":
+            if source not in SEARCH_SOURCES:
+                raise DiscographyError("Unknown source.")
+            (self.skipped.add if off else self.skipped.discard)(source)
+        else:
+            raise DiscographyError("Unknown search action.")
+        self._save_line()
+        return self.active()
+
+    def _save_line(self):
+        """The searches that are still waiting are written down, so a restart does not lose them."""
+        write = getattr(self.studio, "_write", None)
+        if write is None:
+            return
+        try:
+            with self._line_lock:
+                rows = []
+                for j in list(self.jobs.values()):
+                    if j.get("state") != "running" or "albums" not in j:
+                        continue
+                    done, albums, songs = j["done"], j["albums"], j["songs"]
+                    rest_albums, rest_songs = albums[done:], songs[max(0, done - len(albums)):]
+                    if rest_albums or rest_songs:
+                        rows.append({"id": j["id"], "name": j["name"], "albums": rest_albums, "songs": rest_songs})
+                write(LINE_FILE, {"jobs": rows, "skipped": sorted(self.skipped)})
+        except Exception:
+            log.exception("Could not save the search line")
+
+    def _load_line(self):
+        """Searches that were waiting when Tagcast closed come back paused: press Resume to carry on."""
+        read = getattr(self.studio, "_read", None)
+        try:
+            data = read(LINE_FILE) if read else None
+        except Exception:
+            data = None
+        if not isinstance(data, dict):
+            return
+        self.skipped = {x for x in data.get("skipped") or [] if x in SEARCH_SOURCES}
+        rows = [r for r in data.get("jobs") or [] if isinstance(r, dict) and match.clean(r.get("name"))
+                and (r.get("albums") or r.get("songs"))]
+        if not rows:
+            return
+        self.search_paused = True
+        for r in rows:
+            albums, songs = list(r.get("albums") or [])[:200], list(r.get("songs") or [])[:100]
+            job = {"id": str(r.get("id") or secrets.token_hex(6)), "name": match.clean(r["name"]), "state": "running", "done": 0,
+                   "total": len(albums) + len(songs), "log": [], "albums": albums, "songs": songs, "gen": self._stop_gen,
+                   "current": f"{match.clean(r['name'])}: restored, search paused"}
+            self.restored += job["total"]
+            self.jobs[job["id"]] = job
+            threading.Thread(target=self._run, args=(job, albums, songs), daemon=True, name="get-missing").start()
     def _run(self, job, albums, songs):
-        # fork v109: everything this job queues is credited to the artist you asked for
-        # (Artist A first, Album Artist A, no "feat." in the title) - see featured.py.
         # fork v113: one job at a time, first come first served. "From a page" starts one job per artist;
         # all at once they flooded the sources with searches and got Galaxy blocked.
         with self._turns_lock:
             self._turns.append(job)
             if self._turns[0] is not job:
                 job["current"] = f"{job['name']}: waiting for its turn…"
-            while self._turns[0] is not job:
-                self._turns_lock.wait()
+            while self._turns[0] is not job and not self._stopped(job):
+                self._turns_lock.wait(0.5)
+            if self._turns[0] is not job:   # fork v114: stopped while waiting
+                self._turns.remove(job)
+                self._turns_lock.notify_all()
+                stopped = True
+            else:
+                stopped = False
+        if stopped:
+            self._end_stopped(job)
+            return
         try:
+            self._hold(job)   # paused (or restored after a restart): wait here for Resume
             with featured.for_artist(job["name"]):
                 self._run_all(job, albums, songs)
+        except SearchStopped:
+            self._end_stopped(job)
         finally:
             with self._turns_lock:
                 self._turns.remove(job)
@@ -674,6 +781,7 @@ class Discography:
     def _run_all(self, job, albums, songs):
         ctx = {"bandcamp": None, "bandcamp_checked": False, "job": job}
         for a in albums:
+            self._hold(job)
             title = match.clean((a or {}).get("title"))
             self._step(ctx, f"{title}: searching Galaxy…")
             appearance = a.get("appearance")  # True = artist appears on this album; get their songs, not the whole album
@@ -690,6 +798,7 @@ class Discography:
                     job["log"].append({"kind": "song", "title": title, "source": source,
                                        "note": f"{log_note}: {note}" if note else log_note})
                     job["done"] += 1
+                    self._save_line()
                     continue
                 # full_album on an appearance: the real main artist (fork v110), else search by album title alone
                 main = match.clean(a.get("main_artist"))
@@ -705,7 +814,9 @@ class Discography:
                                   release=release, featured=job["name"] if dl_name and dl_name != job["name"] else "")
             job["log"].append({"kind": "album", "title": title, "source": source, "note": note})
             job["done"] += 1
+            self._save_line()
         for s in songs:
+            self._hold(job)
             title = match.clean((s or {}).get("title"))
             try:
                 source, note = self._song(job["name"], title, match.clean(s.get("album")), ctx)
@@ -716,8 +827,10 @@ class Discography:
                 note = self._wish("song", job["name"], title, album=match.clean(s.get("album")), note=note)
             job["log"].append({"kind": "song", "title": title, "source": source, "note": note})
             job["done"] += 1
+            self._save_line()
         job["state"] = "done"
         job["current"] = ""
+        self._save_line()
 
     @staticmethod
     def _summary(result):
@@ -729,6 +842,8 @@ class Discography:
         return ", ".join(parts)
 
     def _bandcamp_base(self, name, ctx, albums=()):
+        if "bandcamp" in self.skipped:
+            return None
         if not ctx["bandcamp_checked"]:
             ctx["bandcamp_checked"] = True
             try:
@@ -739,6 +854,8 @@ class Discography:
 
     def _bandcamp_album(self, name, title, ctx):
         """("Bandcamp", note) when queued, else a short reason Bandcamp was skipped."""
+        if "bandcamp" in self.skipped:
+            return "Bandcamp is switched off"
         bandcamp = self.studio.bandcamp
         reason = "no artist with this exact name"
         try:
@@ -761,7 +878,7 @@ class Discography:
     def _soundcloud_album(self, name, title, expected=None):
         """("SoundCloud", note) when found as a set on the artist's own account, else None (v96)."""
         moresources = getattr(self.studio, "moresources", None)
-        if moresources is None:
+        if moresources is None or "soundcloud" in self.skipped:
             return None
         try:
             rows = moresources.find_album(name, title, expected or 0)
@@ -778,7 +895,7 @@ class Discography:
     def _soundcloud_song(self, name, title, album="", seconds=0):
         """("SoundCloud", note) when found on the artist's own account, else None (v96)."""
         moresources = getattr(self.studio, "moresources", None)
-        if moresources is None:
+        if moresources is None or "soundcloud" in self.skipped:
             return None
         try:
             row = moresources.find_song(name, title, seconds)
@@ -798,7 +915,7 @@ class Discography:
         is checked against the title asked for before it is trusted."""
         spotify = getattr(self.studio, "spotify", None)
         moresources = getattr(self.studio, "moresources", None)
-        if spotify is None or moresources is None:
+        if spotify is None or moresources is None or "spotify" in self.skipped:
             return None
         try:
             rows = spotify.songs(f"{name} - {title}")
@@ -819,7 +936,7 @@ class Discography:
 
     def _youtube(self):
         youtube = getattr(self.studio, "youtube", None)
-        return youtube if youtube is not None and youtube.enabled() else None
+        return youtube if youtube is not None and youtube.enabled() and "youtube" not in self.skipped else None
 
     def _youtube_album(self, name, title, why=None, expected=None):
         youtube = self._youtube()
@@ -904,7 +1021,7 @@ class Discography:
         tried.append("SoundCloud · not on the artist's own account")
         # 3. Soulseek (whole albums only; a partly owned album would be fetched again)
         soulseek = getattr(self.studio, "soulseek", None)
-        if soulseek is not None and soulseek.configured() and status != "partly":
+        if soulseek is not None and soulseek.configured() and status != "partly" and "soulseek" not in self.skipped:
             self._step(ctx, f"{title}: asking Soulseek…")
             result = soulseek.add([{"kind": "album", "artist": name, "album": title, "fallback": True}])
             return "Soulseek", self._summary(result) + " (wishlist if Soulseek has nothing)"
@@ -1056,6 +1173,8 @@ class Discography:
         return _galaxy_block["until"] > time.time()
 
     def _galaxy_album(self, name, title):
+        if "galaxy" in self.skipped:
+            return None, "Galaxy is switched off"
         if self._galaxy_paused():
             return None, "Galaxy was blocked by GD Studio a moment ago and is paused"
         galaxy = self.studio.galaxy
@@ -1125,7 +1244,7 @@ class Discography:
         if found:
             return found
         soulseek = getattr(self.studio, "soulseek", None)
-        if soulseek is not None and soulseek.configured():
+        if soulseek is not None and soulseek.configured() and "soulseek" not in self.skipped:
             result = soulseek.add([{"kind": "song", "artist": name, "title": title, "album": album, "fallback": True}])
             return "Soulseek", self._summary(result) + " (wishlist if Soulseek has nothing)"
         tried.append(f"Galaxy · query “{name} {title}”: " + ("no download link" if skip_galaxy else "not found"))
@@ -1133,6 +1252,8 @@ class Discography:
         return None, self._not_found(galaxy_note, tried)
 
     def _galaxy_song(self, name, title):
+        if "galaxy" in self.skipped:
+            return None, "Galaxy is switched off"
         if self._galaxy_paused():
             return None, "Galaxy was blocked by GD Studio a moment ago and is paused"
         galaxy = self.studio.galaxy

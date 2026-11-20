@@ -41,7 +41,7 @@ function showDownloads(tab) {
 async function loadDownloads() {
   try {
     const [info, queue, galaxy, finding, moreLinks] = await Promise.all([api("/api/downloads"), api("/api/downloads/queue"), api("/api/galaxy/status"), api("/api/discography/active"), api("/api/more/links/active")]);
-    downloadsView.finding = finding.jobs;
+    downloadsView.finding = finding.jobs; downloadsView.search = finding.search || null;
     downloadsView.info = info; downloadsView.queue = queue.queue; downloadsView.held = queue.held; downloadsView.galaxy = galaxy;
     downloadsView.persistError = queue.persist_error || ""; downloadsView.stalled = queue.stalled || [];
     for (const id of [...downloadsView.picked]) if (!queue.held.some(h => h.id === id)) downloadsView.picked.delete(id);
@@ -77,7 +77,7 @@ function downloadsPoll() {
         if (info.history_sources) downloadsView.info.history_sources = info.history_sources;
         if (downloadsView.tab === "queue" && document.activeElement?.id !== "downloads-history-search") { await loadDownloadsHistory(); renderDownloads(); }
       }
-      downloadsView.finding = finding.jobs;
+      downloadsView.finding = finding.jobs; downloadsView.search = finding.search || null;
       const failed = (downloadsView.queue || []).filter(i => i.state === "failed").length;
       downloadsView.queue = queue.queue; downloadsView.held = queue.held; downloadsView.galaxy = galaxy;
       downloadsView.persistError = queue.persist_error || ""; downloadsView.stalled = queue.stalled || [];
@@ -236,6 +236,17 @@ function downloadsDecideHtml() {
 
 const downloadsSteps = ["Got link", "Downloading", "MusicBrainz lookup", "Tagging", "Saved"];
 
+// fork v114: "45% · 1.20 MB/s · 2 min 10 s left" on every row that is transferring, for every source.
+function downloadsSpeedHtml(i) {
+  const parts = [];
+  if (i.progress) parts.push(`${Math.round(i.progress)}%`);
+  if (i.speed > 0) parts.push(`${Number(i.speed).toFixed(2)} MB/s`);
+  if (i.eta) parts.push(`${downloadsSeconds(i.eta)} left`);
+  if (i.idle >= 60) parts.push(`<span class="dl-idle">no data for ${downloadsSeconds(i.idle)}</span>`);
+  if (i.resets) parts.push(`reset ${i.resets}×`);
+  return parts.length ? ` · ${parts.join(" · ")}` : "";
+}
+
 function downloadsSeconds(s) {
   s = Math.round(s || 0);
   return s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`;
@@ -244,13 +255,23 @@ function downloadsSeconds(s) {
 // Albums being looked up on Galaxy → Bandcamp → Soulseek (v46), from Discography, Missing, From a page...
 // Once a source has them they move into the queue below.
 function downloadsFindingHtml() {
-  const jobs = downloadsView.finding || [];
-  if (!jobs.length) return "";
+  const jobs = downloadsView.finding || [], search = downloadsView.search || {};
+  const skipped = search.skipped || [];
+  if (!jobs.length && !skipped.length) return "";
   const running = jobs.some(j => j.state === "running");
-  return `<div class="dl-card" role="status"><h3>Finding sources ${running ? "" : "· done"}</h3>
+  const sources = {galaxy: "Galaxy", bandcamp: "Bandcamp", soulseek: "Soulseek", youtube: "YouTube", soundcloud: "SoundCloud", spotify: "Spotify"};
+  // fork v114: pause or stop the search for sources, and switch a source off (saved, so a block you worked around stays).
+  const controls = `<div class="dl-actions dl-search-controls">
+      ${running ? `<button type="button" class="button small" data-search-control="${search.paused ? "resume" : "pause"}">${search.paused ? "▶ Resume search" : "⏸ Pause search"}</button>
+      <button type="button" class="button small" data-search-control="stop">⏹ Stop search</button>` : ""}
+      <span class="muted">Search these:</span>
+      ${(search.sources || Object.keys(sources)).map(k => `<label class="dl-source-switch"><input type="checkbox" data-search-source="${escapeHtml(k)}" ${skipped.includes(k) ? "" : "checked"}> ${escapeHtml(sources[k] || k)}</label>`).join(" ")}</div>`;
+  const restored = search.restored ? `<p class="dl-warn" role="status">Restored ${search.restored} ${search.restored === 1 ? "search" : "searches"} from before Tagcast closed. They are paused: press Resume search to carry on, or Stop search to drop them.</p>` : "";
+  return `<div class="dl-card" role="status"><h3>Finding sources ${running ? (search.paused ? "· paused" : "") : "· done"}</h3>
+    ${restored}${controls}
     <ul class="dl-list">${jobs.map(j => `${j.log.map(e => `<li><span class="dl-badge ${e.source ? "have" : "partly"}">${escapeHtml(e.source || "Not found")}</span>
       <div><b>${escapeHtml(e.title)}</b> · ${escapeHtml(j.name)}<div class="dl-have">${escapeHtml(e.note || "")}</div></div></li>`).join("")}
-      ${j.state === "running" ? `<li><span class="dl-badge downloaded">Looking…</span><div>${escapeHtml(j.current || j.name)}<div class="muted">${escapeHtml(j.name)} · ${j.done} of ${j.total} done</div></div></li>` : ""}`).join("")}</ul>
+      ${j.state === "running" ? `<li><span class="dl-badge downloaded">${search.paused ? "Paused" : "Looking…"}</span><div>${escapeHtml(j.current || j.name)}<div class="muted">${escapeHtml(j.name)} · ${j.done} of ${j.total} done</div></div></li>` : ""}`).join("")}</ul>
     ${running ? "" : `<button type="button" class="button small" data-downloads-finding-dismiss>Clear</button>`}</div>`;
 }
 
@@ -324,7 +345,8 @@ function downloadsCompactCellHtml(i, label, badge) {
     <span class="dl-dot ${badge(i)}" aria-hidden="true"></span>
     <div class="dl-cell-body"><div class="dl-cell-name"><span class="dl-type">${downloadsReleaseName(i)}</span> ${name}</div>
       ${album ? `<div class="dl-cell-album">${escapeHtml(album)}</div>` : ""}
-      ${i.state === "active" ? `<div class="dl-progress"><progress max="100" value="${i.progress || 0}" aria-label="Download progress"></progress> <span class="muted">${escapeHtml(label(i))}${i.eta ? ` · ${downloadsSeconds(i.eta)} left` : ""}</span></div>` : ""}
+      ${i.state === "active" ? `<div class="dl-progress"><progress max="100" value="${i.progress || 0}" aria-label="Download progress"></progress> <span class="muted">${escapeHtml(label(i))}${downloadsSpeedHtml(i)}</span>
+        <button type="button" class="dl-icon" data-galaxy-control="reset" data-id="${escapeHtml(i.id)}" title="Stuck? Stop this song and start it again in the same place" aria-label="Reset ${escapeHtml(i.title)}">↻</button></div>` : ""}
       ${i.state === "done" && i.note && i.note !== "Saved" ? `<div class="dl-cell-album">${escapeHtml(i.note)}</div>` : ""}
       ${downloadsOriginHtml(i) ? `<div class="dl-cell-origin">${downloadsOriginHtml(i).replace(/^ · /, "")}</div>` : ""}</div>
     <span class="dl-cell-src">${escapeHtml(downloadsSourceName(i))}</span>
@@ -411,7 +433,7 @@ document.addEventListener("click", event => {
     return;
   }
   if (target.closest("[data-downloads-finding-dismiss]")) {
-    api("/api/discography/dismiss", {}).then(data => { downloadsView.finding = data.jobs; downloadsManagerRender(); });
+    api("/api/discography/dismiss", {}).then(data => { downloadsView.finding = data.jobs; downloadsView.search = data.search || null; downloadsManagerRender(); });
     return;
   }
   if (target.closest("[data-downloads-check]")) {
@@ -463,6 +485,13 @@ document.addEventListener("click", event => {
   if (copy) {
     const value = copy.dataset.dlCopy;
     Promise.resolve(navigator.clipboard?.writeText?.(value)).then(() => toast(`Copied: ${value}`), () => toast("Could not copy. Select the text instead."));
+    return;
+  }
+  const searchControl = target.closest("[data-search-control]");
+  if (searchControl) {   // fork v114
+    api("/api/discography/search-control", {action: searchControl.dataset.searchControl}).then(data => {
+      downloadsView.finding = data.jobs; downloadsView.search = data.search || null; downloadsManagerRender();
+    }).catch(error => toast(error.message));
     return;
   }
   const control = target.closest("[data-galaxy-control]");
@@ -531,6 +560,12 @@ document.addEventListener("click", event => {
 document.addEventListener("change", event => {
   const target = event.target;
   if (!target.closest?.("#downloads-page")) return;
+  if (target.matches?.("[data-search-source]")) {   // fork v114: switch a source off or on for searching
+    api("/api/discography/search-control", {action: "skip", source: target.dataset.searchSource, off: !target.checked}).then(data => {
+      downloadsView.finding = data.jobs; downloadsView.search = data.search || null; downloadsManagerRender();
+    }).catch(error => { toast(error.message); target.checked = !target.checked; });
+    return;
+  }
   if (target.name === "dl-kind") {
     downloadsView.checkKind = target.value; downloadsView.results = null; renderDownloads();
   } else if (target.matches("[data-downloads-pick]")) {
