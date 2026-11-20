@@ -12076,6 +12076,7 @@ test("v111: From a page has a flip button per row and a Flip ticked/all button",
   assert.match(html, /data-pagelist-flip="0"/);
   assert.doesNotMatch(html, /data-pagelist-flip="1"/);
   assert.match(html, /Flip title \/ artist on all/);
+  assert.match(html, /<b>112<\/b> <span class="muted">by<\/span> Dance With Me/);
   p.run(`pagelistView.picked = new Set(["0"])`);
   assert.match(p.run("pagelistHtml()"), /Flip title \/ artist on 1 ticked/);
 });
