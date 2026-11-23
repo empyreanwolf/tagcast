@@ -859,7 +859,9 @@ class Downloads:
         library_index, history_index = self._index()
         queued, held, already_had = [], [], []
         with self.lock:
-            waiting = {self._same(i) for i in self.state["queue"] if i.get("state") == "queued"} \
+            # fork v117: a song that is downloading right now counts as waiting too; before, adding it again while it
+            # was transferring queued a second copy (two overlapping page lists or discography runs fetched it twice)
+            waiting = {self._same(i) for i in self.state["queue"] if i.get("state") in ("queued", "active")} \
                 | {self._same(i) for i in self.state["held"]}
             batch = set()
             for item in cleaned:

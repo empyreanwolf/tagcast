@@ -161,7 +161,10 @@ class FileWorker:
                     self.wake.wait(0.5)
                     self.wake.clear()
                     if not self.manager.has_queued(self.source) and not self.manager.is_paused():
-                        return
+                        with self.lock:   # fork v117: a song added right now still finds this thread alive and would sit
+                            if not self.manager.has_queued(self.source):   # until the next poll; decide under the same lock
+                                self.thread = None
+                                return
                     continue
                 self.active, self.cancel_id = job["id"], None
                 try:

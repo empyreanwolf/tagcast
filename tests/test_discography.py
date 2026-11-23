@@ -380,3 +380,18 @@ class V105SpotifyFallbackTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SearchTrailTests(unittest.TestCase):
+    def test_each_searched_item_logs_its_term_origin_and_result(self):
+        from unittest import mock
+        from tagcast.discography import Discography
+        with mock.patch("tagcast.discography.activity.record") as record:
+            Discography._trail("song", "DJ Khaled", "Bills Paid", "page https://x.test · row “Bills Paid - DJ Khaled”", "Galaxy", "1 queued")
+            Discography._trail("album", "Nobody", "Nothing", None, None, "not found")
+        first, second = record.call_args_list
+        self.assertEqual(first.args[:3], ("downloads", "ok", "Searched song “DJ Khaled Bills Paid” → Galaxy"))
+        self.assertIn("Search term: DJ Khaled Bills Paid", first.kwargs["detail"])
+        self.assertIn("Asked from: page https://x.test · row “Bills Paid - DJ Khaled”", first.kwargs["detail"])
+        self.assertEqual(second.args[:3], ("downloads", "info", "Searched album “Nobody Nothing” → not found"))
+        self.assertIn("Asked from: Discography", second.kwargs["detail"])

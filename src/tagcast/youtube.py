@@ -218,9 +218,7 @@ def score_video(entry, artist, title, want_seconds=0):
             return 0.0
     topic = fold(channel).endswith(" topic") and match.match_key(channel[: -len(" - Topic")]) == match.match_key(artist)
     in_title = mentions(video, artist)
-    named = bool(match.match_key(artist)) and (match.match_key(artist) in match.match_key(channel) or
-                                                match.match_key(artist) in match.match_key(video) or
-                                                mentions(channel, artist) or in_title)
+    named = bool(match.match_key(artist)) and (mentions(channel, artist) or in_title)   # fork v117: whole words only, not "Pact" in "ImPact"
     if not (topic or named):
         return 0.0
     if not topic:  # fork v94: a skate clip or a montage that uses the song is not the song
@@ -712,8 +710,7 @@ class YouTube(YtdlpWorker):
                 continue
             score = max(sim(video, f"{artist} {title}"), sim(video, f"{artist} - {title}"))
             score = max(score, sim(clean_video(video), f"{artist} {title}"), sim(clean_video(video), title))
-            if (match.match_key(artist) and match.match_key(artist) in match.match_key(f"{video} {self._who(entry)}")) \
-                    or mentions(f"{video} {self._who(entry)}", artist):
+            if mentions(f"{video} {self._who(entry)}", artist):
                 score += 0.3
             if score > top:
                 best, top = entry, score
@@ -730,14 +727,14 @@ class YouTube(YtdlpWorker):
         if sim(name, album) < 0.9:
             return None
         key = match.match_key(artist)
-        named = key and key in match.match_key(self._who(entry))
+        named = key and mentions(self._who(entry), artist)
         if need_artist and not named and self._who(entry).strip():
             return None
         songs = [e for e in self._search_playlist(entry) if e.get("id") and e.get("title")]
         if not 2 <= len(songs) <= 60:
             return None
         if not named:  # no artist on the result: most songs must come from the artist (or "Artist - Topic")
-            by_artist = sum(1 for e in songs if key and key in match.match_key(self._who(e)))
+            by_artist = sum(1 for e in songs if key and mentions(self._who(e), artist))
             if by_artist * 2 < len(songs):
                 return None
         return songs
@@ -963,7 +960,7 @@ class YouTube(YtdlpWorker):
             url = e.get("url") or e.get("webpage_url") or ""
             title = match.clean(re.sub(r"(?i)^(album|single|ep)\s*[-·•]\s*", "", str(e.get("title") or "")))
             who = " ".join(str(e.get(k) or "") for k in ("channel", "uploader", "artist", "description"))
-            if url and title and (not who.strip() or match.match_key(artist) in match.match_key(who)):
+            if url and title and (not who.strip() or mentions(who, artist)):
                 out.append({"title": title, "url": url, "check": not who.strip()})
         return out
 
@@ -997,7 +994,7 @@ class YouTube(YtdlpWorker):
                 channel = str(e.get("channel") or e.get("uploader") or "")
                 url = e.get("url") or (f"https://www.youtube.com/playlist?list={e['id']}" if e.get("id") else "")
                 title = match.clean(re.sub(r"(?i)^album\s*-\s*", "", str(e.get("title") or "")))
-                if url and title and (key in match.match_key(channel) or not channel.strip()):
+                if url and title and (mentions(channel, artist) or not channel.strip()):
                     out.append({"title": title, "url": url, "check": not channel.strip()})
         return out
 
@@ -1019,12 +1016,11 @@ class YouTube(YtdlpWorker):
                 seen.add(r["url"])
                 unique.append(r)
 
-        key = match.match_key(artist)
 
         def tracks(release):
             entries = [e for e in self._try(release["url"]) if e.get("id") and e.get("title")]
             if release.get("check") and entries:  # no artist on the result: most songs must be by the artist
-                if sum(1 for e in entries if key in match.match_key(self._who(e))) * 2 < len(entries):
+                if sum(1 for e in entries if mentions(self._who(e), artist)) * 2 < len(entries):
                     entries = []
             rows = [{"id": e["id"], "title": match.clean(e["title"]), "duration": e.get("duration") or 0} for e in entries]
             return {**{k: v for k, v in release.items() if k != "check"}, "tracks": rows[:100]}

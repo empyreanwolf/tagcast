@@ -678,6 +678,22 @@ class Discography:
             job["current"] = f"{job['name']}: search paused"
             time.sleep(0.3)
 
+    def pause_point(self, gen, waiting=None):
+        """fork v117: the wishlist's retries call this before each item. They used to search straight away, beside
+        a running "From a page" job and even while the search was paused or stopped, which is the flood that got
+        Galaxy blocked. Wait while the search is paused or another search job has the turn; raise SearchStopped when
+        Stop was pressed after ``gen`` (``self._stop_gen`` when the run began)."""
+        while True:
+            if self._stop_gen != gen:
+                raise SearchStopped()
+            with self._turns_lock:
+                busy = bool(self._turns)
+            if not self.search_paused and not busy:
+                return
+            if waiting:
+                waiting("search paused" if self.search_paused else "waiting for the search line")
+            time.sleep(0.5)
+
     def _end_stopped(self, job):
         left = max(0, job["total"] - job["done"])
         job["log"].append({"kind": "stop", "title": "Search stopped", "source": "Stopped",
@@ -813,6 +829,7 @@ class Discography:
                 note = self._wish("album", dl_name, title, status=a.get("status"), note=note,
                                   release=release, featured=job["name"] if dl_name and dl_name != job["name"] else "")
             job["log"].append({"kind": "album", "title": title, "source": source, "note": note})
+            self._trail("album", dl_name, title, a.get("origin"), source, note)
             job["done"] += 1
             self._save_line()
         for s in songs:
@@ -826,11 +843,24 @@ class Discography:
             if not source:
                 note = self._wish("song", job["name"], title, album=match.clean(s.get("album")), note=note)
             job["log"].append({"kind": "song", "title": title, "source": source, "note": note})
+            self._trail("song", job["name"], title, s.get("origin"), source, note)
             job["done"] += 1
             self._save_line()
         job["state"] = "done"
         job["current"] = ""
         self._save_line()
+
+    @staticmethod
+    def _trail(kind, artist, title, origin, source, note):
+        """fork v117: one log line per searched item that says what was searched for, where the request came from
+        (the page and row, or the artist's discography) and where it ended up - the log used to show only the result."""
+        try:
+            activity.record("downloads", "ok" if source else "info",
+                            f"Searched {kind} “{artist} {title}” → {source or 'not found'}",
+                            detail=f"Search term: {artist} {title}\nAsked from: {origin or 'Discography / top songs / wishlist'}\n{note or ''}".strip(),
+                            source=(source or "tagcast").casefold())
+        except Exception:
+            log.debug("Could not log the search trail", exc_info=True)
 
     @staticmethod
     def _summary(result):
@@ -1012,7 +1042,8 @@ class Discography:
         why = self._bandcamp_album(name, title, ctx)
         if isinstance(why, tuple):
             return why
-        tried += [f"Galaxy · query “{name} {title}”: not found", f"Bandcamp · {why}"]
+        tried += [f"Galaxy · {galaxy_note}" if galaxy_note and galaxy_note != NOT_FOUND else f"Galaxy · query “{name} {title}”: not found",
+                  f"Bandcamp · {why}"]  # fork v117: say "switched off" / "paused" when that is what happened
         # 2b. SoundCloud: the artist's own account only (v96)
         self._step(ctx, f"{title}: looking on SoundCloud…")
         found = self._soundcloud_album(name, title, expected)

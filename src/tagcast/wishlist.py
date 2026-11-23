@@ -19,6 +19,7 @@ from . import artist_match as match
 from . import featured
 from .downloads import album_key, artist_keys, song_key
 from .galaxy import find_existing_by_title, safe_name
+from .discography import SearchStopped
 from .library import LibraryError
 
 log = logging.getLogger("tagcast")
@@ -332,8 +333,14 @@ class Wishlist:
 
     def _run(self, todo):
         ctx = {}
+        d = self.studio.discography
+        gen = d._stop_gen
         try:
             for item in todo:
+                try:
+                    d.pause_point(gen, lambda why: self.progress and self.progress.update(title=why))   # fork v117
+                except SearchStopped:
+                    break   # Stop search was pressed: the rest are not tried (they stay on the list)
                 self.progress["title"] = item["title"]
                 try:
                     with featured.for_artist(item.get("artist", "")):  # fork v109: credited to the artist wished for
@@ -406,6 +413,7 @@ class Wishlist:
                 if index:
                     note = f"{note} (searched as “{name}”, an alias on MusicBrainz)"
                 break
+        d._trail(item["kind"], artist, title, "wishlist retry", source, note)
         if source:
             self._done(item, source, note)
             return

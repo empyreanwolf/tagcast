@@ -100,7 +100,10 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(items[0]["cover"], "c.jpg")
         result = pl.get(first["id"], ["1"])
         self.assertEqual(result["queued"], 1)
-        self.assertEqual(Studio.discography.got, [("Nobody", [{"title": "Nothing", "status": "missing", "deezer_id": None}], [])])
+        name, albums, songs = Studio.discography.got[0]
+        self.assertEqual((name, songs), ("Nobody", []))
+        self.assertEqual({k: v for k, v in albums[0].items() if k != "origin"}, {"title": "Nothing", "status": "missing", "deezer_id": None})
+        self.assertEqual(albums[0]["origin"], "page https://example.com/x · row “Nobody - Nothing (2024)”", "the log can say which row asked")
         with self.assertRaises(pagelist.PageError):
             pl.get(first["id"], [])
 

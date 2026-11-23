@@ -1262,7 +1262,11 @@ class Galaxy:
                     # v83: stay alive while the finisher still works on the last song, so the
                     # watchdog never sees an "active" song with a dead thread.
                     if not self.manager.has_queued("galaxy") and not self.manager.is_paused() and self._finish_idle():
-                        return  # nothing left; add() starts a new thread
+                        with self.lock:   # fork v117: decide under the lock ensure_worker uses, so a song added now is not missed
+                            if not self.manager.has_queued("galaxy"):
+                                self.thread = None
+                                return  # nothing left; add() starts a new thread
+                        continue
                     continue
                 self.active, self.cancel_id = job["id"], None
                 handed = False

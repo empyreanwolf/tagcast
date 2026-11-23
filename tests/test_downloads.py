@@ -158,6 +158,18 @@ class V91CloseTitleTests(unittest.TestCase):
         self.assertEqual((result["queued"], result["skipped"]), (1, 1))
 
 
+class ActiveDuplicateTests(unittest.TestCase):
+    def test_a_song_that_is_downloading_is_not_queued_a_second_time(self):
+        studio = LocalStudio()
+        manager = studio.download_manager
+        first = manager.submit([song("DJ Khaled", "Bills Paid")])
+        self.assertEqual(first["queued"], 1)
+        with manager.lock:
+            manager.state["queue"][0]["state"] = "active"
+        again = manager.submit([song("DJ Khaled", "Bills Paid")])
+        self.assertEqual((again["queued"], again["skipped"]), (0, 1))
+
+
 class DecisionTests(unittest.TestCase):
     def setUp(self):
         self.studio = LocalStudio()

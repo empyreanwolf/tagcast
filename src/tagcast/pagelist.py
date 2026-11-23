@@ -503,10 +503,12 @@ class PageList:
         by_artist = {}
         for i in chosen:
             albums, songs = by_artist.setdefault(i["artist"], ([], []))
+            origin = f"page {job.get('source') or 'pasted text'} · row “{i['raw']}”"[:300]  # fork v117: shown in the log
             if i.get("song"):  # fork v116: a song row is fetched as that one song, never as its album
-                songs.append({"title": i["album"], "album": i.get("song_album", ""), "preview": "", "duration": 0, "cover": ""})
+                songs.append({"title": i["album"], "album": i.get("song_album", ""), "preview": "", "duration": 0, "cover": "", "origin": origin})
             else:
-                albums.append({"title": i["album"], "status": "partly" if i["status"] == "partly" else "missing", "deezer_id": i.get("deezer_id")})
+                albums.append({"title": i["album"], "status": "partly" if i["status"] == "partly" else "missing", "deezer_id": i.get("deezer_id"),
+                               "origin": origin})
         jobs = [self.studio.discography.get(artist, albums, songs)["id"] for artist, (albums, songs) in by_artist.items()]
         return {"queued": len(chosen), "jobs": jobs}
 
