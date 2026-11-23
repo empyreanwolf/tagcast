@@ -323,6 +323,9 @@ class YtdlpWorker(FileWorker):
             if re.search(r"HTTP Error 403|403: Forbidden", reason):
                 raise DownloadBlocked("YouTube refused the download (HTTP 403). Tagcast tries another upload and other sources. "
                                       "If it keeps happening: Settings → YouTube → Update yt-dlp, then restart Tagcast.") from None
+            if "Requested format is not available" in reason:   # fork v117: say what to do, not just that it failed
+                raise JobFailed("YouTube offered no audio format to yt-dlp. Settings → YouTube → Update yt-dlp, then restart "
+                                "Tagcast; YouTube now also needs a JavaScript runtime (install Deno) for yt-dlp.") from None
             raise JobFailed(f"YouTube download failed ({plain_error(reason)[:160]}). Updating yt-dlp often fixes this.") from None
         files = sorted((p for p in folder.glob("audio.*") if p.suffix not in (".part", ".ytdl", ".webp", ".jpg", ".png")),
                        key=lambda p: p.suffix != ".mp3")

@@ -37,7 +37,8 @@ NAME_FORMAT = "{albumartist|sartist|artist}/{album|salbum}/{track( - )title|slsk
 MAX_ACTIVE = 2
 POLL = 2.0
 STUCK_CANCEL = 30 * 60   # no data at all for this long: cancel and move on (v46)
-STUCK_WARN = 120         # the queue row turns yellow after this many seconds without data
+MISSES_BEFORE_FAIL = 3   # fork v117: unanswered checks in a row before a running job counts as lost
+STUCK_WARN = 120        # the queue row turns yellow after this many seconds without data
 DONE_KEYS = ("bytesTransferred", "transferredBytes", "bytesDownloaded", "downloadedBytes", "bytesReceived", "bytesDone")
 SIZE_KEYS = ("size", "totalBytes", "fileSize", "sizeBytes", "length", "bytesTotal")
 
@@ -274,10 +275,11 @@ class Soulseek:
             raise SoulseekError("Choose between 1 and 200 albums or songs.")
         out = []
         for raw in items:
-            kind = raw.get("kind") if isinstance(raw, dict) else None
-            artist = match.clean((raw or {}).get("artist"))
-            album = match.clean((raw or {}).get("album"))
-            title = album if kind == "album" else match.clean((raw or {}).get("title"))
+            raw = raw if isinstance(raw, dict) else {}   # fork v117: a stray string used to be a server error
+            kind = raw.get("kind")
+            artist = match.clean(raw.get("artist"))
+            album = match.clean(raw.get("album"))
+            title = album if kind == "album" else match.clean(raw.get("title"))
             if kind not in ("album", "song") or not artist or not title:
                 raise SoulseekError("Each album needs an artist and a title; each song an artist and a title.")
             out.append({"kind": kind, "title": title, "artist": artist, "album": album if kind == "song" else "",
@@ -299,6 +301,7 @@ class Soulseek:
                 self._call("POST", f"/api/jobs/{item['job_id']}/cancel")
             except SoulseekError:
                 pass
+        self.seen.pop(item_id, None)
         self.manager.cancelled(item_id)   # fork v114: removed, or (after a Reset) back in line
 
     def ensure_worker(self):
@@ -322,7 +325,11 @@ class Soulseek:
                 log.exception("Soulseek queue check failed")
                 busy = True
             if not busy:
-                return
+                with self.lock:   # fork v117: decide under the lock, so a song added right now gets a thread
+                    if not self.manager.has_queued(self.source) and not self.active_ids():
+                        self.thread = None
+                        return
+                continue
             self.wake.wait(POLL)
             self.wake.clear()
 
@@ -411,9 +418,16 @@ class Soulseek:
         except SoulseekError as error:
             self._fail(item, str(error))
             return
-        if detail is None:  # the daemon is gone
-            self._fail(item, "Sockseek stopped while this was downloading. Retry starts it again.")
+        if detail is None:  # the daemon did not answer
+            # fork v117: one slow answer (10 s timeout) is not "gone"; fail only after several misses in a row
+            seen = self.seen.setdefault(item["id"], {"sig": None, "at": time.time(), "mb": 0.0, "t": time.time(), "speed": 0.0})
+            seen["misses"] = seen.get("misses", 0) + 1
+            if seen["misses"] >= MISSES_BEFORE_FAIL:
+                self.seen.pop(item["id"], None)
+                self._fail(item, "Sockseek stopped while this was downloading. Retry starts it again.")
             return
+        if item["id"] in self.seen:
+            self.seen[item["id"]]["misses"] = 0
         summary, payload = detail.get("summary") or {}, detail.get("payload") or {}
         phase = summary.get("activityPhase") or ""
         progress, text = 0, {"Searching": "Searching Soulseek…", "WaitingForSearchConcurrency": "Waiting to search…",

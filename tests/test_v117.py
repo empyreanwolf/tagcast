@@ -80,3 +80,27 @@ class WholeWordArtistTests(unittest.TestCase):
         yt = YouTube(LocalStudio(), search=lambda q, playlists=False: entries, fetch_audio=lambda *a: None)
         found = yt._music_releases("Pact")
         self.assertEqual([r["title"] for r in found], ["Day"])
+
+
+class GalaxyBlockedTests(unittest.TestCase):
+    def test_a_firewall_block_is_not_reported_as_no_link(self):
+        from tagcast.galaxy import Galaxy, GalaxyBlocked
+        from test_galaxy import LocalStudio as GStudio
+        studio = GStudio()
+        galaxy = studio.galaxy
+
+        class Api:
+            calls = 0
+
+            def url(self, *a):
+                Api.calls += 1
+                raise GalaxyBlocked("blocked")
+
+            def search(self, *a, **k):
+                raise AssertionError("must not search other sources while blocked")
+        galaxy.api = Api()
+        job = {"id": "x", "title": "Song", "payload": {"source": "netease", "id": "1", "artists": ["A"], "album": "B"}}
+        with self.assertRaises(GalaxyBlocked):
+            galaxy.get_link(job)
+        self.assertEqual(Api.calls, 1)
+        self.assertEqual(galaxy._dead, {})

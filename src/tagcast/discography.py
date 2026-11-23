@@ -797,8 +797,9 @@ class Discography:
     def _run_all(self, job, albums, songs):
         ctx = {"bandcamp": None, "bandcamp_checked": False, "job": job}
         for a in albums:
+            a = a if isinstance(a, dict) else {}
             self._hold(job)
-            title = match.clean((a or {}).get("title"))
+            title = match.clean(a.get("title"))
             self._step(ctx, f"{title}: searching Galaxy…")
             appearance = a.get("appearance")  # True = artist appears on this album; get their songs, not the whole album
             full_album = a.get("full_album")  # True = override: download the whole album (from album title search)
@@ -813,6 +814,7 @@ class Discography:
                         note = self._wish("song", job["name"], title, note=note)
                     job["log"].append({"kind": "song", "title": title, "source": source,
                                        "note": f"{log_note}: {note}" if note else log_note})
+                    self._trail("song", job["name"], title, a.get("origin"), source, note)   # fork v117
                     job["done"] += 1
                     self._save_line()
                     continue
@@ -833,8 +835,9 @@ class Discography:
             job["done"] += 1
             self._save_line()
         for s in songs:
+            s = s if isinstance(s, dict) else {}
             self._hold(job)
-            title = match.clean((s or {}).get("title"))
+            title = match.clean(s.get("title"))
             try:
                 source, note = self._song(job["name"], title, match.clean(s.get("album")), ctx)
             except Exception as error:
@@ -1012,7 +1015,7 @@ class Discography:
         if chinese_name(name):
             # v70: a Chinese artist: Galaxy first (NetEase's own album and track list), then YouTube.
             self._step(ctx, f"{title}: searching Galaxy…")
-            source, note = self._galaxy_album(name, title)
+            source, note = self._galaxy_album(name, title, expected)
             if source:
                 return source, note
             galaxy_note = note
@@ -1033,7 +1036,7 @@ class Discography:
                     return found
             # 1. Galaxy: every way (album, then the title as a song, then the artist's songs)
             self._step(ctx, f"{title}: searching Galaxy…")
-            source, note = self._galaxy_album(name, title)
+            source, note = self._galaxy_album(name, title, expected)
             if source:
                 return source, note
             galaxy_note = note
@@ -1203,7 +1206,7 @@ class Discography:
     def _galaxy_paused():
         return _galaxy_block["until"] > time.time()
 
-    def _galaxy_album(self, name, title):
+    def _galaxy_album(self, name, title, expected=None):
         if "galaxy" in self.skipped:
             return None, "Galaxy is switched off"
         if self._galaxy_paused():
@@ -1224,10 +1227,14 @@ class Discography:
             best = find_song(galaxy.api, self._galaxy_sources(), name, title, deep=True)
             if best:
                 own = best.get("album") or ""
-                if own and sim(own, title) < 0.9:   # the song's own album may be the whole thing
+                # fork v117: never widen a one-song release (a single, a feature) into the album the song is on
+                # ("Bills Paid" is on "GOD DID"); an album of a very different size is not "the whole thing" either
+                if own and sim(own, title) < 0.9 and expected != 1:   # the song's own album may be the whole thing
                     data = galaxy.album(own, name, best["source"])
                     if data.get("found"):
                         tracks, others = _only_theirs(_not_instrumental(data["tracks"]), name, data["album_artist"])
+                        if tracks and expected and abs(len(tracks) - expected) > 2:
+                            tracks = []
                         if tracks:
                             return "Galaxy", self._summary(galaxy.add(tracks, data["album_artist"], len(tracks), album=True)) + f" (album “{own}”)" + others
                 return "Galaxy", self._summary(galaxy.add([best])) + " (found by song title)"

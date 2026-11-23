@@ -205,3 +205,25 @@ class SoulseekTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_one_unanswered_check_does_not_fail_a_running_job(self):   # fork v117
+        configure(self.studio)
+        self.s.add([{"kind": "song", "artist": "Coldplay", "title": "Clocks"}])
+        self.s.tick()
+        item = self.studio.download_manager.state["queue"][0]
+        self.studio.daemon.up = False
+        self.s.tick()
+        self.s.tick()
+        self.assertEqual(self.studio.download_manager.item(item["id"])["state"], "active")
+        self.studio.daemon.up = True
+        self.s.tick()
+        self.assertEqual(self.s.seen[item["id"]]["misses"], 0)
+        self.studio.daemon.up = False
+        for _ in range(3):
+            self.s.tick()
+        self.assertEqual(self.studio.download_manager.item(item["id"])["state"], "failed")
+
+    def test_a_stray_value_in_the_list_is_a_clean_error(self):   # fork v117
+        configure(self.studio)
+        with self.assertRaises(SoulseekError):
+            self.s.add(["Coldplay - Clocks"])

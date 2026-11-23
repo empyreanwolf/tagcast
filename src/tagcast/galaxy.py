@@ -1271,6 +1271,7 @@ class Galaxy:
                 self.active, self.cancel_id = job["id"], None
                 handed = False
                 try:
+                    self._start_finisher()   # fork v117: a finisher that just gave up while idle is replaced here
                     self._prefetch_next()
                     ctx = self._fetch_stage(job)
                     self._finish_q.put((job, ctx))  # waits while the finisher is still on the song before
@@ -1367,6 +1368,13 @@ class Galaxy:
         if not nxt:
             return
         jid, p = nxt["id"], nxt["payload"]
+        with self._pre_lock:
+            stale = [k for k in self._pre if k != jid]
+        for k in stale:   # fork v117: songs removed from the queue left their entry behind and switched prefetching off
+            it = self.manager.item(k)
+            if not it or it.get("state") not in ("queued", "active"):
+                with self._pre_lock:
+                    self._pre.pop(k, None)
         with self._pre_lock:
             if jid in self._pre or len(self._pre) >= 6:
                 return
@@ -1528,7 +1536,7 @@ class Galaxy:
             for b in rates:
                 try:
                     info = self.api.url(source, tid, b)
-                except (StopRequested, JobCancelled):
+                except (StopRequested, JobCancelled, GalaxyBlocked):   # fork v117: a firewall block is not "no link"
                     raise
                 except Exception as e:
                     log.info("Galaxy url call failed (%s, br=%s): %s", source, b, e)
@@ -1555,7 +1563,7 @@ class Galaxy:
             self._step(job["id"], 0, f"Trying {alt}…")
             try:
                 results = self.api.search(alt, query, 10, 1)
-            except (StopRequested, JobCancelled):
+            except (StopRequested, JobCancelled, GalaxyBlocked):   # fork v117
                 raise
             except Exception as e:
                 log.info("Galaxy fallback search on %s failed: %s", alt, e)

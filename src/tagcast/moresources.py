@@ -517,7 +517,8 @@ class MoreSources(YtdlpWorker):
             raise MoreError("Choose between 1 and 200 songs.")
         items = []
         for r in rows:
-            url = str((r or {}).get("url") or "")
+            r = r if isinstance(r, dict) else {}   # fork v117: a stray value is a clean error, not a server error
+            url = str(r.get("url") or "")
             site = site_of(url)
             title, artist = match.clean(r.get("title")), match.clean(r.get("artist"))
             if not site or not title:

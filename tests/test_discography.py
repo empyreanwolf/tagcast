@@ -299,6 +299,18 @@ class DiscographyTests(unittest.TestCase):
         self.assertIn("found by song title", entry["note"])
         self.assertEqual([i["source"] for i in studio.download_manager.state["queue"]], ["galaxy"])
 
+    def test_a_single_is_never_widened_into_the_album_its_song_is_on(self):   # fork v117
+        studio = LocalStudio()
+        studio.gd.search_results[("netease", "DJ Khaled Bills Paid", 1)] = [gd_song(71, "Bills Paid", "DJ Khaled", "GOD DID")]
+        for key in (("netease_album", "GOD DID", 1), ("netease", "GOD DID", 1), ("netease", "DJ Khaled GOD DID", 1)):
+            studio.gd.search_results[key] = [gd_song(70 + n, f"Track {n}", "DJ Khaled", "GOD DID") for n in range(1, 6)] + \
+                                            [gd_song(71, "Bills Paid", "DJ Khaled", "GOD DID")]
+        result = wait_job(studio.discography, studio.discography.get(
+            "DJ Khaled", albums=[{"title": "Bills Paid", "status": "missing", "tracks": 1}]))
+        self.assertEqual(result["log"][0]["source"], "Galaxy")
+        queued = [i["title"] for i in studio.download_manager.state["queue"] if i["source"] == "galaxy"]
+        self.assertEqual(queued, ["Bills Paid"])
+
     def test_the_artists_own_songs_are_searched_when_no_title_search_finds_it(self):
         studio = LocalStudio()
         studio.gd.search_results[("netease", "连麻Swimming", 1)] = [
