@@ -12114,3 +12114,78 @@ test("v114: Finding sources has pause, stop, source switches and a restored note
   p.run(`downloadsView.search = {paused: false, skipped: ["galaxy"], restored: 0, sources: ["galaxy"]}`);
   assert.match(p.run("downloadsFindingHtml()"), /data-search-source="galaxy"/);   // a switched-off source stays visible to switch back on
 });
+
+test("fork v115: the vinyl device has a tonearm that follows the song and rests when paused", async () => {
+  const p = page({storage: {"tagcast-look": "classic"}}); await settle();
+  const svg = p.run('pdSvg("vinyl", "https://x.test/a.jpg", "t1")');
+  assert.match(svg, /class="pd-tonearm"/);
+  assert.match(svg, /class="a-spin slow"/, "the record turns behind the sleeve");
+  assert.match(svg, /https:\/\/x\.test\/a\.jpg/, "the sleeve carries the album cover");
+  p.run('psState.big = "vinyl|x"; psState.mini = ""');
+  p.run('globalThis.__slot = document.querySelector("#ps-big") || {style: {setProperty(k, v) { globalThis.__arm = [k, v]; }}}');
+  const css = require("node:fs").readFileSync(require("node:path").join(__dirname, "../src/tagcast/static/player-devices.css"), "utf8");
+  assert.match(css, /\.ps-playing \.pd \.pd-tonearm\{transform:rotate\(var\(--vinyl-arm,0deg\)\)/);
+  assert.match(css, /prefers-reduced-motion[\s\S]*\.pd \.pd-tonearm/);
+});
+
+test("fork v115: the three added visualizer presets are plain functions Butterchurn accepts", async () => {
+  const p = page({storage: {"tagcast-look": "classic"}}); await settle();
+  const names = p.json("Object.keys(bvExtraPresets())");
+  assert.deepEqual(names, ["Tagcast · Ember Tunnel", "Tagcast · Kaleido Bloom", "Tagcast · Stereo Vectorscope"]);
+  for (const name of names) {
+    const preset = p.run(`typeof bvExtraPresets()[${JSON.stringify(name)}].frame_eqs`);
+    assert.equal(preset, "function", name);
+  }
+  assert.equal(p.run('bvExtraPresets()["Tagcast · Kaleido Bloom"].shapes.length'), 4, "all four shape slots are present");
+  const state = p.json('(() => { const e = bvExtraPresets()["Tagcast · Ember Tunnel"]; const s = e.init_eqs({}); s.time = 1; s.bass_att = 1.5; s.bass = 1.2; s.mid_att = 1; s.treb_att = 1; return Object.keys(e.frame_eqs(s)).includes("rot") && Number.isFinite(s.zoom); })()');
+  assert.equal(state, true);
+});
+
+test("fork v115: Similar in your library follows the saved source and renders plain English", async () => {
+  const p = page({storage: {"tagcast-look": "classic"}}); await settle();
+  assert.equal(p.run("lookup.discoverSource"), "listenbrainz");
+  p.run('applyDiscoverSettings({discover_source: "lastfm"})');
+  assert.equal(p.run("lookup.discoverSource"), "lastfm");
+  p.run('applyDiscoverSettings({discover_lastfm: false})');
+  assert.equal(p.run("lookup.discoverSource"), "local", "the older on/off flag still maps");
+  assert.equal(p.run('discoverSourceLabel("listenbrainz")'), "ListenBrainz");
+  assert.equal(p.run('discoverSourceLabel("local")'), "Your library");
+  assert.equal(p.run('discoverText("discover.introListenBrainz", {artist: "Björk"})'),
+    "Albums in your library by artists related to Björk on ListenBrainz. Ratings choose an album for each artist.");
+  assert.equal(p.run('discoverHtml("library.open.album", {name: "<b>x</b>"})'), "Open album &lt;b&gt;x&lt;/b&gt;");
+  assert.match(p.run("$('#settings-content')?.innerHTML || ''") + p.run("String(typeof renderSettingsContent)"), /function|Similar music/);
+});
+
+test("fork v115: trash review text, counts and page check", async () => {
+  const p = page({storage: {"tagcast-look": "classic"}}); await settle();
+  assert.equal(p.run('trashText("trashEmpty.count", {count: 1})'), "1 track in iBroadcast trash");
+  assert.equal(p.run('trashText("trashEmpty.count", {count: 1234})'), "1,234 tracks in iBroadcast trash");
+  assert.equal(p.run('trashText("trashEmpty.page", {start: 1, end: 50, total: 120})'), "1–50 / 120");
+  const ok = '{count: 1, offset: 0, limit: 50, review: "abcdefghijklmnopqrstuvwxyz", digest: "' + "a".repeat(64) + '", tracks: [{id: "5", title: "T", artist: "A", album: "B"}]}';
+  assert.equal(p.run(`validEmptyTrashPage(${ok})`), true);
+  assert.equal(p.run(`validEmptyTrashPage({...${ok}, limit: 10})`), false);
+  assert.equal(p.run(`validEmptyTrashPage({...${ok}, tracks: []})`), false);
+  assert.equal(p.run(`validEmptyTrashPage({...${ok}, tracks: [{id: "0", title: "", artist: "", album: ""}]})`), false);
+  assert.match(p.run("emptyTrashPanel()"), /Review iBroadcast trash…/);
+  assert.match(p.run('emptyTrashHistoryMarkup({emptyTrash: {count: 3}, status: "saved", created: "2026-11-23T10:00:00Z", error: ""})'), /3 tracks removed from iBroadcast trash/);
+});
+
+test("fork v115: track list comparison compares by position and stages explicit corrections only", async () => {
+  const p = page({storage: {"tagcast-look": "classic"}}); await settle();
+  const diff = (a, b) => p.json(`trackComparisonDifferences(${JSON.stringify(a)}, ${JSON.stringify(b)})`);
+  const full = {title: "Song", disc: 1, number: "1", length: 200, artist: "A"};
+  assert.deepEqual(diff(full, {...full}), []);
+  assert.deepEqual(diff(full, null), ["unpaired"]);
+  assert.deepEqual(diff(full, {...full, title: "Other"}), ["titleDiff"]);
+  assert.deepEqual(diff(full, {...full, length: 201.5}), [], "two seconds or less is not flagged");
+  assert.deepEqual(diff(full, {...full, length: 210}), ["durationDiff"]);
+  assert.deepEqual(diff(full, {...full, number: "2"}), ["positionDiff"]);
+  assert.ok(diff(full, {...full, length: 0}).includes("unknown"));
+  assert.equal(p.run('comparisonText("trackComparison.count", {count: 3})'), "trackComparison.count", "unknown keys fall back to the key");
+  assert.equal(p.run('draftTextVars("comparisonDraft.count", {count: 2})'), "Tracks with corrections: 2");
+  const patch = p.json(`(() => { const original = {artist: "Artist", credits: []};
+    return comparisonArtistPatch(original, {artist_credits: [{name: "artist"}, {name: "Guest", phrase: "feat."}]}); })()`);
+  assert.equal(patch.artist, undefined, "a case-only change to the main artist is not a rename");
+  assert.equal(patch.credits.length, 1);
+  assert.equal(patch.credits[0].name, "Guest");
+});

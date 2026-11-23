@@ -273,6 +273,8 @@ class Library:
         self._editor_names = None
         self._album_index = None  # fork v48: built once per library; a changed library is a new object
         self._album_index_lock = Lock()
+        self._discover_index = None  # fork v115: built on first use by discover.py
+        self._discover_lock = Lock()
 
     def to_cache(self):
         """Only what Tagcast needs: no account details or third-party session keys."""

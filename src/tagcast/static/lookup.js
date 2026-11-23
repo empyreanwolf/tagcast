@@ -3,14 +3,16 @@
 // Online sources: year, genre and cover suggestions side by side, like a tag editor's
 // "tag sources". A suggestion only fills the form; saving still goes through the review.
 
-const lookup = {sources: [], auto: true, recordPlays: false, streamQuality: "128", queueSync: false, settingsRevision: 0, keysFromEnv: [], results: new Map(), tokens: {}, album: null};
+const lookup = {sources: [], auto: true, discoverSource: "listenbrainz", recordPlays: false, streamQuality: "128", queueSync: false, settingsRevision: 0, keysFromEnv: [], results: new Map(), tokens: {}, album: null};
 const sourceLabel = name => lookup.sources.find(s => s.name === name)?.label || name;
 
 function applyLookupSources(sources) {
   const choices = rows => JSON.stringify(rows.map(s => [s.name, s.enabled, s.selected]));
   const changed = lookup.sources.length && choices(lookup.sources) !== choices(sources);
+  const musicBrainzChanged = lookup.sources.find(s => s.name === "musicbrainz")?.enabled !== sources.find(s => s.name === "musicbrainz")?.enabled;
   const lyricsChanged = lookup.sources.length && lookup.sources.find(s => s.name === "lrclib")?.enabled !== sources.find(s => s.name === "lrclib")?.enabled;
   lookup.sources = sources;
+  if (musicBrainzChanged && typeof resetTrackComparison === "function") resetTrackComparison();
   if (lyricsChanged && typeof invalidateLyricsSource === "function") invalidateLyricsSource();
   if (!changed) return;
   // Do not let answers started before a settings change repopulate either chooser.
@@ -29,6 +31,7 @@ async function loadSettings() {
     lookup.recordPlays = data.record_plays === true;
     lookup.albumGuideEnabled = data.album_guide === true;
     if (typeof applyAlbumGuideSettings === "function") applyAlbumGuideSettings(data);
+    if (typeof applyDiscoverSettings === "function") applyDiscoverSettings(data);
     if (typeof applyArtistSettings === "function") applyArtistSettings(data);
     if (typeof applyAlbumInformationSettings === "function") applyAlbumInformationSettings(data);
     if (typeof applyPlaybackSettings === "function") applyPlaybackSettings(data);
@@ -163,6 +166,7 @@ function renderSettingsContent() {
     + (typeof gaplessSettings === "function" ? gaplessSettings() : "")
     + sidebarSettingsPanel()
     + metadataExportPanel()
+    + emptyTrashPanel()
     + `<section class="history-settings" data-settings-category="data"><h3>Change history</h3>
     <p class="muted">Download the change history saved in this browser as a JSON file for your records.</p>
     <button type="button" class="button small" id="export-button" ${state.history.length ? "" : "disabled"}>Export changes ↓</button></section>`
@@ -185,6 +189,12 @@ function renderSettingsContent() {
     <label class="checkline"><input type="checkbox" name="album_guide" ${albumGuide.enabled ? "checked" : ""}> Enable 1001 Albums</label>
     <p class="muted">Off by default. This controls the discovery page and sidebar shortcut; bundled background texts on album pages stay available when it is off. Save to show 1001 Albums in the sidebar, then start an analysis when you choose. Compares the supplied 1955–2007 selection with your loaded album metadata locally. Results are saved on this computer; your iBroadcast library is unchanged.</p>
     <button type="button" class="button small" data-guide-open ${albumGuide.enabled ? "" : "disabled"}>Open 1001 Albums</button></section>
+    <section class="artist-discover-settings" data-settings-category="discovery"><h3>Similar music <span class="settings-mode">Save required</span></h3>
+    <label class="field">Suggestion source <select name="discover_source">${["local", "listenbrainz", "lastfm"].map(source => `<option value="${source}" ${lookup.discoverSource === source ? "selected" : ""}>${source === "local" ? "Local genres" : escapeHtml(discoverSourceLabel(source))}</option>`).join("")}</select></label>
+    <p class="muted">Choose where Tagcast finds related artists. Suggestions always come from albums in your library.</p>
+    <p class="muted">ListenBrainz falls back to local genres if it cannot find matching albums. Last.fm requires its source switch and API key in Sources &amp; keys. Searches start when you open Similar in your library or choose Refresh suggestions.</p>
+    <p class="muted">ListenBrainz needs no account or key. When you look up suggestions, MusicBrainz receives the selected artist name and ListenBrainz receives the matching public artist ID.</p>
+    <p class="muted">Last.fm receives the selected artist name when you look up suggestions. It uses your API key. Your library and listening history stay local.</p></section>
     <section class="artist-biography-settings" data-settings-category="discovery"><h3>Artist biographies</h3>
     <label class="checkline"><input type="checkbox" name="artist_biographies" ${artistProfile.enabled ? "checked" : ""}> Show artist biographies from TheAudioDB</label>
     <p class="muted">Off by default. When you visit an album artist, Tagcast sends that artist’s name to TheAudioDB if no current local biography is available. English text is stored separately on this computer for up to 30 days before checking again. No library scan, iBroadcast changes or Last.fm account are needed. Biographies may be unavailable or refer to another artist with the same name; check the source link.</p></section>
@@ -224,6 +234,7 @@ async function saveSettings(form, clear) {
   if (form.elements.queue_sync) body.queue_sync = form.elements.queue_sync.checked;
   if (form.elements.record_plays) body.record_plays = form.elements.record_plays.checked;
   if (form.elements.album_guide) body.album_guide = form.elements.album_guide.checked;
+  if (form.elements.discover_source) body.discover_source = form.elements.discover_source.value;
   if (form.elements.artist_biographies) body.artist_biographies = form.elements.artist_biographies.checked;
   if (form.elements.album_information) body.album_information = form.elements.album_information.checked;
   for (const input of form.querySelectorAll("input[type=password]")) if (input.value.trim()) body[input.name] = input.value.trim();
@@ -236,6 +247,7 @@ async function saveSettings(form, clear) {
     applyLookupSources(data.sources); lookup.auto = data.auto_lookup;
     lookup.recordPlays = data.record_plays === true;
     applyAlbumGuideSettings(data);
+    applyDiscoverSettings(data);
     applyArtistSettings(data);
     applyAlbumInformationSettings(data);
     applyPlaybackSettings(data);

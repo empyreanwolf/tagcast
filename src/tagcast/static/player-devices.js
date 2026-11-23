@@ -89,13 +89,18 @@ const pdDevices = [
     <circle cx="290" cy="132" r="76" fill="#0f1519" stroke="#aeb8bc" stroke-width="5"/><circle cx="290" cy="132" r="38" fill="#3a2a22"/>
     <g class="a-spin" style="transform-origin:290px 132px"><circle cx="290" cy="98" r="13" fill="#0f1519"/><circle cx="319.4" cy="149" r="13" fill="#0f1519"/><circle cx="260.6" cy="149" r="13" fill="#0f1519"/><circle cx="290" cy="132" r="13" fill="#aeb8bc"/><circle cx="290" cy="132" r="5" fill="#080c0f"/></g>
     <circle cx="140" cy="236" r="5" fill="#aeb8bc"/><circle cx="260" cy="236" r="5" fill="#aeb8bc"/><rect x="180" y="228" width="40" height="16" rx="3" fill="#aeb8bc"/>`},
+  // fork v115, after upstream Tagcast 1.9.8: the cover stands upright as the sleeve, the record turns behind it, and
+  // the tonearm follows how far the song has played (--vinyl-arm is set from the audio's progress, 0 to 24 degrees).
   {id: "vinyl", name: "Vinyl record", era: "1948", body: (A) => `
-    <g class="a-spin slow" style="transform-origin:160px 150px"><circle cx="160" cy="150" r="130" fill="#101417"/>
-    ${[120, 108, 96, 84, 72, 60].map(r => `<circle cx="160" cy="150" r="${r}" fill="none" stroke="#1f272c"/>`).join("")}
-    <path d="M160 150 L160 20 A130 130 0 0 1 217 32 Z" fill="#fff" opacity="0.07"/><path d="M160 150 L160 280 A130 130 0 0 1 103 268 Z" fill="#fff" opacity="0.07"/>
-    ${A.circle(160, 150, 46)}<circle cx="160" cy="150" r="30" fill="none" stroke="#fff" stroke-opacity="0.35"/><circle cx="160" cy="150" r="5" fill="#080c0f"/></g>
-    <g class="pd-arm" style="transform-origin:335px 45px"><line x1="335" y1="45" x2="350" y2="16" stroke="#b6c0c4" stroke-width="10" stroke-linecap="round"/><line x1="335" y1="45" x2="245" y2="215" stroke="#b6c0c4" stroke-width="6" stroke-linecap="round"/><rect x="232" y="208" width="26" height="14" rx="3" fill="#e8eef0" transform="rotate(-28 245 215)"/></g>
-    <circle cx="335" cy="45" r="18" fill="#232c32" stroke="#3a4a52" stroke-width="2"/><circle cx="335" cy="45" r="6" fill="#b6c0c4"/>`},
+    <g class="a-spin slow" style="transform-origin:260px 150px"><circle cx="260" cy="150" r="106" fill="#0f1114"/>
+    ${[98, 90, 82, 74, 66, 58, 50].map(r => `<circle cx="260" cy="150" r="${r}" fill="none" stroke="#252a30"/>`).join("")}
+    <path d="M260 150 L260 44 A106 106 0 0 1 340 80 Z" fill="#fff" opacity="0.08"/><path d="M260 150 L260 256 A106 106 0 0 1 180 220 Z" fill="#fff" opacity="0.08"/>
+    <circle cx="260" cy="150" r="34" fill="url(#O)"/><circle cx="260" cy="150" r="34" fill="none" stroke="#fff" stroke-opacity="0.3"/><circle cx="260" cy="150" r="5" fill="#080c0f"/></g>
+    <rect x="18" y="44" width="220" height="220" rx="8" fill="#000" opacity="0.28"/>
+    ${A.rect(14, 40, 220, 220, 8)}<rect x="14" y="40" width="220" height="220" rx="8" fill="none" stroke="#fff" stroke-opacity="0.18"/>
+    <g class="pd-tonearm" style="transform-origin:352px 34px"><rect x="347" y="6" width="10" height="22" rx="2" fill="#8b8178"/>
+    <line x1="352" y1="34" x2="352" y2="146" stroke="#c9c2b8" stroke-width="6" stroke-linecap="round"/><rect x="344" y="140" width="16" height="22" rx="3" fill="#e6ddd0"/></g>
+    <circle cx="352" cy="34" r="16" fill="#3a3430" stroke="#8b8178" stroke-width="3"/><circle cx="352" cy="34" r="5" fill="#ded4c9"/>`},
   {id: "carradio", name: "Car radio", era: "1970s", body: (A) => `
     <rect x="40" y="90" width="320" height="130" rx="12" fill="#161c20" stroke="#aeb8bc" stroke-width="3"/>
     <circle cx="92" cy="155" r="30" fill="#232c32" stroke="#aeb8bc" stroke-width="3"/>${Array.from({length: 12}, (_, i) => { const a = i * 30 * Math.PI / 180; return `<line x1="${(92 + 24 * Math.sin(a)).toFixed(1)}" y1="${(155 - 24 * Math.cos(a)).toFixed(1)}" x2="${(92 + 29 * Math.sin(a)).toFixed(1)}" y2="${(155 - 29 * Math.cos(a)).toFixed(1)}" stroke="#aeb8bc"/>`; }).join("")}

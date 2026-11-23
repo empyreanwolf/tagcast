@@ -42,6 +42,11 @@
   <script src="album-info.js" defer></script>
   <script src="trash.js" defer></script>
   <script src="artists.js" defer></script>
+  <script src="discover.js" defer></script>
+  <script src="port-text.js" defer></script>
+  <script src="track-comparison.js" defer></script>
+  <script src="track-comparison-drafts.js" defer></script>
+  <script src="empty-trash.js" defer></script>
   <script src="artist-tracks.js" defer></script>
   <script src="album-merge.js" defer></script>
   <script src="tracks.js" defer></script>
@@ -264,6 +269,19 @@
     <section class="page-intro"><div><div class="eyebrow" id="page-eyebrow">A LITTLE ORDER. ONE ALBUM AT A TIME.</div><h1 id="page-title">Your albums<span>.</span></h1><div id="artist-rating" class="album-rating artist-rating" role="group" aria-label="Artist rating" hidden></div><p id="page-subtitle">Browse your collection, check the details, and make it yours.</p></div><div class="library-total" id="library-total"><strong id="total-albums">0</strong><span>albums in this workspace</span><small id="total-tracks">0 tracks</small></div><div class="artist-panel" id="artist-panel" hidden></div></section>
     <p id="artist-favourite-status" class="error-text" role="status" hidden></p>
     <section id="artist-biography" class="artist-biography" aria-label="About this artist" hidden></section>
+    <details id="artist-discover" class="artist-discover" hidden>
+      <summary id="artist-discover-toggle" aria-expanded="false" aria-controls="artist-discover-results"><span id="artist-discover-label">Similar in your library</span><span id="artist-discover-source" class="muted"></span></summary>
+      <div id="artist-discover-results" hidden>
+        <div class="discover-heading"><button type="button" class="text-action" id="artist-discover-refresh">Refresh suggestions</button></div>
+        <p id="artist-discover-setup" class="muted discover-note" hidden><span>Enable Last.fm and add its API key in Settings → Sources &amp; keys.</span> <button type="button" class="text-action" data-open-settings>Settings</button></p>
+        <p id="artist-discover-intro" class="muted"></p>
+        <p id="artist-discover-fallback" class="muted discover-note" hidden></p>
+        <p id="artist-discover-status" role="status"></p>
+        <div id="artist-discover-cards" class="discover-cards"></div>
+        <p id="artist-discover-attribution" class="muted discover-note" hidden><a href="https://www.last.fm/" target="_blank" rel="noopener noreferrer">Powered by AudioScrobbler</a> · <a href="https://www.last.fm/api/tos" target="_blank" rel="noopener noreferrer">Last.fm API terms</a></p>
+        <p id="artist-discover-listenbrainz-attribution" class="muted discover-note" hidden><a href="https://listenbrainz.org/" target="_blank" rel="noopener noreferrer">ListenBrainz</a> · <a href="https://musicbrainz.org/" target="_blank" rel="noopener noreferrer">MusicBrainz</a></p>
+      </div>
+    </details>
     <div class="view-toggle artist-tabs" id="artist-tabs" role="tablist" aria-label="Show this artist's" hidden><button type="button" role="tab" data-artist-tab="albums">Albums</button><button type="button" role="tab" data-artist-tab="tracks">Tracks</button></div>
     <section id="artist-tracks" class="artist-tracks" aria-label="Tracks by this artist" hidden></section>
     <section class="toolbar" id="albums-toolbar"><div class="search search-with-clear"><span>⌕</span><input id="search" placeholder="Search albums, artists, or genres" aria-label="Search albums"><button type="button" class="search-clear" data-search-clear="search" aria-controls="search" aria-label="Clear search" title="Clear search" hidden><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m4 4 8 8m0-8-8 8"/></svg></button></div><input type="hidden" id="filter" value="all"><input type="hidden" id="sort" value="artist"><button type="button" class="button browse-options-trigger" id="albums-browse-options" data-browse-options="albums" aria-label="Filter and sort albums" aria-haspopup="menu" aria-expanded="false" aria-controls="browse-options-menu">All albums · Album artist A–Z</button><button type="button" class="button" id="saved-lists-open" title="Save this search, filter and sort as a smart playlist, or open one you saved">★ Smart playlists</button><select id="per-page" aria-label="Albums per page"><option value="24">24 per page</option><option value="50">50 per page</option><option value="100">100 per page</option><option value="200">200 per page</option></select><div class="view-toggle" role="group" aria-label="View"><button data-view="grid" title="Covers" aria-label="Show covers">▦</button><button data-view="list" title="List" aria-label="Show list">☰</button></div></section>
@@ -336,17 +354,28 @@
       <p id="audio-output-error" class="error-text" role="alert"></p>
       <p class="muted">Your selection applies to this player in this browser. Available outputs depend on your browser and operating system. Network speakers need a supported browser picker or your system's sound settings.</p>
     </dialog>
+    <dialog id="track-comparison" class="track-comparison-dialog" aria-labelledby="track-comparison-title" aria-describedby="track-comparison-hint">
+      <div class="dialog-heading"><h2 id="track-comparison-title">Compare track list</h2><div class="dialog-heading-actions"><button type="button" class="close" data-close="track-comparison" aria-label="Close track list comparison">×</button></div></div>
+      <p id="track-comparison-hint" class="muted">Comparing does not change your library or playback. Explicitly chosen titles and artist credits can fill an editor draft for review.</p>
+      <form id="track-comparison-form" class="track-comparison-search"><label class="field"><span>Artist</span><input id="track-comparison-artist" required maxlength="200"></label><label class="field"><span>Album</span><input id="track-comparison-album" required maxlength="200"></label><button type="submit" class="button" id="track-comparison-search">Search MusicBrainz</button></form>
+      <p class="muted">Only Search sends the entered artist and album to MusicBrainz. Choose an edition to read its track list. No audio or account data is sent.</p>
+      <p id="track-comparison-status" role="status" aria-live="polite"></p>
+      <div class="track-comparison-layout"><section id="track-comparison-results" aria-label="MusicBrainz editions"></section><section class="track-comparison-main"><div id="track-comparison-reference"></div><label class="checkline"><input type="checkbox" id="track-comparison-only"><span>Show differences and unknown fields only</span></label><p class="muted">Rows are compared by displayed position, not matched automatically. Different editions and incomplete data can explain differences. Duration differences are flagged only above two seconds.</p><div id="track-comparison-table" class="track-comparison-table"></div></section></div>
+      <div id="comparison-draft-footer" class="dialog-footer" hidden><p class="muted">Confirm each track pairing before choosing fields. Choices only fill an editor draft; review before saving. Existing credits are kept and artist names are reused, without global renaming.</p><p id="comparison-draft-count" role="status" aria-live="polite"></p><button type="button" class="button" id="comparison-draft-clear">Clear choices</button><button type="button" class="button primary" id="comparison-draft-open">Open corrections in editor…</button></div>
+    </dialog>
     <dialog id="cover-lightbox" class="cover-lightbox" aria-labelledby="cover-lightbox-title" aria-describedby="cover-lightbox-help">
       <div class="dialog-heading"><div><h2 id="cover-lightbox-title">Album cover</h2><p class="muted" id="cover-lightbox-artist"></p></div><button type="button" class="close" id="cover-lightbox-close" aria-label="Close enlarged cover">×</button></div>
       <div class="cover-lightbox-picture"><img id="cover-lightbox-image" alt="" referrerpolicy="no-referrer"><p id="cover-lightbox-status" class="muted" role="status"></p></div>
       <p class="muted" id="cover-lightbox-help">Escape or click outside to close.</p>
     </dialog>
   </div>
+  <dialog id="empty-trash" class="review-dialog" aria-labelledby="empty-trash-title"><div class="dialog-heading"><h2 id="empty-trash-title" tabindex="-1">Empty iBroadcast trash</h2><button type="button" class="close" id="empty-trash-close" data-close="empty-trash" aria-label="Close">×</button></div><div id="empty-trash-content"></div><p id="empty-trash-status" role="status"></p><div class="dialog-footer" id="empty-trash-footer"></div></dialog>
   <div id="chart-tip" class="chart-tip" role="tooltip" hidden></div>
   <div id="browse-options-menu" class="browse-options-menu" role="menu" aria-label="Filter and sort" hidden></div>
   <div id="album-action-menu" class="queue-action-menu album-action-menu" role="menu" aria-label="Album actions" hidden>
     <button type="button" id="album-action-lyrics" role="menuitem">Check album lyrics</button>
     <button type="button" id="album-action-lyrics-import" role="menuitem">Import lyrics…</button>
+    <button type="button" id="album-action-compare" role="menuitem">Compare track list…</button>
     <button type="button" id="album-action-trash" role="menuitem">Move to trash…</button>
   </div>
   <div id="queue-action-menu" class="queue-action-menu" role="menu" aria-label="Queue actions" hidden>

@@ -23,9 +23,12 @@
 .pd .a-dash{animation:pd-dash 2s linear infinite}
 .pd .pd-arm{transform:rotate(-26deg);transition:transform .9s cubic-bezier(.3,.7,.2,1)}
 .ps-playing .pd .pd-arm{transform:rotate(0)}
+/* fork v115: the vinyl's tonearm rests off the record, then follows the song's progress */
+.pd .pd-tonearm{transform:rotate(-14deg);transition:transform .9s cubic-bezier(.3,.7,.2,1)}
+.ps-playing .pd .pd-tonearm{transform:rotate(var(--vinyl-arm,0deg));transition:transform .25s linear}
 .pd [class^="a-"],.pd [class*=" a-"]{animation-play-state:paused}
 .ps-playing .pd [class^="a-"],.ps-playing .pd [class*=" a-"]{animation-play-state:running}
-@media (prefers-reduced-motion:reduce){.pd [class^="a-"],.pd [class*=" a-"]{animation:none!important}.pd .pd-arm{transition:none}}
+@media (prefers-reduced-motion:reduce){.pd [class^="a-"],.pd [class*=" a-"]{animation:none!important}.pd .pd-arm,.pd .pd-tonearm{transition:none}}
 @keyframes pd-talk{0%,100%{transform:scaleY(.22)}50%{transform:scaleY(1.25)}}
 @keyframes pd-nod{0%,100%{transform:rotate(-4deg)}50%{transform:rotate(4deg)}}
 .pd .a-talk{transform-box:fill-box;transform-origin:50% 50%;animation:pd-talk .32s ease-in-out infinite}

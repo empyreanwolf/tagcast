@@ -72,6 +72,7 @@ function psRenderNow() {
     const key = device + "|" + art;
     if (psState.mini !== key) { psState.mini = key; mini.innerHTML = device ? pdSvg(device, art, "pn") : ""; }
   }
+  psArm();
   if (psState.listen) psListenRefresh();
 }
 
@@ -146,8 +147,17 @@ document.addEventListener("click", event => {
   if (event.target.closest?.('[data-close="listen-dialog"]')) document.querySelector("#listen-dialog")?.close();
 });
 
+// fork v115: the vinyl's tonearm follows the song (0 to 24 degrees). Set on the two slots only, not the whole page.
+function psArm() {
+  if (!psState.big.startsWith("vinyl|") && !psState.mini.startsWith("vinyl|")) return;
+  const length = typeof audio !== "undefined" ? audio.duration : 0, at = typeof audio !== "undefined" ? audio.currentTime : 0;
+  const progress = Number.isFinite(length) && length > 0 && Number.isFinite(at) ? Math.max(0, Math.min(1, at / length)) : 0;
+  for (const slot of document.querySelectorAll("#ps-big, .ps-mini")) slot.style?.setProperty("--vinyl-arm", `${(24 * progress).toFixed(2)}deg`);
+}
+
 psInstallMenu();
 if (typeof audio !== "undefined") for (const name of ["play", "playing", "pause", "ended", "emptied", "loadeddata"]) audio.addEventListener(name, psRender);
+if (typeof audio !== "undefined") for (const name of ["timeupdate", "durationchange", "seeked", "loadeddata", "emptied"]) audio.addEventListener(name, psArm);
 if (typeof MutationObserver === "function") {
   const watch = new MutationObserver(psRender);
   for (const [selector, options] of [["#player-art", {attributes: true, attributeFilter: ["src"]}], ["#player-title", {childList: true, characterData: true, subtree: true}]]) {

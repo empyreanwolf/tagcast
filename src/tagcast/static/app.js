@@ -199,6 +199,7 @@ function useLocal(albums, mode) {
   resetEditorArtistChoices();
   if (typeof resetTags === "function") resetTags();
   if (typeof resetAlbumMerge === "function") resetAlbumMerge();
+  if (typeof resetTrackComparison === "function") resetTrackComparison();
   if (typeof closeHelp === "function") closeHelp(false);
   if (typeof resetGuideAlbumNotes === "function") resetGuideAlbumNotes();
   if (typeof resetAlbumGuide === "function") resetAlbumGuide(false);
@@ -484,6 +485,13 @@ function shelfIds(id) {
 }
 
 // Full albums of one set as one album, tracks in disc order, for the album page and playback.
+// fork v115: the shown number of a track, and whether the open album page has all its discs loaded (track list comparison).
+const displayedTrackNumber = track => track.display_track ?? track.track;
+function albumViewReady() {
+  if (state.screen !== "album" || albumView.loading || !state.albums.some(a => String(a.id) === albumView.id)) return false;
+  const ids = shelfIds(albumView.id);
+  return ids[0] === albumView.id && ids.every(i => state.details.get(i));
+}
 const joinDiscs = albums => albums.length === 1 ? albums[0]
   : {...albums[0], artwork: albums.find(a => a.artwork)?.artwork || "", tracks: albums.flatMap(a => a.tracks)};
 
@@ -517,6 +525,7 @@ function artistGroups() {
 }
 
 function setArtist(artist) {
+  if (artist !== state.artist && typeof leaveArtistDiscover === "function") leaveArtistDiscover();
   state.artist = artist; state.selected.clear(); state.page = 0;
   $("#search").value = "";
   if (state.screen && state.screen !== "albums") showScreen("albums");
@@ -700,6 +709,7 @@ function render() {
   if (typeof renderAlbumView === "function") renderAlbumView();
   if (typeof renderArtistBrowse === "function") renderArtistBrowse();
   if (typeof renderArtistProfile === "function") renderArtistProfile();
+  if (typeof renderArtistDiscover === "function") renderArtistDiscover();
   if (typeof renderArtistTabs === "function") renderArtistTabs();
   if (typeof renderTrackSearch === "function") renderTrackSearch();
   if (typeof renderFavourites === "function") renderFavourites();
@@ -909,7 +919,7 @@ function syncAlbumArtistControls() {
   }
 }
 
-async function openEditor(ids) {
+async function openEditor(ids, {onlineSuggestions = true} = {}) {
   if (opening) return;
   const chosen = ids.map(id => state.albums.find(a => String(a.id) === String(id))).filter(Boolean);
   if (!chosen.length) return;
@@ -948,10 +958,10 @@ async function openEditor(ids) {
   syncAlbumArtistControls();
   $("#editor").showModal();
   if (!bulk) setEditorTab("album");
-  if (!bulk) startLookups(album);
+  if (!bulk && onlineSuggestions) startLookups(album);
 }
 
-function setEditorTab(tab, focus = false) {
+function setEditorTab(tab, focus = false, {loadLyrics = true} = {}) {
   if (!editing || editing.bulk || !["album", "tracks"].includes(tab) || !$("#editor").open) return;
   closeEditorArtistChoices();
   editing.tab = tab;
@@ -970,7 +980,7 @@ function setEditorTab(tab, focus = false) {
     help.setAttribute("aria-label", tab === "tracks" ? "Help with track editing" : "Help with album editing");
     help.title = tab === "tracks" ? "Help with track editing" : "Help with album editing";
   }
-  if (tab === "tracks" && typeof renderLyrics === "function") renderLyrics("track");
+  if (tab === "tracks" && loadLyrics && typeof renderLyrics === "function") renderLyrics("track");
   if (focus) $(`#editor-tab-${tab}`).focus({preventScroll: true});
 }
 
@@ -1022,21 +1032,21 @@ function stashTrack() {
   editing.trackPatches[pane.dataset.track] = Object.fromEntries(Object.entries(data).filter(([key, value]) => !sameValue(original[key], value)));
 }
 
-function editTrack(id) {
+function editTrack(id, {loadLyrics = true, scrollBehavior = "smooth"} = {}) {
   try { stashTrack(); } catch (error) { toast(error.message); return; }
   showTrackGenres();
   const original = editing.originals.flatMap(a => a.tracks).find(t => String(t.id) === id);
   if (!original) return;
-  setEditorTab("tracks");
+  setEditorTab("tracks", false, {loadLyrics});
   const track = {...original, ...(editing.trackPatches[id] || {})};
   const pane = $("#track-inline"); pane.dataset.track = id;
   pane.innerHTML = `<div class="track-inline"><h3>Track ${original.track}: ${escapeHtml(original.title)}</h3><div class="fields">${[["title", "Track title", "text"], ["artist", "Track artist", "text"], ["year", "Track year", "number"], ["track", "Track number", "number"]].map(([key, label, type]) => `<label class="field ${key === "title" ? "wide" : ""}"><span>${label}</span>${key === "artist" ? artistChoiceInput(`data-key="artist" aria-label="Track artist" type="text" maxlength="1000" value="${escapeHtml(track.artist || "")}" placeholder="Find an existing artist, or enter a new name"`) : `<input data-key="${key}" aria-label="${label}" type="${type}" ${type === "number" ? numberInputAttributes(key, original[key]) : 'maxlength="1000"'} value="${escapeHtml(track[key] || "")}">`}</label>`).join("")}${genreField("track-genres", "Track genres", track.genres || [])}${creditsField(track)}</div><section id="track-lyrics" class="track-lyrics" hidden></section><p class="muted">Track years: 1800–2050; use 0 to clear. Individual track edits take priority over album-wide track changes.</p></div>`;
-  renderLyrics("track", lyricsSelection(original));
+  if (loadLyrics) renderLyrics("track", lyricsSelection(original));
   for (const button of document.querySelectorAll("#editor-tracks-panel button[data-track]")) {
     button.setAttribute("aria-pressed", String(button.dataset.track === id));
     button.closest("tr")?.classList.toggle("editing-track", button.dataset.track === id);
   }
-  pane.scrollIntoView({block: "start", behavior: "smooth"});
+  pane.scrollIntoView({block: "start", behavior: scrollBehavior});
 }
 
 function buildReview() {
@@ -1155,6 +1165,7 @@ function showReview(changes) {
 
 // Put the changes of a save that didn't (fully) go through back in review.
 function reviewRest(entry) {
+  if (entry.emptyTrash) return;
   const changes = entry.changes.filter(c => ["failed", "not_sent", "blocked"].includes(c.status)).map(({status, ...change}) => change);
   if (!changes.length) return;
   pending = {scope: entry.scope || "album", selection: entry.selection, changes};
@@ -1233,7 +1244,7 @@ function showHistory() {
   $("#history-status").textContent = "";
   $("#history-clear-review").hidden = true;
   updateHistoryControls();
-  $("#history-content").innerHTML = state.history.length ? state.history.map((entry, index) => `<section class="history-item">${statusPill(entry.status)}${entry.artwork && !entry.undone && ["saved", "sent", "unverified"].includes(entry.status) ? `<button class="button small history-undo" data-undo="${index}" ${artworkUndoNote(entry) ? `disabled title="${escapeHtml(artworkUndoNote(entry))}"` : ""}>Undo</button>` : ""}${entry.artwork ? `<div class="history-art">${entry.artwork.before ? `<img src="${escapeHtml(entry.artwork.before)}" alt="Before" referrerpolicy="no-referrer">` : ""}<span>→</span><img src="${escapeHtml(entry.artwork.after)}" alt="After" referrerpolicy="no-referrer"></div>` : ""}${entry.artwork && !entry.undone && artworkUndoNote(entry) ? `<p class="muted">${escapeHtml(artworkUndoNote(entry))}</p>` : ""}<h3>${escapeHtml([...new Set(entry.selection.map(a => a.name))].join(", "))}</h3><p class="muted">${new Date(entry.created).toLocaleString("en-GB")} · ${entry.changes.length} records</p>${entry.error ? `<div class="error-box">${escapeHtml(entry.error)}</div>` : ""}${!entry.artwork && !entry.trash && !entry.albumMerge && entry.source === "ibroadcast" && entry.changes.some(c => ["failed", "not_sent", "blocked"].includes(c.status)) ? `<p><button class="button small" data-review-rest="${index}">Review the rest again →</button></p>` : ""}${entry.changes.map(c => `<p class="muted">${c.status ? statusPill(c.status) + " " : ""}${escapeHtml(c.label)}: ${Object.entries(c.fields).map(([key, v]) => `${escapeHtml(fieldLabel(key))}: ${escapeHtml(fieldShown(key, v, "before"))} → ${escapeHtml(fieldShown(key, v, "after"))}`).join(" · ")}</p>`).join("")}</section>`).join("") : '<p class="empty">No drafts yet. Open an album to start editing.</p>';
+  $("#history-content").innerHTML = state.history.length ? state.history.map((entry, index) => entry.emptyTrash ? emptyTrashHistoryMarkup(entry) : `<section class="history-item">${statusPill(entry.status)}${entry.artwork && !entry.undone && ["saved", "sent", "unverified"].includes(entry.status) ? `<button class="button small history-undo" data-undo="${index}" ${artworkUndoNote(entry) ? `disabled title="${escapeHtml(artworkUndoNote(entry))}"` : ""}>Undo</button>` : ""}${entry.artwork ? `<div class="history-art">${entry.artwork.before ? `<img src="${escapeHtml(entry.artwork.before)}" alt="Before" referrerpolicy="no-referrer">` : ""}<span>→</span><img src="${escapeHtml(entry.artwork.after)}" alt="After" referrerpolicy="no-referrer"></div>` : ""}${entry.artwork && !entry.undone && artworkUndoNote(entry) ? `<p class="muted">${escapeHtml(artworkUndoNote(entry))}</p>` : ""}<h3>${escapeHtml([...new Set(entry.selection.map(a => a.name))].join(", "))}</h3><p class="muted">${new Date(entry.created).toLocaleString("en-GB")} · ${entry.changes.length} records</p>${entry.error ? `<div class="error-box">${escapeHtml(entry.error)}</div>` : ""}${!entry.artwork && !entry.trash && !entry.albumMerge && entry.source === "ibroadcast" && entry.changes.some(c => ["failed", "not_sent", "blocked"].includes(c.status)) ? `<p><button class="button small" data-review-rest="${index}">Review the rest again →</button></p>` : ""}${entry.changes.map(c => `<p class="muted">${c.status ? statusPill(c.status) + " " : ""}${escapeHtml(c.label)}: ${Object.entries(c.fields).map(([key, v]) => `${escapeHtml(fieldLabel(key))}: ${escapeHtml(fieldShown(key, v, "before"))} → ${escapeHtml(fieldShown(key, v, "after"))}`).join(" · ")}</p>`).join("")}</section>`).join("") : '<p class="empty">No drafts yet. Open an album to start editing.</p>';
   $("#history").showModal();
 }
 
@@ -1245,6 +1256,7 @@ document.addEventListener("click", event => {
       if (typeof requestClosePlaylistImport === "function") requestClosePlaylistImport();
       else toast("Tagcast was updated. Reload this tab to finish the update; the current CSV import will be lost.");
     }
+    else if (close.dataset.close === "track-comparison") requestCloseTrackComparison();
     else $(`#${close.dataset.close}`).close();
     return;
   }
@@ -1484,6 +1496,7 @@ async function loadLive(refresh = false) {
   resetEditorArtistChoices();
   if (typeof resetTags === "function") resetTags();
   if (typeof resetAlbumMerge === "function") resetAlbumMerge();
+  if (typeof resetTrackComparison === "function") resetTrackComparison();
   if (typeof closeHelp === "function") closeHelp(false);
   if (typeof resetGuideAlbumNotes === "function") resetGuideAlbumNotes();
   if (typeof resetAlbumGuide === "function") resetAlbumGuide(false);
@@ -1772,7 +1785,7 @@ async function followJob(jobId, entry, onDone, stillCurrent = () => true) {
   onDone?.(job);
   const done = job.results.filter(r => r.status === "saved").length;
   if (entry.status === "saved") toast(`Confirmed by iBroadcast: ${done} ${done === 1 ? "record" : "records"} saved.`);
-  else showResults({results: job.results, error: entry.error}, entry.status, entry);
+  else if (!entry.emptyTrash) showResults({results: job.results, error: entry.error}, entry.status, entry);
   return job;
 }
 

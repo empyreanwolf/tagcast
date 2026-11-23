@@ -40,6 +40,7 @@ from .cleanup import Cleanup
 from .collections import Collections
 from .completion import Completion
 from .digest import Digest
+from .discover import DISCOVER_SOURCES, ArtistDiscover, discovery_source
 from .discography import Discography
 from .downloads import Downloads
 from .duplicate_cleanup import DuplicateCleanup
@@ -58,6 +59,7 @@ from .library import (
 from .lyrics import Lyrics
 from .lyrics_job import LyricsJob
 from .track_numbers import TrackNumberJob
+from .trash_emptying import TrashEmptying
 from .backup import Backup
 from .fingerprint import Fingerprints
 from .lyrics_translate import LyricsTranslator
@@ -481,6 +483,8 @@ class Studio:
         self.updates = UpdateChecker(self._read, self._write)
         self.service_status = ServiceStatus()
         self.lookup = Lookup(self.source_keys, self.disabled_sources)
+        self.discover = ArtistDiscover(self)
+        self.trash_emptying = TrashEmptying(self)
         self.artist_bios = ArtistBiographies(self)
         self.album_info = AlbumInformation(self)
         self.cleanup = Cleanup(self)
@@ -645,6 +649,7 @@ class Studio:
         with self.lock:
             self.client, self.library, self.account = client, None, None
             self.playback_session = secrets.token_hex(16)
+            self.trash_emptying.reviews.clear()
             if save:
                 self._save_tokens(token_set, client)
 
@@ -653,6 +658,7 @@ class Studio:
         with self.lock:
             self.client = self.library = self.account = self.device = None
             self.playback_session = ""
+            self.trash_emptying.reviews.clear()
             self._device_gen += 1
             self._pkce.clear()
             self._pkce_gen += 1
@@ -1247,7 +1253,10 @@ class Studio:
         return disabled if isinstance(disabled, list) else []
 
     def settings(self):
+        artist_discovery = discovery_source(self.config)
         return {"sources": self.lookup.describe(),
+                "discover_source": artist_discovery,
+                "discover_lastfm": artist_discovery == "lastfm",
                 "keys_from_env": [k for k, env in KEY_ENV.items() if os.environ.get(env)],
                 "auto_lookup": self.config.get("auto_lookup", True),
                 "auto_updates": self.config.get("auto_updates", True),
@@ -1269,6 +1278,8 @@ class Studio:
 
     def save_settings(self, body):
         with self.lock:
+            discover_before = (discovery_source(self.config), self.config.get("lastfm_api_key"),
+                               tuple(self.disabled_sources()))
             if "disabled_sources" in body:
                 disabled = body["disabled_sources"]
                 names = {source["name"] for source in self.lookup.describe()}
@@ -1284,6 +1295,10 @@ class Studio:
                 raise ApiError("Choose whether 1001 Albums is enabled.")
             if "guide_matching_details" in body and type(body["guide_matching_details"]) is not bool:
                 raise ApiError("Choose whether matching details are shown.")
+            if "discover_lastfm" in body and type(body["discover_lastfm"]) is not bool:
+                raise ApiError("Choose whether artist discovery uses Last.fm.")
+            if "discover_source" in body and body["discover_source"] not in DISCOVER_SOURCES:
+                raise ApiError("Choose a discovery source in Settings.")
             if "auto_updates" in body and not isinstance(body["auto_updates"], bool):
                 raise ApiError("Choose whether automatic update checks are enabled.")
             if "record_plays" in body and not isinstance(body["record_plays"], bool):
@@ -1325,6 +1340,15 @@ class Studio:
                 self.config["album_information"] = body["album_information"]
             if "guide_matching_details" in body:
                 self.config["guide_matching_details"] = body["guide_matching_details"]
+            if "discover_source" in body:
+                self.config["discover_source"] = body["discover_source"]
+                self.config["discover_lastfm"] = body["discover_source"] == "lastfm"
+            elif "discover_lastfm" in body:
+                self.config.pop("discover_source", None)
+                self.config["discover_lastfm"] = body["discover_lastfm"]
+            if (discovery_source(self.config), self.config.get("lastfm_api_key"),
+                    tuple(self.disabled_sources())) != discover_before:
+                self.discover.generation += 1  # in-flight discovery reads become stale
             self._write("config.json", self.config)
         if not self.config.get("queue_sync"):
             self.queue_sync.disconnect()
