@@ -58,7 +58,7 @@ function pagelistRowHtml(i) {
   return `<li>${badge}
     <label><input type="checkbox" data-pagelist-pick="${escapeHtml(i.id)}" ${v.picked.has(i.id) ? "checked" : ""} ${i.album ? "" : "disabled"} aria-label="Choose ${escapeHtml(i.album || i.raw)}"></label>
     ${i.cover ? `<img class="dl-cover" src="${escapeHtml(i.cover)}" alt="" width="48" height="48" loading="lazy">` : ""}
-    <div><div>${i.album ? `<b>${escapeHtml(i.album)}</b> <span class="muted">by</span> ${escapeHtml(i.artist)}${i.year ? ` · ${escapeHtml(i.year)}` : ""}` : `<i>${escapeHtml(i.raw)}</i>`}
+    <div><div>${i.album ? `<b>${escapeHtml(i.album)}</b> <span class="muted">by</span> ${escapeHtml(i.artist)}${i.year ? ` · ${escapeHtml(i.year)}` : ""}${i.song ? ` <span class="muted">· this song only${i.song_album ? `, from ${escapeHtml(i.song_album)}` : ""}</span>` : ""}` : `<i>${escapeHtml(i.raw)}</i>`}
       ${i.state === "unsure" ? ` <span class="dl-badge" title="No online source knew this exact album">Not sure</span> <button type="button" class="button" data-pagelist-edit="${escapeHtml(i.id)}">Edit</button>` : ""}
       ${i.album && i.artist && i.state !== "checking" ? ` <button type="button" class="button" data-pagelist-flip="${escapeHtml(i.id)}" title="Swap the title and the artist of this row" aria-label="Flip title and artist of ${escapeHtml(i.album)}">⇄</button>` : ""}</div>
       ${i.status && i.status !== "new" ? `<div class="dl-have">${downloadsYouHave(i.you_have)}</div>` : ""}

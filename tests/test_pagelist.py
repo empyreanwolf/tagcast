@@ -72,8 +72,8 @@ class Studio:
         got = []
 
         @classmethod
-        def get(cls, name, albums):
-            cls.got.append((name, albums))
+        def get(cls, name, albums, songs=None):
+            cls.got.append((name, albums) if songs is None else (name, albums, songs))
             return {"id": "j1"}
 
     class download_manager:
@@ -100,9 +100,48 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(items[0]["cover"], "c.jpg")
         result = pl.get(first["id"], ["1"])
         self.assertEqual(result["queued"], 1)
-        self.assertEqual(Studio.discography.got, [("Nobody", [{"title": "Nothing", "status": "missing", "deezer_id": None}])])
+        self.assertEqual(Studio.discography.got, [("Nobody", [{"title": "Nothing", "status": "missing", "deezer_id": None}], [])])
         with self.assertRaises(pagelist.PageError):
             pl.get(first["id"], [])
+
+    def test_a_song_row_stays_one_song_and_is_not_swapped_for_its_album(self):
+        # fork v116: "Bills Paid" by DJ Khaled on a game-soundtrack page was turned into the whole GOD DID album
+        class SongHttp(FakeHttp):
+            def json(self, url, params=None, **kw):
+                if "api.deezer.com/search" in url and "album" not in url.rsplit("/", 1)[-1] and "bills paid" in str(params).lower():
+                    return {"data": [{"artist": {"name": "DJ Khaled"}, "album": {"title": "GOD DID"}}]}
+                return super().json(url, params, **kw)
+
+        class SongStudio(Studio):
+            class discography(Studio.discography):
+                http = SongHttp()
+                got = []
+
+            class download_manager:
+                rows = []
+
+                @classmethod
+                def check(cls, rows):
+                    cls.rows = rows
+                    return {"results": [{"status": "new", "you_have": []} for _ in rows]}
+
+        pl = PageList(SongStudio)
+        with mock.patch.object(pl, "collect", return_value=[
+                {"artist": "DJ Khaled", "album": "Bills Paid", "year": "", "raw": "Bills Paid - DJ Khaled", "song": True}]):
+            first = pl.read("https://example.com/gta")
+        job = pl.jobs[first["id"]]
+        for _ in range(100):
+            if job["state"] == "done":
+                break
+            import time; time.sleep(0.05)
+        item = pl.view(first["id"])["items"][0]
+        self.assertEqual((item["artist"], item["album"], item["song"], item["state"]), ("DJ Khaled", "Bills Paid", True, "ok"))
+        self.assertEqual(item["song_album"], "GOD DID")
+        self.assertEqual(SongStudio.download_manager.rows[0]["kind"], "song")
+        pl.get(first["id"], ["0"])
+        name, albums, songs = SongStudio.discography.got[0]
+        self.assertEqual((name, albums), ("DJ Khaled", []))
+        self.assertEqual([(s["title"], s["album"]) for s in songs], [("Bills Paid", "GOD DID")])
 
     def test_nothing_found_explains_paste_box(self):
         pl = PageList(Studio)

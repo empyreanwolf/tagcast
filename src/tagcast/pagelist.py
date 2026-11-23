@@ -383,12 +383,15 @@ class PageList:
         item.update(state="unsure", cover=item.get("cover", ""))
         artist, album = item["artist"], item["album"]
         if item.get("song"):
-            found = self._album_of_song(artist, album)
-            if not found:
-                item["album"] = ""
-                return item
-            album, item["song"] = found, False
-            item["album"] = album
+            # fork v116: a song on a page stays ONE song. It used to be swapped for the whole album Deezer says it is on
+            # (Bills Paid -> all of GOD DID). The album is kept only as a hint for the search and the "you have it" check.
+            try:
+                item["song_album"] = self._album_of_song(artist, album)
+            except SourceError as error:
+                log.info("Checking %s - %s failed: %s", artist, album, error)
+                item["song_album"] = ""
+            item["state"] = "ok"
+            return item
         for a, b in ((artist, album), (album, artist)):  # the second try fixes "Album - Artist"
             try:
                 hit = self._mb(a, b)
@@ -405,7 +408,8 @@ class PageList:
         return item
 
     def _status(self, items):
-        rows = [{"kind": "album", "artist": i["artist"], "title": i["album"]} for i in items if i["album"]]
+        rows = [{"kind": "song", "artist": i["artist"], "title": i["album"], "album": i.get("song_album", "")} if i.get("song")
+                else {"kind": "album", "artist": i["artist"], "title": i["album"]} for i in items if i["album"]]
         results = iter(self.studio.download_manager.check(rows)["results"]) if rows else iter(())
         for i in items:
             r = next(results) if i["album"] else {"status": "new", "you_have": []}
@@ -498,9 +502,12 @@ class PageList:
             raise PageError("Tick at least one album.")
         by_artist = {}
         for i in chosen:
-            by_artist.setdefault(i["artist"], []).append({"title": i["album"], "status": "partly" if i["status"] == "partly" else "missing",
-                                                          "deezer_id": i.get("deezer_id")})
-        jobs = [self.studio.discography.get(artist, albums)["id"] for artist, albums in by_artist.items()]
+            albums, songs = by_artist.setdefault(i["artist"], ([], []))
+            if i.get("song"):  # fork v116: a song row is fetched as that one song, never as its album
+                songs.append({"title": i["album"], "album": i.get("song_album", ""), "preview": "", "duration": 0, "cover": ""})
+            else:
+                albums.append({"title": i["album"], "status": "partly" if i["status"] == "partly" else "missing", "deezer_id": i.get("deezer_id")})
+        jobs = [self.studio.discography.get(artist, albums, songs)["id"] for artist, (albums, songs) in by_artist.items()]
         return {"queued": len(chosen), "jobs": jobs}
 
     def get_status(self, job_ids):
