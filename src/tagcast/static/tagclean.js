@@ -42,6 +42,11 @@ function tagcleanScanHtml() {
   const d = v.data;
   const p = d.progress;
   return `<section class="dl-card">
+      <h3>Genre tagger</h3>
+      <p class="muted">One click: every song in your Music folder gets one genre per artist, from your own genre list. Sure ones are written straight away; unsure artists wait below under “Needs your decision” for one pick each.</p>
+      <div class="dl-actions"><button type="button" class="button primary" data-tagclean="music-genres" ${p ? "disabled" : ""}>🏷 Tag genres in my Music folder</button></div>
+    </section>
+    <section class="dl-card">
       <h3>Scan before you upload</h3>
       <p class="muted">Splits a combined artist field (feat., &amp;, / and the rest below) into separate artists joined by "; ", sets the first as album artist, and for hip-hop/rap, offers a genre already in your iBroadcast library -- nothing new is ever invented.</p>
       ${d.error ? `<p class="error-text">${escapeHtml(d.error)}</p>` : ""}
@@ -126,6 +131,10 @@ document.addEventListener("click", event => {
   if (!target.closest?.("#downloads-page") || downloadsView.tab !== "tagclean") return;
   const v = tagcleanView;
   const action = target.closest("[data-tagclean]")?.dataset.tagclean;
+  if (action === "music-genres") {   // fork v124
+    downloadsRun(async () => { v.data = await api("/api/tagclean/music-genres", {}); tagcleanRefresh(); tagcleanLoad(); });
+    return;
+  }
   if (action === "scan") {
     downloadsRun(async () => { v.data = await api("/api/tagclean/scan", {scope: v.scope, path: v.path}); tagcleanRefresh(); tagcleanLoad(); });
     return;

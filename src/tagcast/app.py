@@ -530,6 +530,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/uploader/retry": lambda b: self.studio.uploader.retry_failed(b),
             "/api/uploader/remove-failed": lambda b: self.studio.uploader.remove_failed(b),
             "/api/uploader/reveal": lambda b: self.studio.uploader.reveal(b),
+            "/api/tagclean/music-genres": lambda b: self.studio.tagclean.tag_music_folder(),
             "/api/tagclean/scan": lambda b: self.studio.tagclean.scan(b.get("scope"), b.get("path") or ""),
             "/api/tagclean/settings": lambda b: self.studio.tagclean.save_settings(b),
             "/api/tagclean/apply-artists": lambda b: self.studio.tagclean.apply_artists(b.get("ids")),

@@ -167,6 +167,24 @@ class FolderScanTests(unittest.TestCase):
             self.assertEqual(studio.tagclean.view()["artist_ready"], [])
             self.assertEqual(studio.tagclean.view()["genre_ready"], [])
 
+    def test_genre_tagger_writes_sure_genres_in_the_music_folder_at_once(self):   # fork v124
+        studio = LocalStudio()
+        with tempfile.TemporaryDirectory() as tmp:
+            sure, unsure = Path(tmp) / "a.mp3", Path(tmp) / "b.mp3"
+            sure.write_bytes(MP3)
+            unsure.write_bytes(MP3)
+            write_tags(sure, "mp3", title="One", artists=["Company Flow"], album_artist="Company Flow",
+                       album="Demo", track_no=1, track_total=1, genre="Hip-Hop/Rap")
+            write_tags(unsure, "mp3", title="Two", artists=["Nobody Known"], album_artist="Nobody Known",
+                       album="Demo", track_no=1, track_total=1, genre="")
+            studio.download_manager.folder = lambda: Path(tmp)
+            studio.tagclean.tag_music_folder()
+            view = wait(studio.tagclean)
+            from tagcast.tagclean import read_tags
+            self.assertEqual(read_tags(sure, detect_audio_format(sure))["genre"], "Underground Hip Hop")
+            self.assertEqual(view["genre_ready"], [])
+            self.assertTrue(any(r.get("needs_genre") for r in studio.tagclean.state["rows"]))
+
     def test_unknown_folder_is_rejected(self):
         studio = LocalStudio()
         with self.assertRaises(LibraryError):

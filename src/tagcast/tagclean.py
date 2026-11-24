@@ -323,7 +323,14 @@ class TagClean:
 
     # -- scanning ----------------------------------------------------------------------------
 
-    def scan(self, scope, path=""):
+    def tag_music_folder(self):
+        """fork v124: one click: scan the Music folder (where downloads are saved) and write every genre Tagcast is
+        sure about (one per artist, from your own genre list) straight away; the unsure artists wait under
+        "Needs your decision", grouped by artist, for one pick each."""
+        folder = self.studio.download_manager.folder()
+        return self.scan("folder", str(folder), auto_genre=True)
+
+    def scan(self, scope, path="", auto_genre=False):
         if scope not in ("folder", "library"):
             raise LibraryError("Choose a folder or your iBroadcast library to scan.")
         if scope == "folder" and not Path(text(path) or "").is_dir():
@@ -332,15 +339,23 @@ class TagClean:
             if self.progress:
                 return self.view()
             self.progress = {"scope": scope, "done": 0, "total": 0, "title": ""}
-        threading.Thread(target=self._run, args=(scope, path), name="tagclean-scan", daemon=True).start()
+        threading.Thread(target=self._run, args=(scope, path, auto_genre), name="tagclean-scan", daemon=True).start()
         return self.view()
 
-    def _run(self, scope, path):
+    def _run(self, scope, path, auto_genre=False):
         try:
             labels = self.genres()
             rows = self._scan_folder(path, labels) if scope == "folder" else self._scan_library(labels)
             with self.lock:
                 self.state.update(rows=rows, scanned=time.time())
+            if auto_genre:
+                sure = [r["id"] for r in rows if r.get("new_genre") and not r.get("needs_genre")]
+                if sure:
+                    self.progress = {**(self.progress or {}), "title": f"writing {len(sure)} genres"}
+                    self.apply_genre(sure)
+                unsure = {r["artist"] for r in rows if r.get("needs_genre")}
+                activity.record("metadata", "ok", f"Genre tagger: {len(sure)} songs tagged in your Music folder",
+                                f"{len(unsure)} artist(s) need your pick under Needs your decision." if unsure else "Nothing left to decide.")
         finally:
             with self.lock:
                 self.progress = None
