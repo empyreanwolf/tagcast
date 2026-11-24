@@ -57,6 +57,15 @@ def _looks_like_a_song(title):
     return bool(re.search(r"(?i)[(\[]\s*(feat\.?|ft\.?|featuring|with)\s", title) or re.search(r"[“”\"]", title))
 
 
+def _song_title(title):
+    """fork v122: the song's own name from an article-style title: quote marks and "(feat. …)"/"ft."/"with" parts go,
+    brackets that are part of the name stay: “B.M.F. (Blowin’ Money Fast)” (feat. Styles P) → B.M.F. (Blowin’ Money Fast)."""
+    title = re.sub(r"(?i)\s*[(\[]\s*(feat\.?|ft\.?|featuring|with)\s[^)\]]*[)\]]", "", str(title or ""))
+    title = re.sub(r"(?i)\s+(feat\.?|ft\.?|featuring)\s.*$", "", title)
+    title = re.sub(r"[“”\"]", "", title)
+    return " ".join(title.split()).strip(" -–")
+
+
 def _only_theirs(tracks, name, album_artist):
     """fork v109: another artist's album (B's) that the artist you asked for (A) is only featured on:
     keep just A's songs, not the whole of B's album. Returns (tracks, note for the log)."""
@@ -1021,6 +1030,7 @@ class Discography:
         tried = []
         if not expected and _looks_like_a_song(title):
             expected = 1   # fork v121: "GASS” (feat. Travis Scott)" is a song title, never a whole album to download
+            title = _song_title(title) or title   # fork v122: searched as "GASS", not "GASS” (feat. Travis Scott)"
         if chinese_name(name):
             # v70: a Chinese artist: Galaxy first (NetEase's own album and track list), then YouTube.
             self._step(ctx, f"{title}: searching Galaxy…")

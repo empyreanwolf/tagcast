@@ -428,3 +428,11 @@ class LooksLikeASongTests(unittest.TestCase):   # fork v121
         self.assertTrue(_looks_like_a_song("Bad and Boujee (feat. Lil Uzi Vert)"))
         self.assertFalse(_looks_like_a_song("Dreams and Nightmares"))
         self.assertFalse(_looks_like_a_song("PROJECT X"))
+
+    def test_the_songs_own_name_is_searched(self):   # fork v122
+        from tagcast.discography import _song_title
+        self.assertEqual(_song_title("GASS” (feat. Travis Scott)"), "GASS")
+        self.assertEqual(_song_title("B.M.F. (Blowin’ Money Fast)” (feat. Styles P)"), "B.M.F. (Blowin’ Money Fast)")
+        self.assertEqual(_song_title("“Mo Bamba”"), "Mo Bamba")
+        self.assertEqual(_song_title("Rake It Up ft. Nicki Minaj"), "Rake It Up")
+        self.assertEqual(_song_title("Lose Yourself [with Eminem]"), "Lose Yourself")
