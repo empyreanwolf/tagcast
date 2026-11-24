@@ -9,7 +9,7 @@ const missingSubs = [["releases", "New releases"], ["complete", "Complete my alb
 function missingHtml() {
   const view = missingView;
   return `<div class="missing-search" id="missing-search-box"><div class="search"><span aria-hidden="true">⌕</span>
-      <input id="missing-search" maxlength="200" placeholder="Search everything you have: songs, albums, artists" aria-label="Search your library, download history and Music folder" value="${escapeHtml(view.search.q)}" autocomplete="off">
+      <input id="missing-search" maxlength="20000" placeholder="Search what you have, or paste links to download: YouTube, Spotify, SoundCloud, Audiomack, Bandcamp, any page" aria-label="Search your library, download history and Music folder" value="${escapeHtml(view.search.q)}" autocomplete="off">
       ${view.search.q ? '<button type="button" class="text-action" data-missing-search-clear aria-label="Clear the search">✕</button>' : ""}</div>
       <div id="missing-search-results" class="missing-search-results">${missingSearchHtml()}</div></div>
     <div class="missing-subs" role="tablist" aria-label="Missing music">${missingSubs.map(([key, label]) =>
@@ -50,8 +50,41 @@ function missingSearchHtml() {
   return body || `<p class="muted" role="status">Nothing matches “${escapeHtml(q)}” in your library, history or Music folder.</p>`;
 }
 
+// fork v120: links pasted or typed into the search box download at once, each through its own source.
+const missingLinkRe = /https?:\/\//i;
+
+async function missingPasteLinks(text) {
+  const box = $("#missing-search");
+  if (box) box.value = "";
+  missingView.search.q = ""; missingView.search.data = null;
+  if ($("#missing-search-results")) $("#missing-search-results").innerHTML = '<p class="muted" role="status">Sending the links…</p>';
+  try {
+    const r = await api("/api/links/any", {lines: text});
+    const c = r.counts, parts = [c.more && `${c.more} to YouTube/Spotify/SoundCloud`, c.bandcamp && `${c.bandcamp} to Bandcamp`, c.page && `${c.page} page(s) read`].filter(Boolean);
+    if ($("#missing-search-results")) $("#missing-search-results").innerHTML = `<p class="muted" role="status">⬇ ${r.links.length} link(s): ${escapeHtml(parts.join(", "))}. They show in the queue; problems go to the log.</p>`;
+  } catch (error) {
+    if ($("#missing-search-results")) $("#missing-search-results").innerHTML = `<p class="error-text">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+document.addEventListener("paste", event => {
+  if (event.target.id !== "missing-search") return;
+  const text = event.clipboardData?.getData("text") || "";
+  if (!missingLinkRe.test(text)) return;
+  event.preventDefault();   // a one-line box would glue the lines together; the clipboard keeps them apart
+  missingPasteLinks(text);
+});
+
+document.addEventListener("keydown", event => {
+  if (event.target.id === "missing-search" && event.key === "Enter" && missingLinkRe.test(event.target.value)) {
+    event.preventDefault();
+    missingPasteLinks(event.target.value);
+  }
+});
+
 async function missingSearchRun() {
   const s = missingView.search, q = s.q.trim();
+  if (missingLinkRe.test(q)) { if ($("#missing-search-results")) $("#missing-search-results").innerHTML = '<p class="muted">Press Enter to download these links.</p>'; return; }
   if (q.length < 2) { s.data = null; if ($("#missing-search-results")) $("#missing-search-results").innerHTML = ""; return; }
   s.data = null;
   if ($("#missing-search-results")) $("#missing-search-results").innerHTML = missingSearchHtml();

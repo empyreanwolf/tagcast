@@ -581,6 +581,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/spotify/install": lambda b: self.studio.spotify.install(),
             "/api/spotify/settings": lambda b: self.studio.spotify.save_settings(b),
             "/api/spotify/search": lambda b: self.studio.moresources.spotify_search(b.get("query")),
+            "/api/links/any": lambda b: self.studio.anylinks.paste(str(b.get("lines") or "")[:100000]),
             "/api/more/links": lambda b: self.studio.moresources.add_links(b.get("lines"), b.get("mode") or ""),
             "/api/soulseek/settings": lambda b: self.studio.soulseek.save_settings(b),
             "/api/soulseek/start": lambda b: self.studio.soulseek.start(),

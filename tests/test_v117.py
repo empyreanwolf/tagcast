@@ -137,3 +137,23 @@ class JsRuntimeTests(unittest.TestCase):
             self.assertIn("deno", calls[0])
         finally:
             youtube._js_setup.update(state)
+
+
+class SafeWriteTests(unittest.TestCase):
+    def test_a_briefly_locked_file_is_retried(self):   # fork v120
+        import tempfile, os, json
+        from pathlib import Path
+        from tagcast import client
+        studio = client.Studio.__new__(client.Studio)
+        studio.home = Path(tempfile.mkdtemp())
+        real, fails = os.replace, [2]
+
+        def flaky(a, b):
+            if fails[0]:
+                fails[0] -= 1
+                raise PermissionError(5, "Access is denied")
+            real(a, b)
+        with mock.patch.object(client.os, "replace", flaky):
+            studio._write("x.json", {"a": 1})
+        self.assertEqual(json.loads((studio.home / "x.json").read_text()), {"a": 1})
+        self.assertEqual([p.name for p in studio.home.iterdir()], ["x.json"])

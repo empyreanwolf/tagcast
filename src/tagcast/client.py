@@ -36,6 +36,7 @@ from .charts import Charts
 from .labels import Labels
 from .spotify import SpotDL
 from .pagelist import PageList
+from .anylinks import AnyLinks
 from .cleanup import Cleanup
 from .collections import Collections
 from .completion import Completion
@@ -506,6 +507,7 @@ class Studio:
         self.fingerprints = Fingerprints(self)  # fork v109: same audio, different name
         self.charts = Charts(self)
         self.pagelist = PageList(self)
+        self.anylinks = AnyLinks(self)  # fork v120: one box for every link
         self.labels = Labels(self)
         self.spotify = SpotDL(self)
         self.recommendations = Recommendations(self)
@@ -537,11 +539,24 @@ class Studio:
     def _write_bytes(self, name, data):
         self.home.mkdir(parents=True, exist_ok=True)
         path = self.home / name
-        tmp = path.with_name(path.name + ".tmp")
+        # fork v120: a temp file of its own per write (two threads saving the same file used to share one), and on
+        # Windows a few retries: antivirus, the search indexer or OneDrive briefly holding the file give "Access is denied".
+        tmp = path.with_name(f"{path.name}.{threading.get_ident()}.{secrets.token_hex(3)}.tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
-        os.replace(tmp, path)
+        for attempt in range(10):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                if attempt == 9:
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
+                    raise
+                time.sleep(0.05 * (attempt + 1))
 
     def _read_cache(self, user_id, lastmodified):
         try:
