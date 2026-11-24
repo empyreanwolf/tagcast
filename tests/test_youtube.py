@@ -609,3 +609,13 @@ class V121StrictAlbumTests(unittest.TestCase):   # fork v121
         studio = LocalStudio()
         studio.youtube = YouTube(studio, search=search, fetch_audio=lambda *a: None)
         self.assertIsNone(studio.youtube.find_album("Lil Uzi Vert", "Just Wanna Rock"))
+
+
+class V123InterviewTests(unittest.TestCase):   # fork v123
+    def test_an_interview_that_contains_the_title_word_is_not_the_song(self):
+        from tagcast.youtube import score_video
+        talk = {"title": "Pooh Shiesty Refuses To Answer Charlamagne Questions About Shooting Video + Shiesty Season Talk",
+                "channel": "Breakfast Club Power 105.1 FM", "duration": 314}
+        self.assertEqual(score_video(talk, "Pooh Shiesty", "Questions"), 0.0)
+        song = {"title": "Pooh Shiesty - Questions (Official Audio)", "channel": "Pooh Shiesty", "duration": 180}
+        self.assertGreater(score_video(song, "Pooh Shiesty", "Questions"), 0.0)

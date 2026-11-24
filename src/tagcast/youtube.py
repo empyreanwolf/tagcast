@@ -191,7 +191,10 @@ _TEMPO = re.compile(r"(?i)[\s,·\-–]*\b\d{2,3}(?:[.,]\d+)?\s*bpm\b|[\s,·\-–
 _EDITION = re.compile(r"(?i)\s*[\(\[（][^\)\]）]*\b(?:remaster(?:ed)?|deluxe|expanded|anniversary|edition|bonus|reissue|re-issue)\b[^\)\]）]*[\)\]）]")
 _FEAT_GROUP = re.compile(r"(?i)\s*[\(\[（]\s*(?:feat\.?|ft\.?|featuring|with)\b[^\)\]）]*[\)\]）]")
 _EDITION_DASH = re.compile(r"(?i)\s+[-–]\s+(?:\d{4}\s+)?(?:remaster(?:ed)?|deluxe|expanded)\b.*$")
-FAN_WORDS = ("skate", "skating", "skateboarding", "montage", "gameplay", "vlog", "trailer", "highlights", "compilation", "interview")
+FAN_WORDS = ("skate", "skating", "skateboarding", "montage", "gameplay", "vlog", "trailer", "highlights", "compilation", "interview",
+             # fork v123: talk shows and news about the artist are not their songs
+             "podcast", "episode", "talks", "speaks", "refuses", "responds", "explains", "breakfast club", "charlamagne",
+             "documentary", "news", "arrested", "court")
 
 
 def tidy_title(title):
@@ -290,7 +293,11 @@ def score_video(entry, artist, title, want_seconds=0):
     cleaned = cleaned.replace("-", " ").replace("–", " ").replace("|", " ")
     cleaned = re.sub(r"^\s*\d{1,2}\s*[.\-–_)]?\s+(?=\D)", "", " ".join(cleaned.split()))  # "01 INTRO" after the artist
     wanted = plain_title(title)
-    ratio = max(sim(plain_title(cleaned), wanted), sim(cleaned, title), 1.0 if has_word(video, " ".join(_words(wanted))) and wanted else 0.0,
+    # fork v123: the title's words somewhere in a long video title is not enough ("Questions" in "Pooh Shiesty Refuses
+    # To Answer Charlamagne Questions About Shooting Video"): at most 3 other words may be left over.
+    extra = [w for w in _words(plain_title(cleaned)) if w not in set(_words(wanted))]
+    inside = bool(wanted) and has_word(video, " ".join(_words(wanted))) and len(extra) <= 3
+    ratio = max(sim(plain_title(cleaned), wanted), sim(cleaned, title), 1.0 if inside else 0.0,
                 0.85 if same_words(video, artist, title) else 0.0)
     if ratio < (0.75 if in_title else 0.8):  # a title that names the artist may differ a little
         return 0.0
