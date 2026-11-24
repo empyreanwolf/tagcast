@@ -311,6 +311,18 @@ class DiscographyTests(unittest.TestCase):
         queued = [i["title"] for i in studio.download_manager.state["queue"] if i["source"] == "galaxy"]
         self.assertEqual(queued, ["Bills Paid"])
 
+    def test_an_unknown_size_release_is_not_widened_either(self):   # fork v121
+        studio = LocalStudio()
+        studio.gd.search_results[("netease", "DJ Khaled Bills Paid", 1)] = [gd_song(71, "Bills Paid", "DJ Khaled", "GOD DID")]
+        for key in (("netease_album", "GOD DID", 1), ("netease", "GOD DID", 1), ("netease", "DJ Khaled GOD DID", 1)):
+            studio.gd.search_results[key] = [gd_song(70 + n, f"Track {n}", "DJ Khaled", "GOD DID") for n in range(1, 6)] + \
+                                            [gd_song(71, "Bills Paid", "DJ Khaled", "GOD DID")]
+        result = wait_job(studio.discography, studio.discography.get(
+            "DJ Khaled", albums=[{"title": "Bills Paid", "status": "missing"}]))
+        self.assertEqual(result["log"][0]["source"], "Galaxy")
+        queued = [i["title"] for i in studio.download_manager.state["queue"] if i["source"] == "galaxy"]
+        self.assertEqual(queued, ["Bills Paid"])
+
     def test_the_artists_own_songs_are_searched_when_no_title_search_finds_it(self):
         studio = LocalStudio()
         studio.gd.search_results[("netease", "连麻Swimming", 1)] = [
@@ -407,3 +419,12 @@ class SearchTrailTests(unittest.TestCase):
         self.assertIn("Asked from: page https://x.test · row “Bills Paid - DJ Khaled”", first.kwargs["detail"])
         self.assertEqual(second.args[:3], ("downloads", "info", "Searched album “Nobody Nothing” → not found"))
         self.assertIn("Asked from: Discography", second.kwargs["detail"])
+
+
+class LooksLikeASongTests(unittest.TestCase):   # fork v121
+    def test_article_song_titles_are_songs(self):
+        from tagcast.discography import _looks_like_a_song
+        self.assertTrue(_looks_like_a_song("GASS” (feat. Travis Scott)"))
+        self.assertTrue(_looks_like_a_song("Bad and Boujee (feat. Lil Uzi Vert)"))
+        self.assertFalse(_looks_like_a_song("Dreams and Nightmares"))
+        self.assertFalse(_looks_like_a_song("PROJECT X"))

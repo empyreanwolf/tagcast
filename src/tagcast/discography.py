@@ -50,6 +50,13 @@ INSTRUMENTAL_WORDS = re.compile(
     r"strumental|karaoke|off[\s-]?vocal|backing[\s-]?track|伴奏|纯音乐|純音樂|无人声|無人聲|消音|卡拉\s?ok", re.I)
 
 
+def _looks_like_a_song(title):
+    """fork v121: a release name with a "feat." part or a stray quote mark (lists copied from articles:
+    “Bad and Boujee” (feat. Lil Uzi Vert)) names a song, not an album."""
+    title = str(title or "")
+    return bool(re.search(r"(?i)[(\[]\s*(feat\.?|ft\.?|featuring|with)\s", title) or re.search(r"[“”\"]", title))
+
+
 def _only_theirs(tracks, name, album_artist):
     """fork v109: another artist's album (B's) that the artist you asked for (A) is only featured on:
     keep just A's songs, not the whole of B's album. Returns (tracks, note for the log)."""
@@ -1012,6 +1019,8 @@ class Discography:
 
     def _album(self, name, title, status, deezer_id, ctx, expected=None):
         tried = []
+        if not expected and _looks_like_a_song(title):
+            expected = 1   # fork v121: "GASS” (feat. Travis Scott)" is a song title, never a whole album to download
         if chinese_name(name):
             # v70: a Chinese artist: Galaxy first (NetEase's own album and track list), then YouTube.
             self._step(ctx, f"{title}: searching Galaxy…")
@@ -1229,7 +1238,7 @@ class Discography:
                 own = best.get("album") or ""
                 # fork v117: never widen a one-song release (a single, a feature) into the album the song is on
                 # ("Bills Paid" is on "GOD DID"); an album of a very different size is not "the whole thing" either
-                if own and sim(own, title) < 0.9 and expected != 1:   # the song's own album may be the whole thing
+                if own and sim(own, title) < 0.9 and expected and expected > 1:   # the song's own album may be the whole thing
                     data = galaxy.album(own, name, best["source"])
                     if data.get("found"):
                         tracks, others = _only_theirs(_not_instrumental(data["tracks"]), name, data["album_artist"])

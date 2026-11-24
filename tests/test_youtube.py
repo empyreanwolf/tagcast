@@ -331,8 +331,8 @@ class V91Tests(unittest.TestCase):
 
         def search(query, playlists=False):
             if "music.youtube.com/search" in query:
-                return [{"title": "Choose One", "url": "big"}, {"title": "Choose One", "url": "small"}]
-            return {"big": big, "small": small}.get(query, [])
+                return [{"title": "Choose One", "url": "MPREb_big"}, {"title": "Choose One", "url": "MPREb_small"}]
+            return {"MPREb_big": big, "MPREb_small": small}.get(query, [])
         studio = self.yt(search)
         self.assertEqual(len(studio.youtube.find_album("Moka Only", "Choose One")["tracks"]), 30)
         self.assertEqual(len(studio.youtube.find_album("Moka Only", "Choose One", expected=19)["tracks"]), 19)
@@ -340,7 +340,7 @@ class V91Tests(unittest.TestCase):
     def test_videos_over_twenty_minutes_are_not_queued_as_album_songs(self):
         songs = [{"id": f"t{i}xxxxxx", "title": f"Track {i}", "channel": "Moka Only - Topic", "duration": 200} for i in range(4)]
         songs.append({"id": "longxxxxxx", "title": "Unreleased", "channel": "Moka Only - Topic", "duration": 3480})
-        studio = self.yt(lambda q, playlists=False: [{"title": "Airport 2", "url": "u"}] if "music.youtube" in q else songs if q == "u" else [])
+        studio = self.yt(lambda q, playlists=False: [{"title": "Airport 2", "url": "MPREb_u"}] if "music.youtube" in q else songs if q == "MPREb_u" else [])
         result = studio.youtube.add_album("Moka Only", "Airport 2")
         titles = [i["title"] for i in studio.download_manager.state["queue"] if i.get("source") == "youtube"]
         self.assertEqual((len(titles), result["skipped_long"]), (4, 1))
@@ -596,3 +596,16 @@ class V96Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class V121StrictAlbumTests(unittest.TestCase):   # fork v121
+    def test_a_fans_playlist_is_not_an_album_when_the_size_is_unknown(self):
+        fan = [{"id": f"f{i}xxxxxx", "title": f"Hit {i}", "channel": "Lil Uzi Vert - Topic"} for i in range(33)]
+
+        def search(query, playlists=False):
+            if "music.youtube.com/search" in query or playlists:
+                return [{"title": "Just Wanna Rock", "url": "https://www.youtube.com/playlist?list=PLfan", "channel": ""}]
+            return fan if query.endswith("PLfan") else []
+        studio = LocalStudio()
+        studio.youtube = YouTube(studio, search=search, fetch_audio=lambda *a: None)
+        self.assertIsNone(studio.youtube.find_album("Lil Uzi Vert", "Just Wanna Rock"))

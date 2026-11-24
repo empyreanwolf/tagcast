@@ -823,19 +823,29 @@ class YouTube(YtdlpWorker):
         releases mixed, remixes added) is skipped."""
         def fits(songs):
             return bool(songs) and (not expected or len(songs) <= expected + 2)
+
+        def official(entry):   # fork v121: YouTube Music's own album playlists, never a fan's playlist of the same name
+            return any(k in f"{entry.get('id') or ''} {entry.get('url') or ''} {entry.get('webpage_url') or ''}" for k in ("OLAK5uy_", "MPREb_"))
+        strict = not expected   # the album's size is unknown (a page list, an old queue): only sure albums count
         try:
             music = self._search(f"https://music.youtube.com/search?q={quote(f'{artist} {album}')}#albums")
         except LibraryError:
             music = []
         for entry in music[:6]:
+            if strict and not official(entry):
+                continue
             songs = self._album_from(entry, artist, album, need_artist=False)
             if fits(songs):
                 return {"title": album, "artist": artist, "tracks": songs}
         results = self._try(f"{artist} {album} album", playlists=True)[:6]
         for entry in results:
+            if strict and not (official(entry) or mentions(self._who(entry), artist)):
+                continue
             songs = self._album_from(entry, artist, album, need_artist=True)
             if fits(songs):
                 return {"title": album, "artist": artist, "tracks": songs}
+        if strict:
+            return None   # the loose match below guesses from playlist names: only with a known size to check against
         for part in artist_parts(artist)[1:]:  # v72: the other spelling of the name finds playlists too
             more = self._try(f"{part} {album}", playlists=True)[:6]
             results += [e for e in more if e not in results]
