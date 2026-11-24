@@ -32,7 +32,7 @@ import requests
 from . import artist_match as match
 from .galaxy import AUDIO_EXTS, JobFailed, StopRequested, build_path, fold, plain_title, sim, write_tags
 from .library import LibraryError
-from .youtube import AgeRestricted, DownloadBlocked, FetchTimeout, YtdlpWorker, ffmpeg_path, plain_error
+from .youtube import AgeRestricted, DownloadBlocked, FetchTimeout, YtdlpWorker, ffmpeg_path, js_opts, plain_error
 
 log = logging.getLogger("tagcast")
 # fork v105: a track line in a "full album" video's description - "[hh:]mm:ss - Title",
@@ -228,6 +228,7 @@ class MoreSources(YtdlpWorker):
         import yt_dlp
         opts = {"quiet": True, "no_warnings": True, "skip_download": True, "socket_timeout": 20}
         opts.update(self._cookie_opts())
+        opts.update(js_opts())   # fork v119
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 return ydl.extract_info(url, download=False) or {}
@@ -382,7 +383,8 @@ class MoreSources(YtdlpWorker):
     @staticmethod
     def _opts():
         # "in_playlist" (v63): redirects (an OLAK5uy_ album link) are followed, a playlist's songs stay a flat list.
-        return {"quiet": True, "no_warnings": True, "no_color": True, "extract_flat": "in_playlist", "skip_download": True, "socket_timeout": 20}
+        return {"quiet": True, "no_warnings": True, "no_color": True, "extract_flat": "in_playlist", "skip_download": True, "socket_timeout": 20,
+                **js_opts()}   # fork v119
 
     @staticmethod
     def _yt_search(query):

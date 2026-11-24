@@ -104,3 +104,36 @@ class GalaxyBlockedTests(unittest.TestCase):
             galaxy.get_link(job)
         self.assertEqual(Api.calls, 1)
         self.assertEqual(galaxy._dead, {})
+
+
+class JsRuntimeTests(unittest.TestCase):
+    def test_options_name_the_runtime_and_allow_the_solver(self):   # fork v119
+        from tagcast import youtube
+        with mock.patch.object(youtube, "find_js_runtime", return_value=("deno", "/x/deno")):
+            opts = youtube.js_opts()
+        self.assertEqual(opts["js_runtimes"], {"deno": {"path": "/x/deno"}})
+        self.assertIn("ejs:github", opts["remote_components"])
+        with mock.patch.object(youtube, "find_js_runtime", return_value=None):
+            self.assertNotIn("js_runtimes", youtube.js_opts())
+
+    def test_deno_is_installed_once_and_only_when_missing(self):   # fork v119
+        from tagcast import youtube
+        calls, done = [], threading.Event()
+
+        def fake_run(cmd, **kw):
+            calls.append(cmd)
+            done.set()
+            return mock.Mock(returncode=0, stdout="", stderr="")
+        state = dict(youtube._js_setup)
+        try:
+            youtube._js_setup.update(running=False, tried=False, note="")
+            with mock.patch.object(youtube, "find_js_runtime", return_value=("deno", "/x")):
+                self.assertFalse(youtube.setup_js_runtime(fake_run))
+            with mock.patch.object(youtube, "find_js_runtime", return_value=None):
+                self.assertTrue(youtube.setup_js_runtime(fake_run))
+                self.assertTrue(done.wait(2))
+                self.assertFalse(youtube.setup_js_runtime(fake_run))
+            self.assertEqual(len(calls), 1)
+            self.assertIn("deno", calls[0])
+        finally:
+            youtube._js_setup.update(state)

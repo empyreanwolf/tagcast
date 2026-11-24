@@ -78,6 +78,63 @@ def ffmpeg_path():
         return ""
 
 
+_js_setup = {"running": False, "tried": False, "note": ""}
+_js_lock = threading.Lock()
+
+
+def find_js_runtime():
+    """fork v119: (name, path) of a JavaScript runtime for yt-dlp. YouTube now hides its audio formats until yt-dlp runs
+    a script (a "challenge"), and without a runtime every download ends in "Requested format is not available".
+    Deno first (also the copy installed by the ``deno`` pip package), then Node."""
+    try:
+        import deno
+        path = deno.find_deno_bin()
+        if path and os.path.isfile(path):
+            return "deno", path
+    except Exception:
+        pass
+    for name in ("deno", "node"):
+        path = shutil.which(name)
+        if path:
+            return name, path
+    return None
+
+
+def js_opts():
+    """yt-dlp options for YouTube's challenge: the runtime found above, and permission to fetch yt-dlp's solver script."""
+    opts = {"remote_components": ["ejs:github"]}
+    found = find_js_runtime()
+    if found:
+        opts["js_runtimes"] = {found[0]: {"path": found[1]}}
+    return opts
+
+
+def setup_js_runtime(run=None):
+    """fork v119: install Deno (pip package ``deno``) and yt-dlp's solver (``yt-dlp-ejs``) in the background, once per run.
+    Returns True when a setup was started."""
+    with _js_lock:
+        if _js_setup["running"] or _js_setup["tried"] or find_js_runtime():
+            return False
+        _js_setup.update(running=True, tried=True, note="")
+
+    def work():
+        try:
+            out = (run or subprocess.run)([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", "deno", "yt-dlp-ejs"],
+                                          capture_output=True, text=True, timeout=600,
+                                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if out.returncode != 0:
+                raise OSError((out.stderr or out.stdout or "pip failed").strip()[-200:])
+            _js_setup["note"] = "Deno installed"
+        except (OSError, subprocess.SubprocessError) as error:
+            _js_setup["note"] = f"Could not install Deno: {error}"
+            log.warning(_js_setup["note"])
+        finally:
+            _js_setup["running"] = False
+
+    threading.Thread(target=work, daemon=True, name="deno-setup").start()
+    return True
+
+
 def page_meta(info):
     """Tags yt-dlp read from the page (v61): YouTube Music uploads carry track, artist, album and year."""
     info = info or {}
@@ -304,6 +361,7 @@ class YtdlpWorker(FileWorker):
                 "fragment_retries": 3, "format": self.formats, "outtmpl": str(folder / "audio.%(ext)s"),
                 "progress_hooks": [hook], "overwrites": True}
         opts.update(self._cookie_opts())
+        opts.update(js_opts())   # fork v119
         ffmpeg = ffmpeg_path()
         if ffmpeg:
             opts.update(format="bestaudio/best", ffmpeg_location=ffmpeg,
@@ -323,9 +381,14 @@ class YtdlpWorker(FileWorker):
             if re.search(r"HTTP Error 403|403: Forbidden", reason):
                 raise DownloadBlocked("YouTube refused the download (HTTP 403). Tagcast tries another upload and other sources. "
                                       "If it keeps happening: Settings → YouTube → Update yt-dlp, then restart Tagcast.") from None
-            if "Requested format is not available" in reason:   # fork v117: say what to do, not just that it failed
+            if "Requested format is not available" in reason or "JavaScript runtime" in reason:   # fork v117/v119
+                if setup_js_runtime():
+                    raise JobFailed("YouTube needs Deno to read its audio. Tagcast is installing it now: Retry this in a minute, "
+                                    "then restart Tagcast if it still fails.") from None
                 raise JobFailed("YouTube offered no audio format to yt-dlp. Settings → YouTube → Update yt-dlp, then restart "
-                                "Tagcast; YouTube now also needs a JavaScript runtime (install Deno) for yt-dlp.") from None
+                                "Tagcast (Deno is "
+                                + ("installed" if find_js_runtime() else "missing, see the log")
+                                + ").") from None
             raise JobFailed(f"YouTube download failed ({plain_error(reason)[:160]}). Updating yt-dlp often fixes this.") from None
         files = sorted((p for p in folder.glob("audio.*") if p.suffix not in (".part", ".ytdl", ".webp", ".jpg", ".png")),
                        key=lambda p: p.suffix != ".mp3")
@@ -590,7 +653,7 @@ class YouTube(YtdlpWorker):
     def _update_ytdlp(self):
         before = self.version()
         try:
-            out = subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", "yt-dlp"],
+            out = subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", "yt-dlp[default]", "deno"],
                                  capture_output=True, text=True, timeout=600,
                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             if out.returncode != 0:
@@ -617,7 +680,8 @@ class YouTube(YtdlpWorker):
             raise YouTubeError("yt-dlp is not installed. Restart Tagcast so it installs it, or run: pip install yt-dlp") from None
         # "in_playlist" (v63): a link that redirects (an OLAK5uy_ album, a YouTube Music album page) is followed,
         # while a playlist's songs stay a fast flat list.
-        opts = {"quiet": True, "no_warnings": True, "no_color": True, "extract_flat": "in_playlist", "skip_download": True, "socket_timeout": 20}
+        opts = {"quiet": True, "no_warnings": True, "no_color": True, "extract_flat": "in_playlist", "skip_download": True, "socket_timeout": 20,
+                **js_opts()}
         if str(query).startswith("http"):
             url = query  # a page (playlist, channel tab, YouTube Music search) listed as it is
         else:
@@ -634,7 +698,7 @@ class YouTube(YtdlpWorker):
         """Fork v95: one video's full details (YouTube Music fills artist, track, album and duration)."""
         import yt_dlp
         opts = {"quiet": True, "no_warnings": True, "no_color": True, "skip_download": True, "socket_timeout": 20,
-                **self._cookie_opts()}
+                **self._cookie_opts(), **js_opts()}
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 return ydl.extract_info(url, download=False, process=False) or {}
