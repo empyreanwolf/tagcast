@@ -12241,3 +12241,9 @@ test('fork v127: the Discography header shows genre and the most popular album w
   assert.match(have, /You have it/);
   assert.doesNotMatch(have, /get-top-album/);
 });
+
+test('fork v127: a Maybe-the-same album carries a pill naming your album', async () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../src/tagcast/static/discography.js'), 'utf8');
+  assert.match(src, /Maybe the same as/);
+  assert.match(src, /Same songs as/);
+});

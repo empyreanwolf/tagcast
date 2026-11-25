@@ -54,7 +54,7 @@ function discographyResultsHtml() {
       return `<li class="${r.status}">
       <input type="checkbox" data-discography-pick="${escapeHtml(r.title)}" aria-label="Select ${escapeHtml(r.title)}" ${view.picked.has(r.title) ? "checked" : ""}>
       ${bandcampThumb(r.cover, "galaxy-album-art")}
-      <div><b>${escapeHtml(r.title)}</b>${discographyIsInstrumental(r) ? ' <span class="pill">Instrumental</span>' : ""}${isAppearance ? ' <span class="pill">Appearance</span>' : ""}<div class="muted">${[r.year, ({album: "Album", ep: "EP", single: "Single", compile: "Compilation"})[r.type], r.tracks ? `${r.tracks} tracks` : "", r.genre].filter(Boolean).map(escapeHtml).join(" · ")}</div>
+      <div><b>${escapeHtml(r.title)}</b>${discographyIsInstrumental(r) ? ' <span class="pill">Instrumental</span>' : ""}${isAppearance ? ' <span class="pill">Appearance</span>' : ""}${r.same_songs || r.maybe_same ? ` <span class="pill" title="Same songs, different title">${r.same_songs ? "Same songs as" : "Maybe the same as"} “${escapeHtml(r.you_have?.[0]?.title || "")}”</span>` : ""}<div class="muted">${[r.year, ({album: "Album", ep: "EP", single: "Single", compile: "Compilation"})[r.type], r.tracks ? `${r.tracks} tracks` : "", r.genre].filter(Boolean).map(escapeHtml).join(" · ")}</div>
         <div class="muted discography-sources">${escapeHtml(r.sources.join(", "))}</div></div>
       <div>${discographyBadge(r.status, r)}<div class="dl-have">${downloadsYouHave(r.you_have)}</div>${fullAlbumBtn}</div></li>`;
     }).join("") || '<li class="muted">No releases of these types.</li>'}</ul>

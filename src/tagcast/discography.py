@@ -37,6 +37,7 @@ from .sources import PACING, Http, SourceError
 
 log = logging.getLogger("tagcast")
 NOT_FOUND = "Not found on Galaxy, Bandcamp, SoundCloud or Soulseek"
+SAME_SONGS_MAX = 8   # fork v127: new track lists looked at per discography view
 LINE_FILE = "search_line.json"   # fork v114: the searches still waiting, kept across a restart
 SEARCH_SOURCES = ("galaxy", "bandcamp", "soulseek", "youtube", "soundcloud", "spotify")
 JOB_GAP = 2.5            # fork v113: seconds between two queued "get" jobs (the page list starts one per artist)
@@ -406,6 +407,7 @@ class Discography:
         self._check_feat_title(data)
         self._check_guest_only(data)
         self._statuses(data)
+        self._same_songs(data)
         data["releases"].sort(key=lambda r: (r.get("year") or "0000", r["title"]), reverse=True)
         data["counts"] = dict(Counter(r["status"] for r in data["releases"]))
         data["chinese"] = chinese_name(name)
@@ -595,6 +597,54 @@ class Discography:
         for r, res in zip(data["releases"], results):
             r["status"] = "missing" if res["status"] == "new" else res["status"]
             r["you_have"] = res["you_have"]
+
+    def _titles_of(self, deezer_id):
+        key = f"tracks2|{deezer_id}"
+        hit = self.cache.get(key)
+        if hit and hit.get("when", 0) > time.time() - CACHE_DAYS * 86400:
+            return hit["data"]
+        try:
+            rows = (self.http.json(f"{DEEZER}/album/{deezer_id}/tracks", {"limit": 100}) or {}).get("data") or []
+        except SourceError:
+            return None
+        titles = [match.clean(r.get("title")) for r in rows if match.clean(r.get("title"))]
+        self.cache[key] = {"when": time.time(), "data": titles}
+        self._save_cache()
+        return titles
+
+    def _same_songs(self, data):
+        """fork v127: an album that looks missing by its title may be one you have under another name (a Deluxe, a
+        regional or translated title). Compare its songs with your library: 80% or more there = you have it ("Same
+        songs as ..."); half or more = Partly, flagged "Maybe the same as ..." so you decide. Looks at most
+        ``SAME_SONGS_MAX`` new track lists per view (cached 7 days), only albums and EPs of 4+ songs."""
+        budget = SAME_SONGS_MAX
+        for r in data["releases"]:
+            if r.get("status") != "missing" or not r.get("deezer_id") or r.get("type") not in ("album", "ep") \
+                    or r.get("appearance") or (r.get("tracks") or 0) < 4:
+                continue
+            fresh = self.cache.get(f"tracks2|{r['deezer_id']}", {}).get("when", 0) > time.time() - CACHE_DAYS * 86400
+            if not fresh:
+                if budget <= 0:
+                    continue
+                budget -= 1
+            titles = self._titles_of(r["deezer_id"])
+            if not titles or len(titles) < 4:
+                continue
+            try:
+                results = self.manager.check([{"kind": "song", "artist": data["name"], "title": t, "album": r["title"]} for t in titles])["results"]
+            except Exception:
+                continue
+            owned = [h for res in results if res["status"] == "have" for h in res["you_have"][:1] if h.get("album")]
+            ratio = len(owned) / len(titles)
+            if ratio < 0.5:
+                continue
+            albums = {}
+            for h in owned:
+                albums.setdefault(h["album"], {"where": "ibroadcast", "title": h["album"], "artist": h.get("artist", ""),
+                                               "album_id": h.get("album_id"), "tracks": 0, "edition": True})["tracks"] += 1
+            r["you_have"] = sorted(albums.values(), key=lambda a: -a["tracks"])[:3]
+            r["status"] = "have" if ratio >= 0.8 else "partly"
+            r["same_songs" if ratio >= 0.8 else "maybe_same"] = True
 
     def genres(self, name):
         """fork v127: what the genre sources (Discogs, Apple, QQ, MusicBrainz: the genre tagger's) say about this artist,

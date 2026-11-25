@@ -338,3 +338,39 @@ class V127GenresTests(unittest.TestCase):
         studio.tagclean = mock.Mock()
         studio.tagclean._sources_for.side_effect = RuntimeError("boom")
         self.assertEqual(Discography(studio, http=mock.Mock()).genres("X")["genres"], [])
+
+
+class V127SameSongsTests(unittest.TestCase):
+    def make(self, have_count):
+        studio = SearchStudio()
+        d = Discography(studio, http=mock.Mock())
+        d.http.json = lambda url, params=None, **kw: {"data": [{"title": f"Song {n}"} for n in range(10)]}
+        d.cache = {}
+        d._save_cache = lambda: None
+
+        def check(items):
+            return {"results": [({"status": "have", "you_have": [{"album": "Original Title", "artist": "A", "album_id": 7}]}
+                                 if int(i["title"].split()[1]) < have_count else {"status": "new", "you_have": []}) for i in items]}
+        studio.download_manager = mock.Mock(check=check)
+        return d
+
+    def data(self):
+        return {"name": "A", "releases": [{"title": "Translated Title", "type": "album", "status": "missing", "deezer_id": 5, "tracks": 10, "you_have": []}]}
+
+    def test_most_songs_owned_under_another_title_counts_as_have(self):
+        d, data = self.make(9), self.data()
+        d._same_songs(data)
+        r = data["releases"][0]
+        self.assertEqual((r["status"], r.get("same_songs")), ("have", True))
+        self.assertEqual(r["you_have"][0]["title"], "Original Title")
+
+    def test_half_the_songs_owned_is_partly_and_flagged_maybe(self):
+        d, data = self.make(6), self.data()
+        d._same_songs(data)
+        r = data["releases"][0]
+        self.assertEqual((r["status"], r.get("maybe_same")), ("partly", True))
+
+    def test_few_songs_owned_stays_missing(self):
+        d, data = self.make(2), self.data()
+        d._same_songs(data)
+        self.assertEqual(data["releases"][0]["status"], "missing")
