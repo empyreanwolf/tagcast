@@ -98,18 +98,18 @@ function renderActivity() {
 
 // -- fork v125: send the short digest to Claude (copy it, or push it to a private logs repo) ---------
 function logsyncHtml() {
-  const l = activityView.sync || {};
-  return `<details class="act-sync" ${l.error ? "open" : ""}><summary>Send logs to Claude${l.on ? " · on" : " · off"}</summary>
+  const l = activityView.sync || {}, draft = activityView.draft || {};
+  return `<details class="act-sync" ${l.error || activityView.syncOpen ? "open" : ""}><summary>Send logs to Claude${l.on ? " · on" : " · off"}</summary>
     <p class="muted">Pushes a short, secret-free digest to your private logs repo after an error (at most once every 10 minutes). Use a token that can only write that one repo.</p>
-    <div class="toolbar"><input id="logsync-repo" maxlength="120" placeholder="owner/tagcast-logs" value="${escapeHtml(l.repo || "")}" aria-label="Logs repository">
-      <input id="logsync-token" type="password" maxlength="300" autocomplete="off" placeholder="${l.has_token ? "Token saved (type to replace)" : "Fine-grained token"}" aria-label="Token">
+    <div class="toolbar"><input id="logsync-repo" maxlength="120" placeholder="owner/tagcast-logs" value="${escapeHtml(draft.repo ?? l.repo ?? "")}" aria-label="Logs repository">
+      <input id="logsync-token" type="password" maxlength="300" autocomplete="off" placeholder="${l.has_token ? "Token saved (type to replace)" : "Fine-grained token"}" ${draft.token ? `value="${escapeHtml(draft.token)}"` : ""} aria-label="Token">
       <button type="button" class="button" data-logsync="save">Save</button>
       <button type="button" class="button" data-logsync="send" ${l.on ? "" : "disabled"}>Send now</button></div>
     <p class="muted" role="status">${l.error ? `<b class="act-error-text">${escapeHtml(l.error)}</b>` : l.last ? `Last sent ${escapeHtml(l.last)}` : ""}</p></details>`;
 }
 
 async function loadLogsync(body) {
-  try { activityView.sync = await api("/api/logsync", body || {action: "status"}); }
+  try { activityView.sync = await api("/api/logsync", body || {action: "status"}); if (body?.action === "save") activityView.draft = {}; }
   catch (error) { activityView.sync = {...(activityView.sync || {}), error: error.message || String(error)}; }
   renderActivity();
 }
@@ -125,6 +125,16 @@ async function copyDigest() {
 }
 
 let activitySearchTimer = null;
+// The live refresh redraws the page every few seconds: what is typed in the log-sync panel, and whether it is open, are kept here.
+document.addEventListener("input", event => {
+  if (event.target.id === "logsync-repo" || event.target.id === "logsync-token") {
+    activityView.draft = {...(activityView.draft || {}), [event.target.id === "logsync-repo" ? "repo" : "token"]: event.target.value};
+  }
+});
+document.addEventListener("toggle", event => {
+  if (event.target.classList?.contains("act-sync")) activityView.syncOpen = event.target.open;
+}, true);
+
 document.addEventListener("input", event => {
   if (event.target.id !== "activity-search") return;
   activityView.query = event.target.value;

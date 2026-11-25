@@ -46,6 +46,17 @@ class DigestTests(unittest.TestCase):
         self.assertEqual(claude_digest.youtube_context()["url"], "https://youtu.be/x")
         self.assertIn("https://youtu.be/x", claude_digest.build_digest(self.studio))
 
+    def test_more_secret_shapes_are_hidden(self):
+        for secret_text in ("Authorization: Bearer ghp_abc123", '{"token": "ghp_abc123"}', "{'password': 'ghp_abc123'}",
+                            "--client-secret ghp_abc123", "api_key=ghp_abc123"):
+            with self.subTest(secret_text):
+                activity.record("system", "error", "boom", detail=secret_text)
+                self.assertNotIn("ghp_abc123", claude_digest.build_digest(self.studio))
+
+    def test_a_malformed_search_line_does_not_break_the_digest(self):
+        self.studio.files["search_line.json"] = {"jobs": [], "skipped": [1, None]}
+        self.assertIn("Search line", claude_digest.build_digest(self.studio))
+
 
 if __name__ == "__main__":
     unittest.main()

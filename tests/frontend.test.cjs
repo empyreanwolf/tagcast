@@ -12201,3 +12201,16 @@ test('fork v125: the Activity page can copy the Claude digest and shows the log-
   assert.match(html, /Send logs to Claude · off/);
   assert.doesNotMatch(html, /type="password"[^>]*value=/);
 });
+
+test('fork v125: typing in the log-sync panel survives the live refresh', async () => {
+  const p = livePage(); await settle();
+  p.setFetch(url => ({ok: true, text: async () => "", json: async () => url.startsWith("/api/logsync")
+    ? {on: false, repo: "", has_token: false, last: "", error: ""}
+    : {entries: [], latest: 0, file: "", categories: {}, summary: []}}));
+  p.run('showActivity("", "")'); await settle(); await settle();
+  p.run('activityView.draft = {repo: "me/tagcast-logs", token: "abc"}; activityView.syncOpen = true; renderActivity()');
+  const html = p.nodes.get('#activity-content').innerHTML;
+  assert.match(html, /<details class="act-sync" open>/);
+  assert.match(html, /value="me\/tagcast-logs"/);
+  assert.match(html, /type="password"[^>]*value="abc"/);
+});

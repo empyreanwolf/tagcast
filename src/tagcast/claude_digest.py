@@ -17,7 +17,7 @@ MAX_BYTES = 8000
 _ytdlp = {}
 _tail = deque(maxlen=40)
 _lock = threading.Lock()
-_SECRET = re.compile(r"(?i)((?:token|password|secret|api[_-]?key|authorization|cookie)\s*[=:]\s*)[^\s,;&\"']+")
+_SECRET = re.compile(r"(?i)((?:token|password|secret|api[_-]?key|authorization|cookie|client[_-]?secret)[\"']?\s*(?:[=:]|\s)\s*[\"']?(?:bearer\s+|basic\s+)?)[^\s,;&\"'}]+")
 
 
 class _TailLogger:
@@ -81,7 +81,7 @@ def _sections(studio):
     except Exception:
         line = {}
     jobs = line.get("jobs") or [] if isinstance(line, dict) else []
-    line_text = "## Search line\n" + f"{len(jobs)} saved job(s); skipped sources: {', '.join(line.get('skipped', [])) if isinstance(line, dict) else ''}"
+    line_text = "## Search line\n" + f"{len(jobs)} saved job(s); skipped sources: {', '.join(str(x) for x in line.get('skipped') or []) if isinstance(line, dict) else ''}"
     ctx = youtube_context()
     yt = "## Last yt-dlp timeout\n" + (f"{ctx['url']}\n{ctx['tail']}" if ctx else "none")
     return [head, problems, failed_text, line_text, yt]
