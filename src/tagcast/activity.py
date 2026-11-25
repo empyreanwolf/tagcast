@@ -91,6 +91,12 @@ class ActivityLog:
             self.next_id += 1
             self.entries.append(entry)
             self._write(entry)
+        if entry["status"] == "error":   # fork v125: may push the Claude digest to the logs repo (throttled, never raises)
+            try:
+                from . import logsync
+                logsync.notify_error()
+            except Exception:
+                pass
         return entry
 
     def _write(self, entry):

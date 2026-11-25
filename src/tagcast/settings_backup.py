@@ -25,7 +25,7 @@ from pathlib import Path
 from . import __version__
 from .library import LibraryError
 
-LEFT_OUT = {"tokens.json", "library-cache.json.gz", "discography_cache.json", "artist_cards_cache.json",
+LEFT_OUT = {"tokens.json", "logsync.json", "library-cache.json.gz", "discography_cache.json", "artist_cards_cache.json",
             "galaxy_quota.json", "lyrics_translations.json", "fingerprints.json"}
 SECRET = re.compile(r"(?i)token|password|secret|cookie|authorization")
 NAME = re.compile(r"^[A-Za-z0-9_.-]+\.json$")

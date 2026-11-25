@@ -451,6 +451,8 @@ class Studio:
     def __init__(self, home=None):
         self.home = Path(home) if home else self.default_home()
         self.activity = activity.start(self.home)  # fork v35: the Activity log
+        from . import logsync
+        self.logsync = logsync.start(self)  # fork v125: optional push of the Claude digest
         self.lock = threading.RLock()
         self.save_lock = threading.Lock()
         self.play_lock = threading.Lock()
