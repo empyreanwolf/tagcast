@@ -736,3 +736,23 @@ class V92Tests(unittest.TestCase):
         self.assertEqual(Galaxy.fetch_cover(fake, p), b"img")
         self.assertEqual(Galaxy.fetch_cover(fake, dict(p)), b"img")
         self.assertEqual(calls, ["77"])
+
+
+class V126CautionTests(unittest.TestCase):
+    """Fork v126: after GD Studio pushes back, Galaxy goes slower for a while and leaves lyrics and covers alone."""
+
+    def test_after_a_block_low_priority_calls_wait_and_spacing_doubles(self):
+        now = [100.0]
+        limiter = QuotaLimiter(interval=2.0, clock=lambda: now[0])
+        limiter.penalize(90.0)
+        now[0] += 120.0                      # the 90 s hold is over, the caution window is not
+        self.assertTrue(limiter.has_room(low=False))
+        self.assertFalse(limiter.has_room(low=True))
+        with unittest.mock.patch.object(gx, "_sleep"):
+            limiter.wait()
+        self.assertEqual(limiter._next, now[0] + 4.0)    # 2 x interval
+        now[0] += gx.CAUTION + 1
+        self.assertTrue(limiter.has_room(low=True))
+        with unittest.mock.patch.object(gx, "_sleep"):
+            limiter.wait()
+        self.assertEqual(limiter._next, now[0] + 2.0)

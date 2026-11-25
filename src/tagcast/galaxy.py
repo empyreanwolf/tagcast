@@ -41,6 +41,7 @@ OPEN_SOURCES = ["netease", "joox", "bilibili"]
 OTHER_SOURCES = ["tencent", "kuwo", "tidal", "qobuz", "apple", "ytmusic", "spotify"]
 FALLBACK_SOURCES = ["netease", "joox"]  # tried when the chosen source has no link
 SEARCH_COUNT = 30
+CAUTION = 600.0   # fork v126: seconds after any push-back during which calls are spaced twice as far and lyrics/covers wait
 BLOCK_PAUSE = 90.0   # seconds every Galaxy call waits after a 403 firewall page (fork v54)
 ALBUM_COUNT = 99   # the API rejects count > 99 (HTTP 422)
 ARTIST_TOP = 50
@@ -290,6 +291,7 @@ class QuotaLimiter:
         self._calls = collections.deque()
         self._next = 0.0
         self.blocked_until = 0.0
+        self.cautious_until = 0.0
         self.on_change = None  # fork v84: called (outside the lock) after each call or penalty, to save the quota
 
     def export(self, wall=time.time):
@@ -325,6 +327,7 @@ class QuotaLimiter:
             until = self.clock() + secs
             self._next = max(self._next, until)
             self.blocked_until = max(self.blocked_until, until)
+            self.cautious_until = max(self.cautious_until, self.clock() + CAUTION)
         self._changed()
 
     def _prune(self, now):
@@ -346,6 +349,8 @@ class QuotaLimiter:
             now = self.clock()
             self._prune(now)
             cap = max(1, self.max_calls - (self.reserve if low else 0))
+            if low and now < self.cautious_until:   # fork v126: lyrics and covers wait out the caution window
+                return False
             return len(self._calls) < cap and now >= self.blocked_until
 
     def wait(self, low=False):
@@ -356,7 +361,7 @@ class QuotaLimiter:
                 cap = max(1, self.max_calls - (self.reserve if low else 0))
                 if len(self._calls) < cap:
                     slot = max(now, self._next)
-                    self._next = slot + self.interval
+                    self._next = slot + (self.interval * 2 if now < self.cautious_until else self.interval)
                     self._calls.append(slot)
                     break
                 wait_for = self._calls[len(self._calls) - cap] + self.period - now + 0.05
