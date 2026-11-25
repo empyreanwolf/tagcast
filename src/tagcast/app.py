@@ -215,6 +215,26 @@ class Handler(SimpleHTTPRequestHandler):
                                        int(query.get("after") or 0), int(query.get("limit") or 300))
                       if log else {"entries": [], "latest": 0, "summary": [], "categories": activity.CATEGORIES})
             return
+        if url.path == "/api/claude-digest":   # fork v125: the short text to paste to Claude
+            self._activity = None
+            from . import claude_digest
+            try:
+                body = claude_digest.build_digest(self.studio).encode("utf-8")
+            except Exception as error:
+                self._json(500, {"error": f"Could not build the digest ({type(error).__name__}: {error})"})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if url.path == "/api/logsync":
+            self._activity = None
+            from . import logsync
+            self._run(lambda: logsync.handle(self.studio.logsync, {}))
+            return
         if url.path == "/api/debug-report":
             self._activity = None
             from . import debug_report
@@ -545,6 +565,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/wishlist/retry": lambda b: self.studio.wishlist.retry(b.get("ids")),
             "/api/wishlist/remove": lambda b: self.studio.wishlist.remove(b.get("ids")),
             "/api/wishlist/check-library": lambda b: self.studio.wishlist.check_library(),
+            "/api/logsync": lambda b: __import__("tagcast.logsync", fromlist=["handle"]).handle(self.studio.logsync, b),
             "/api/wishlist/keep": lambda b: self.studio.wishlist.keep(b.get("ids")),
             "/api/wishlist/split": lambda b: self.studio.wishlist.split(b.get("ids")),
             "/api/wishlist/search-as": lambda b: self.studio.wishlist.search_as(b),

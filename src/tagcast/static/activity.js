@@ -13,6 +13,7 @@ function showActivity(cat = activityView.cat, status = activityView.status) {
   showScreen("activity");
   renderActivity();
   loadActivity(true);
+  loadLogsync();
 }
 
 function activityParams(after = 0) {
@@ -84,13 +85,43 @@ function renderActivity() {
       <select id="activity-status" aria-label="Outcome">${[["", "Every outcome"], ["problems", "Problems only"], ["error", "Errors"], ["warn", "Warnings"], ["ok", "OK"], ["info", "Info"]]
         .map(([value, label]) => `<option value="${value}" ${activityView.status === value ? "selected" : ""}>${label}</option>`).join("")}</select>
       <label class="act-live"><input type="checkbox" id="activity-live" ${activityView.live ? "checked" : ""}> Live</label>
+      <button type="button" class="button" data-activity-copy>${activityView.copied || "Copy for Claude"}</button>
       <a class="button" href="/api/activity/export" download>Download log file</a></div>
+    ${logsyncHtml()}
     ${activityView.error ? `<p class="error-box" role="alert">${escapeHtml(activityView.error)}</p>` : ""}
     <p class="muted" role="status">${activityView.loading ? "Loading…" : `${fmt(activityView.entries.length)} ${activityView.entries.length === 1 ? "entry" : "entries"}${activityView.entries.length >= ACTIVITY_LIMIT ? ` (the newest ${ACTIVITY_LIMIT}; search or filter to go further back)` : ""}`}${activityView.file ? ` · saved in <code>${escapeHtml(activityView.file)}</code>` : ""}</p>
     ${activityView.entries.length ? `<ul class="dl-list act-list">${activityView.entries.map(activityEntryHtml).join("")}</ul>`
       : activityView.loading ? "" : '<div class="empty">Nothing matches. Try another area or outcome.</div>'}`;
   for (const id of opened) box.querySelector?.(`li[data-id="${id}"] details`)?.setAttribute("open", "");
   if (focused) { const input = $("#activity-search"); input.focus?.(); input.setSelectionRange?.(input.value.length, input.value.length); }
+}
+
+// -- fork v125: send the short digest to Claude (copy it, or push it to a private logs repo) ---------
+function logsyncHtml() {
+  const l = activityView.sync || {};
+  return `<details class="act-sync" ${l.error ? "open" : ""}><summary>Send logs to Claude${l.on ? " · on" : " · off"}</summary>
+    <p class="muted">Pushes a short, secret-free digest to your private logs repo after an error (at most once every 10 minutes). Use a token that can only write that one repo.</p>
+    <div class="toolbar"><input id="logsync-repo" maxlength="120" placeholder="owner/tagcast-logs" value="${escapeHtml(l.repo || "")}" aria-label="Logs repository">
+      <input id="logsync-token" type="password" maxlength="300" autocomplete="off" placeholder="${l.has_token ? "Token saved (type to replace)" : "Fine-grained token"}" aria-label="Token">
+      <button type="button" class="button" data-logsync="save">Save</button>
+      <button type="button" class="button" data-logsync="send" ${l.on ? "" : "disabled"}>Send now</button></div>
+    <p class="muted" role="status">${l.error ? `<b class="act-error-text">${escapeHtml(l.error)}</b>` : l.last ? `Last sent ${escapeHtml(l.last)}` : ""}</p></details>`;
+}
+
+async function loadLogsync(body) {
+  try { activityView.sync = await api("/api/logsync", body || {action: "status"}); }
+  catch (error) { activityView.sync = {...(activityView.sync || {}), error: error.message || String(error)}; }
+  renderActivity();
+}
+
+async function copyDigest() {
+  try {
+    const text = await (await fetch("/api/claude-digest")).text();
+    await navigator.clipboard.writeText(text);
+    activityView.copied = "Copied — paste it to Claude";
+  } catch (error) { activityView.copied = "Could not copy"; }
+  renderActivity();
+  setTimeout(() => { activityView.copied = ""; renderActivity(); }, 3000);
 }
 
 let activitySearchTimer = null;
@@ -111,6 +142,13 @@ document.addEventListener("change", event => {
 });
 
 document.addEventListener("click", event => {
+  if (event.target.closest("[data-activity-copy]")) { copyDigest(); return; }
+  const sync = event.target.closest("[data-logsync]");
+  if (sync) {
+    const body = sync.dataset.logsync === "save"
+      ? {action: "save", repo: $("#logsync-repo")?.value || "", token: $("#logsync-token")?.value || ""} : {action: "send"};
+    loadLogsync(body); return;
+  }
   const open = event.target.closest("[data-activity-open]");
   if (open) { showActivity(open.dataset.activityCat ?? "", open.dataset.activityStatus ?? ""); return; }
   if (event.target.closest("[data-activity-back]")) { showScreen("overview"); return; }

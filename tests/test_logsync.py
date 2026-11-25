@@ -102,3 +102,24 @@ class BackupTests(unittest.TestCase):
     def test_token_file_is_left_out_of_settings_backups(self):
         from tagcast import settings_backup
         self.assertIn("logsync.json", settings_backup.LEFT_OUT)
+
+
+class HandleTests(unittest.TestCase):
+    def test_save_response_never_contains_the_token(self):
+        _, sync = make(Fake())
+        out = logsync.handle(sync, {"action": "save", "repo": "me/tagcast-logs", "token": "sekret"})
+        self.assertNotIn("sekret", str(out))
+        self.assertTrue(out["on"])
+
+    def test_bad_repo_is_a_plain_error(self):
+        from tagcast.sources import SourceError
+        _, sync = make(Fake())
+        with self.assertRaises(SourceError):
+            logsync.handle(sync, {"action": "save", "repo": "x"})
+
+    def test_send_action_sends(self):
+        fake = Fake()
+        _, sync = make(fake)
+        sync.configure("me/tagcast-logs", "tok")
+        logsync.handle(sync, {"action": "send"})
+        self.assertEqual([c[0] for c in fake.calls], ["GET", "PUT"])

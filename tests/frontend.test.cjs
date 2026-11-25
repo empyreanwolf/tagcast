@@ -12189,3 +12189,15 @@ test("fork v115: track list comparison compares by position and stages explicit 
   assert.equal(patch.credits.length, 1);
   assert.equal(patch.credits[0].name, "Guest");
 });
+
+test('fork v125: the Activity page can copy the Claude digest and shows the log-sync panel', async () => {
+  const p = livePage(); await settle();
+  p.setFetch(url => ({ok: true, text: async () => "# Tagcast digest", json: async () => url.startsWith("/api/logsync")
+    ? {on: false, repo: "", has_token: false, last: "", error: ""}
+    : {entries: [], latest: 0, file: "", categories: {}, summary: []}}));
+  p.run('showActivity("", "")'); await settle(); await settle();
+  const html = p.nodes.get('#activity-content').innerHTML;
+  assert.match(html, /data-activity-copy/);
+  assert.match(html, /Send logs to Claude · off/);
+  assert.doesNotMatch(html, /type="password"[^>]*value=/);
+});

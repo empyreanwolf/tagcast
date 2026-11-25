@@ -120,3 +120,17 @@ def notify_error():
             sync.notify_error()
         except Exception:
             pass
+
+
+def handle(sync, body):
+    """The /api/logsync action: save the repo and token, send now, or just report the status (never the token)."""
+    from .sources import SourceError
+    action = (body or {}).get("action")
+    if action == "save":
+        try:
+            return sync.configure(body.get("repo"), body.get("token"))
+        except ValueError as error:
+            raise SourceError(str(error)) from None
+    if action == "send":
+        return sync.send_now()
+    return sync.status()
