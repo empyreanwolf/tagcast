@@ -310,3 +310,15 @@ class WatcherManners(unittest.TestCase):
         m._moved["a1"] = time.time() - 999
         self.assertEqual(m.reset_stuck(), [])
         self.assertEqual(m.item("a1")["state"], "active")
+
+
+class V125ClearRestoredLineTests(unittest.TestCase):
+    def test_stop_on_a_restored_line_empties_the_saved_file(self):
+        studio = SearchStudio()
+        studio.store[LINE_FILE] = {"jobs": [{"id": "a", "name": "Old Artist", "albums": [{"title": "X"}], "songs": []},
+                                            {"id": "b", "name": "Other", "albums": [{"title": "Y"}], "songs": []}], "skipped": []}
+        d = Discography(studio, http=mock.Mock())
+        self.assertEqual(d.restored, 2)
+        d.search_control("stop")
+        self.assertTrue(wait_for(lambda: studio.store[LINE_FILE]["jobs"] == []))
+        self.assertEqual(Discography(SearchStudio(copy.deepcopy(studio.store)), http=mock.Mock()).restored, 0)

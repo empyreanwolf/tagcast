@@ -263,7 +263,7 @@ function downloadsFindingHtml() {
   // fork v114: pause or stop the search for sources, and switch a source off (saved, so a block you worked around stays).
   const controls = `<div class="dl-actions dl-search-controls">
       ${running ? `<button type="button" class="button small" data-search-control="${search.paused ? "resume" : "pause"}">${search.paused ? "▶ Resume search" : "⏸ Pause search"}</button>
-      <button type="button" class="button small" data-search-control="stop">⏹ Stop search</button>` : ""}
+      <button type="button" class="button small" data-search-control="stop">${search.restored ? "⏹ Stop and clear saved search" : "⏹ Stop search"}</button>` : ""}
       <span class="muted">Search these:</span>
       ${(search.sources || Object.keys(sources)).map(k => `<label class="dl-source-switch"><input type="checkbox" data-search-source="${escapeHtml(k)}" ${skipped.includes(k) ? "" : "checked"}> ${escapeHtml(sources[k] || k)}</label>`).join(" ")}</div>`;
   const restored = search.restored ? `<p class="dl-warn" role="status">Restored ${search.restored} ${search.restored === 1 ? "search" : "searches"} from before Tagcast closed. They are paused: press Resume search to carry on, or Stop search to drop them.</p>` : "";
