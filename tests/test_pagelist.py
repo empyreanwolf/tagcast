@@ -1,3 +1,4 @@
+import json
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -156,3 +157,29 @@ class FlowTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class V125PersistTests(unittest.TestCase):
+    def test_finished_page_lists_survive_a_restart(self):
+        import time as _time
+
+        class Store(Studio):
+            store = {}
+
+            @classmethod
+            def _read(cls, name):
+                return cls.store.get(name)
+
+            @classmethod
+            def _write(cls, name, data):
+                cls.store[name] = json.loads(json.dumps(data))
+        pl = PageList(Store)
+        job = {"id": "abc", "state": "running", "done": 0, "total": 1, "source": "https://x.test/list",
+               "items": [{"id": "0", "artist": "A", "album": "B", "raw": "A - B", "song": False, "state": "checking", "status": "", "you_have": [], "cover": ""}]}
+        pl.jobs["abc"] = job
+        pl._finish_job(job)
+        self.assertEqual(job["state"], "done")
+        again = PageList(Store)
+        self.assertIn("abc", again.jobs)
+        self.assertEqual(again.view("abc")["source"], "https://x.test/list")
+        self.assertEqual(again.jobs["abc"]["items"][0]["state"], "unsure")   # was still being checked when saved

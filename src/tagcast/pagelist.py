@@ -272,6 +272,7 @@ class PageList:
         self.session = session or requests.Session()
         self.jobs = {}
         self.lock = threading.Lock()
+        self._load()
 
     # fetching ---------------------------------------------------------------------------
 
@@ -417,6 +418,37 @@ class PageList:
 
     # jobs ----------------------------------------------------------------------------------
 
+    FILE, KEEP = "pagelists.json", 5   # fork v125: the last finished lists come back after a restart
+
+    def _load(self):
+        read = getattr(self.studio, "_read", None)
+        try:
+            data = read(self.FILE) if read else None
+        except Exception:
+            data = None
+        for job in (data or {}).get("jobs", []) if isinstance(data, dict) else []:
+            if isinstance(job, dict) and job.get("id") and isinstance(job.get("items"), list):
+                for item in job["items"]:
+                    if isinstance(item, dict) and item.get("state") == "checking":
+                        item["state"] = "unsure"
+                job.update(state="done", done=job.get("total", 0))
+                self.jobs[str(job["id"])] = job
+
+    def _save(self):
+        write = getattr(self.studio, "_write", None)
+        if write is None:
+            return
+        try:
+            with self.lock:
+                done = [j for j in self.jobs.values() if j.get("state") == "done"][-self.KEEP:]
+            write(self.FILE, {"jobs": done})
+        except Exception:
+            log.exception("Could not save the page lists")
+
+    def _finish_job(self, job):
+        job["state"] = "done"
+        self._save()
+
     def read(self, link="", pasted=""):
         if not (link or "").strip() and not (pasted or "").strip():
             raise PageError("Paste a page link, or the text of the page.")
@@ -444,7 +476,7 @@ class PageList:
                 job["done"] += 1
             self._finish(job)
         finally:
-            job["state"] = "done"
+            self._finish_job(job)
 
     def _finish(self, job):
         usable = [i for i in job["items"] if i["album"]]
@@ -470,6 +502,7 @@ class PageList:
         item.update(artist=artist, album=album, song=False)
         self.resolve(item)
         self._status([item])
+        self._save()
         return item
 
     def flip(self, job_id, ids=None):
