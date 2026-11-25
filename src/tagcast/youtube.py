@@ -364,9 +364,14 @@ class YtdlpWorker(FileWorker):
         Returns (file path, page info) so the cover and tags can be read from the page."""
         import yt_dlp
         folder.mkdir(parents=True, exist_ok=True)
-        opts = {"quiet": True, "no_warnings": True, "noplaylist": True, "socket_timeout": 20, "retries": 3,
+        opts = {"quiet": True, "no_warnings": False, "noplaylist": True, "socket_timeout": 20, "retries": 3,
                 "fragment_retries": 3, "format": self.formats, "outtmpl": str(folder / "audio.%(ext)s"),
                 "progress_hooks": [hook], "overwrites": True}
+        try:   # fork v125: yt-dlp's last lines are kept for the Claude digest
+            from .claude_digest import ytdlp_logger
+            opts["logger"] = ytdlp_logger()
+        except Exception:
+            pass
         opts.update(self._cookie_opts())
         opts.update(js_opts())   # fork v119
         ffmpeg = ffmpeg_path()
@@ -457,6 +462,13 @@ class YtdlpWorker(FileWorker):
                 raise
             if time.monotonic() - beat[0] > self.fetch_idle:
                 gone.set()
+                try:   # fork v125: leave the address and yt-dlp's last lines for the Claude digest
+                    from . import activity, claude_digest
+                    tail = claude_digest.ytdlp_tail()
+                    claude_digest.note_ytdlp(url, tail)
+                    activity.record("downloads", "error", "yt-dlp did not answer", f"{url}\n{tail}", source="youtube")
+                except Exception:
+                    pass
                 raise FetchTimeout(f"yt-dlp did not answer for {int(self.fetch_idle)} s (stuck reading the page). "
                                    "Tagcast tries another upload and other sources. If it keeps happening: Settings → "
                                    "YouTube → Update yt-dlp, restart Tagcast, and check your cookies setting.")

@@ -619,3 +619,34 @@ class V123InterviewTests(unittest.TestCase):   # fork v123
         self.assertEqual(score_video(talk, "Pooh Shiesty", "Questions"), 0.0)
         song = {"title": "Pooh Shiesty - Questions (Official Audio)", "channel": "Pooh Shiesty", "duration": 180}
         self.assertGreater(score_video(song, "Pooh Shiesty", "Questions"), 0.0)
+
+
+class V125Tests(unittest.TestCase):
+    """Fork v125: a yt-dlp timeout leaves its URL and last output where the Claude digest can read them."""
+
+    def test_fetch_timeout_records_context(self):
+        import tempfile
+        import time
+        from tagcast import activity, claude_digest
+        from tagcast.youtube import FetchTimeout
+        activity.start(tempfile.mkdtemp())
+        self.addCleanup(lambda: setattr(activity, "_current", None))
+        studio = LocalStudio()
+        yt = YouTube(studio, search=lambda q, playlists=False: [], fetch_audio=lambda *a: None)
+        yt.fetch_idle = 0.3
+        release = []
+
+        def fetch(url, folder, hook):
+            claude_digest.ytdlp_logger().info("[youtube] Extracting URL")
+            while not release:
+                time.sleep(0.05)
+        yt._fetch_audio = fetch
+        yt.active = "x"
+        with self.assertRaises(FetchTimeout):
+            yt._fetch_watched("https://youtu.be/abc", None, lambda d: None)
+        release.append(1)
+        ctx = claude_digest.youtube_context()
+        self.assertEqual(ctx["url"], "https://youtu.be/abc")
+        self.assertIn("Extracting URL", ctx["tail"])
+        titles = [e["title"] for e in activity.current().entries if e["status"] == "error"]
+        self.assertIn("yt-dlp did not answer", titles)
