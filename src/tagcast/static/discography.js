@@ -37,7 +37,7 @@ function discographyResultsHtml() {
   const others = (d.candidates || []).filter(c => !artist || c.id !== artist.id);
   return `<div class="discography-head">${artist?.picture ? `<img src="${escapeHtml(artist.picture)}" alt="" class="discography-photo" onerror="this.remove()">` : ""}
       <div><h2>${escapeHtml(d.name)}</h2><p class="muted">${artist ? `Deezer: ${Number(artist.fans || 0).toLocaleString("en")} fans · ${artist.albums} releases` : "Not found on Deezer"}
-        ${d.notes?.length ? ` · ${escapeHtml(d.notes.join("; "))}` : ""}</p>
+        ${d.notes?.length ? ` · ${escapeHtml(d.notes.join("; "))}` : ""}</p>${discographyGuestHtml()}
         ${others.length ? `<p class="muted">Other artists called “${escapeHtml(d.name)}”: ${others.map(c => `<button type="button" class="text-action" data-discography-artist="${c.id}">${escapeHtml(c.name)} (${Number(c.fans || 0).toLocaleString("en")} fans)</button>`).join(", ")}</p>` : ""}</div></div>
     <h3>Releases</h3>
     <div class="dl-actions">${discographyTypes.map(([t, label]) => `<label><input type="checkbox" data-discography-type="${t}" ${view.types.has(t) ? "checked" : ""}> ${label} (${d.releases.filter(r => r.type === t).length})</label>`).join("")}
@@ -108,6 +108,26 @@ async function discographyLoad(options = {}) {
     view.top = await api("/api/discography/top", {name: view.name, deezer_id: view.data.artist?.id || null});
   } catch (error) { view.top = {source: "nowhere", songs: [], error: error.message}; }
   if (request === view.request && downloadsView.tab === "discography") renderDownloads();
+  try {   // fork v127: the artist's genre, to decide on a guest star before getting anything
+    const genres = await api("/api/discography/genres", {name: view.name});
+    if (request === view.request) { view.genres = genres; if (downloadsView.tab === "discography") renderDownloads(); }
+  } catch { /* the line just stays out */ }
+}
+
+// fork v127: the album of the artist's most popular song (Deezer's ranking), and whether you already have all of it.
+function discographyTopAlbum(top) {
+  const songs = top?.songs || [], first = songs.find(s => s.album);
+  if (!first) return null;
+  const rows = songs.filter(s => s.album === first.album);
+  return {title: first.album, have: rows.every(s => s.status === "have")};
+}
+
+function discographyGuestHtml() {
+  const view = discographyView, genres = view.genres?.genres || [], album = discographyTopAlbum(view.top);
+  if (!genres.length && !album) return "";
+  return `<p class="muted discography-guest">${genres.length ? `Genre: ${genres.map(escapeHtml).join(", ")}${view.genres.source ? ` (${escapeHtml(view.genres.source)})` : ""}` : ""}
+    ${album ? ` · Most popular album: <b>${escapeHtml(album.title)}</b> ${album.have ? '<span class="dl-badge have">You have it</span>'
+      : `<button type="button" class="text-action" data-discography="get-top-album" data-discography-title="${escapeHtml(album.title)}">⬇ Get it</button>`}` : ""}</p>`;
 }
 
 // Instrumental albums (v46) are shown with a tag but never ticked for you; tick one by hand to get it.
@@ -174,6 +194,10 @@ document.addEventListener("click", event => {
     const albums = view.data.releases.filter(r => view.types.has(r.type) && view.picked.has(r.title))
       .map(r => ({title: r.title, status: r.status, deezer_id: r.deezer_id, tracks: r.tracks, appearance: !!r.appearance, type: r.type, main_artist: r.main_artist || ""}));
     downloadsRun(() => discographyGet(albums, []));
+  } else if (action === "get-top-album") {
+    const title = button.dataset.discographyTitle, r = view.data?.releases.find(rel => rel.title === title);
+    downloadsRun(() => discographyGet([r ? {title: r.title, status: r.status, deezer_id: r.deezer_id, tracks: r.tracks, appearance: !!r.appearance, type: r.type, main_artist: r.main_artist || ""}
+      : {title, status: "missing"}], []));
   } else if (action === "get-full-album") {
     const title = button.dataset.discographyTitle;
     const r = view.data.releases.find(rel => rel.title === title);

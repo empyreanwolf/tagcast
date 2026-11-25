@@ -580,6 +580,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/releases/dismiss": lambda b: self.studio.new_releases.dismiss(b.get("ids")),
             "/api/discography": lambda b: self.studio.discography.view(
                 b.get("name"), b.get("deezer_id"), b.get("musicbrainz") is True, b.get("refresh") is True),
+            "/api/discography/genres": lambda b: self.studio.discography.genres(b.get("name")),
             "/api/discography/top": lambda b: self.studio.discography.top(b.get("name"), b.get("deezer_id")),
             "/api/discography/get": lambda b: self.studio.discography.get(b.get("name"), b.get("albums"), b.get("songs")),
             "/api/discography/search-control": lambda b: self.studio.discography.search_control(b.get("action"), b.get("source"), b.get("off")),

@@ -12226,3 +12226,18 @@ test('fork v126: Send now shows a busy state and the last page list can be reope
   assert.match(p.nodes.get('#activity-content').innerHTML, /data-logsync="send" disabled>Sending…/);
   assert.match(p.run('pagelistLastHtml()') || "", /^$|data-pagelist-open-last/);
 });
+
+test('fork v127: the Discography header shows genre and the most popular album with one click to get it', async () => {
+  const p = livePage(); await settle();
+  const html = p.run(`(() => {
+    discographyView.genres = {genres: ["Hip-Hop", "Rap"], source: "Apple"};
+    discographyView.top = {songs: [{title: "A", album: "Big Album", status: "missing"}, {title: "B", album: "Big Album", status: "have"}, {title: "C", album: "Other", status: "have"}]};
+    return discographyGuestHtml();
+  })()`);
+  assert.match(html, /Genre: Hip-Hop, Rap \(Apple\)/);
+  assert.match(html, /Most popular album: <b>Big Album<\/b>/);
+  assert.match(html, /data-discography="get-top-album" data-discography-title="Big Album"/);
+  const have = p.run(`(() => { discographyView.top = {songs: [{title: "A", album: "Big Album", status: "have"}]}; return discographyGuestHtml(); })()`);
+  assert.match(have, /You have it/);
+  assert.doesNotMatch(have, /get-top-album/);
+});

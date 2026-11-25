@@ -596,6 +596,20 @@ class Discography:
             r["status"] = "missing" if res["status"] == "new" else res["status"]
             r["you_have"] = res["you_have"]
 
+    def genres(self, name):
+        """fork v127: what the genre sources (Discogs, Apple, QQ, MusicBrainz: the genre tagger's) say about this artist,
+        so you can decide on a guest star before getting anything. {"name", "source", "genres": [up to 4]}."""
+        name = match.clean(name)
+        tagclean = getattr(self.studio, "tagclean", None)
+        try:
+            for source, label in (tagclean._sources_for(name) if tagclean else []):
+                info = tagclean._source_info(source, name)
+                if info and info.get("found") and info.get("tags"):
+                    return {"name": name, "source": label, "genres": [str(t) for t in info["tags"][:4]]}
+        except Exception:
+            log.info("Genre lookup for %s failed", name, exc_info=True)
+        return {"name": name, "source": "", "genres": []}
+
     def top(self, name, deezer_id=None):
         """Top 30 songs: Deezer's ranking, else Galaxy's search order."""
         name = match.clean(name)

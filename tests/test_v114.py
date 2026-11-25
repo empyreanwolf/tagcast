@@ -322,3 +322,19 @@ class V125ClearRestoredLineTests(unittest.TestCase):
         d.search_control("stop")
         self.assertTrue(wait_for(lambda: studio.store[LINE_FILE]["jobs"] == []))
         self.assertEqual(Discography(SearchStudio(copy.deepcopy(studio.store)), http=mock.Mock()).restored, 0)
+
+
+class V127GenresTests(unittest.TestCase):
+    def test_genres_come_from_the_first_source_that_knows_the_artist(self):
+        studio = SearchStudio()
+        studio.tagclean = mock.Mock()
+        studio.tagclean._sources_for.return_value = [("discogs", "Discogs"), ("apple", "Apple")]
+        studio.tagclean._source_info.side_effect = lambda s, a: {"found": False} if s == "discogs" else {"found": True, "tags": ["Hip-Hop", "Rap", "Trap", "Pop", "Extra"]}
+        out = Discography(studio, http=mock.Mock()).genres("Some Guest")
+        self.assertEqual(out, {"name": "Some Guest", "source": "Apple", "genres": ["Hip-Hop", "Rap", "Trap", "Pop"]})
+
+    def test_a_failing_lookup_gives_no_genres_not_an_error(self):
+        studio = SearchStudio()
+        studio.tagclean = mock.Mock()
+        studio.tagclean._sources_for.side_effect = RuntimeError("boom")
+        self.assertEqual(Discography(studio, http=mock.Mock()).genres("X")["genres"], [])
