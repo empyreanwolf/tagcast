@@ -123,3 +123,11 @@ class HandleTests(unittest.TestCase):
         sync.configure("me/tagcast-logs", "tok")
         logsync.handle(sync, {"action": "send"})
         self.assertEqual([c[0] for c in fake.calls], ["GET", "PUT"])
+
+
+class V126Tests(unittest.TestCase):
+    def test_a_blank_token_keeps_the_saved_one(self):
+        _, sync = make(Fake())
+        sync.configure("me/tagcast-logs", "tok")
+        sync.configure("me/tagcast-logs", "   ")
+        self.assertTrue(sync.status()["has_token"])

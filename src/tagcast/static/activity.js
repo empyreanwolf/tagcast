@@ -104,13 +104,15 @@ function logsyncHtml() {
     <div class="toolbar"><input id="logsync-repo" maxlength="120" placeholder="owner/tagcast-logs" value="${escapeHtml(draft.repo ?? l.repo ?? "")}" aria-label="Logs repository">
       <input id="logsync-token" type="password" maxlength="300" autocomplete="off" placeholder="${l.has_token ? "Token saved (type to replace)" : "Fine-grained token"}" ${draft.token ? `value="${escapeHtml(draft.token)}"` : ""} aria-label="Token">
       <button type="button" class="button" data-logsync="save">Save</button>
-      <button type="button" class="button" data-logsync="send" ${l.on ? "" : "disabled"}>Send now</button></div>
+      <button type="button" class="button" data-logsync="send" ${l.on && !activityView.sending ? "" : "disabled"}>${activityView.sending ? "Sending…" : "Send now"}</button></div>
     <p class="muted" role="status">${l.error ? `<b class="act-error-text">${escapeHtml(l.error)}</b>` : l.last ? `Last sent ${escapeHtml(l.last)}` : ""}</p></details>`;
 }
 
 async function loadLogsync(body) {
+  if (body?.action === "send") { activityView.sending = true; renderActivity(); }
   try { activityView.sync = await api("/api/logsync", body || {action: "status"}); if (body?.action === "save") activityView.draft = {}; }
   catch (error) { activityView.sync = {...(activityView.sync || {}), error: error.message || String(error)}; }
+  activityView.sending = false;
   renderActivity();
 }
 

@@ -442,6 +442,11 @@ class YtdlpWorker(FileWorker):
 
         def run():
             try:
+                try:   # fork v126: this download's own yt-dlp lines, for the Claude digest
+                    from . import claude_digest
+                    box["tail"] = claude_digest.capture_start()
+                except Exception:
+                    pass
                 box["got"] = self._fetch_audio(url, folder, watched)
             except BaseException as error:  # noqa: BLE001 - handed to the worker thread below
                 box["error"] = error
@@ -464,7 +469,7 @@ class YtdlpWorker(FileWorker):
                 gone.set()
                 try:   # fork v125: leave the address and yt-dlp's last lines for the Claude digest
                     from . import activity, claude_digest
-                    tail = claude_digest.ytdlp_tail()
+                    tail = claude_digest.ytdlp_tail(box.get("tail"))
                     claude_digest.note_ytdlp(url, tail)
                     activity.record("downloads", "error", "yt-dlp did not answer", f"{url}\n{tail}", source="youtube")
                 except Exception:

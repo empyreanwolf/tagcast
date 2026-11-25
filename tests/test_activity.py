@@ -148,7 +148,11 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.request("POST", "/api/soulseek/add", {"items": [1, 2], "password": "nope"})[0], 400)
         with self.assertLogs(level="ERROR"):
             self.assertEqual(self.request("POST", "/api/bandcamp/add", {"url": "https://x.bandcamp.com/album/y"})[0], 500)
-        entries = {e["source"]: e for e in self.log.view()["entries"] if e.get("cat") == "downloads" and "ms" in e}
+        for _ in range(100):   # the log entry is written just after the answer is sent
+            entries = {e["source"]: e for e in self.log.view()["entries"] if e.get("cat") == "downloads" and "ms" in e}
+            if {"galaxy", "soulseek", "bandcamp"} <= set(entries):
+                break
+            time.sleep(0.02)
         self.assertEqual((entries["galaxy"]["status"], entries["galaxy"]["title"]), ("ok", "galaxy › control · retry"))
         self.assertIn("ids: a1", entries["galaxy"]["detail"])
         self.assertEqual(entries["soulseek"]["status"], "error")

@@ -445,6 +445,11 @@ class PageList:
         except Exception:
             log.exception("Could not save the page lists")
 
+    def latest(self):
+        """The most recent finished list, for the page to offer after a reload or restart (fork v126)."""
+        done = [j for j in self.jobs.values() if j.get("state") == "done"]
+        return {"id": done[-1]["id"], "source": done[-1].get("source", ""), "total": done[-1].get("total", 0)} if done else {}
+
     def _finish_job(self, job):
         job["state"] = "done"
         self._save()

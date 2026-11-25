@@ -16,6 +16,7 @@ from .updates import local_fork
 MAX_BYTES = 8000
 _ytdlp = {}
 _tail = deque(maxlen=40)
+_local = threading.local()
 _lock = threading.Lock()
 _SECRET = re.compile(r"(?i)((?:token|password|secret|api[_-]?key|authorization|cookie|client[_-]?secret)[\"']?\s*(?:[=:]|\s)\s*[\"']?(?:bearer\s+|basic\s+)?)[^\s,;&\"'}]+")
 
@@ -24,23 +25,29 @@ class _TailLogger:
     """A yt-dlp ``logger`` that keeps its last lines, so a hang can be read afterwards."""
 
     def _add(self, msg):
-        _tail.append(str(msg)[:300])
+        getattr(_local, "tail", _tail).append(str(msg)[:300])
 
     debug = info = _add
 
     def warning(self, msg):
-        _tail.append("WARNING " + str(msg)[:300])
+        getattr(_local, "tail", _tail).append("WARNING " + str(msg)[:300])
 
     def error(self, msg):
-        _tail.append("ERROR " + str(msg)[:300])
+        getattr(_local, "tail", _tail).append("ERROR " + str(msg)[:300])
 
 
 def ytdlp_logger():
     return _TailLogger()
 
 
-def ytdlp_tail():
-    return "\n".join(list(_tail)[-20:])
+def capture_start():
+    """Call at the start of a download thread: yt-dlp's lines of this thread go to their own list (v126), returned."""
+    _local.tail = deque(maxlen=40)
+    return _local.tail
+
+
+def ytdlp_tail(own=None):
+    return "\n".join(list(_tail if own is None else own)[-20:])
 
 
 def note_ytdlp(url, tail):

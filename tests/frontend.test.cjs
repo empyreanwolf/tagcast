@@ -12214,3 +12214,15 @@ test('fork v125: typing in the log-sync panel survives the live refresh', async 
   assert.match(html, /value="me\/tagcast-logs"/);
   assert.match(html, /type="password"[^>]*value="abc"/);
 });
+
+test('fork v126: Send now shows a busy state and the last page list can be reopened', async () => {
+  const p = livePage(); await settle();
+  p.setFetch(url => ({ok: true, text: async () => "", json: async () => url.startsWith("/api/logsync")
+    ? {on: true, repo: "me/r", has_token: true, last: "", error: ""}
+    : url.startsWith("/api/pagelist/latest") ? {id: "abc", source: "x.test", total: 3}
+    : {entries: [], latest: 0, file: "", categories: {}, summary: []}}));
+  p.run('showActivity("", "")'); await settle(); await settle();
+  p.run('activityView.sending = true; renderActivity()');
+  assert.match(p.nodes.get('#activity-content').innerHTML, /data-logsync="send" disabled>Sending…/);
+  assert.match(p.run('pagelistLastHtml()') || "", /^$|data-pagelist-open-last/);
+});

@@ -57,6 +57,19 @@ class DigestTests(unittest.TestCase):
         self.studio.files["search_line.json"] = {"jobs": [], "skipped": [1, None]}
         self.assertIn("Search line", claude_digest.build_digest(self.studio))
 
+    def test_each_download_thread_keeps_its_own_ytdlp_lines(self):
+        import threading
+        got = {}
+
+        def work(name):
+            own = claude_digest.capture_start()
+            claude_digest.ytdlp_logger().info("line of " + name)
+            got[name] = claude_digest.ytdlp_tail(own)
+        threads = [threading.Thread(target=work, args=(n,)) for n in ("a", "b")]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        self.assertEqual(got, {"a": "line of a", "b": "line of b"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -50,7 +50,7 @@ class LogSync:
         if repo and not REPO.fullmatch(repo):
             raise ValueError("Repository must look like owner/name.")
         self.repo = repo
-        if token:
+        if token and str(token).strip():
             self.token = str(token).strip()
         if not repo:
             self.token = ""

@@ -183,3 +183,12 @@ class V125PersistTests(unittest.TestCase):
         self.assertIn("abc", again.jobs)
         self.assertEqual(again.view("abc")["source"], "https://x.test/list")
         self.assertEqual(again.jobs["abc"]["items"][0]["state"], "unsure")   # was still being checked when saved
+
+
+class V126LatestTests(unittest.TestCase):
+    def test_latest_names_the_newest_finished_list(self):
+        pl = PageList(Studio)
+        self.assertEqual(pl.latest(), {})
+        pl.jobs["a"] = {"id": "a", "state": "done", "source": "x.test", "total": 3, "items": []}
+        pl.jobs["b"] = {"id": "b", "state": "running", "source": "y.test", "total": 1, "items": []}
+        self.assertEqual(pl.latest(), {"id": "a", "source": "x.test", "total": 3})

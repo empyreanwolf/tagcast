@@ -26,6 +26,16 @@ function pagelistPresetsHtml() {
     ${link && !list.some(([, url]) => url === link) ? `<button type="button" class="text-action" data-pagelist-preset-add>☆ Save this link</button>` : ""}</div>`;
 }
 
+function pagelistLastHtml() {   // fork v126: the last finished list, one click after a reload or restart
+  const v = pagelistView;
+  if (v.job) return "";
+  if (v.last === undefined) {
+    v.last = null;
+    api("/api/pagelist/latest").then(last => { v.last = last?.id ? last : null; if (v.last) pagelistRender(); }).catch(() => {});
+  }
+  return v.last ? `<div class="dl-actions"><button type="button" class="button small" data-pagelist-open-last="${escapeHtml(v.last.id)}">Open last list (${escapeHtml(v.last.source || "")}, ${Number(v.last.total) || 0} rows)</button></div>` : "";
+}
+
 function pagelistHtml() {
   const v = pagelistView, job = v.job;
   const items = job?.items || [];
@@ -37,7 +47,7 @@ function pagelistHtml() {
   return `<p class="muted">Paste the link of a page with a list of albums — a "best of 2024" article, a Reddit thread, a Wikipedia list, a public Spotify playlist. Tagcast finds every artist and album on it and tells you which ones you don't have.</p>
     <div class="dl-actions"><input id="pagelist-link" type="url" class="grow" maxlength="2000" placeholder="https://…" value="${escapeHtml(v.link)}" aria-label="Page link">
       <button type="button" class="button primary" data-pagelist-read ${v.busy ? "disabled" : ""}>Read the page</button></div>
-    ${pagelistPresetsHtml()}
+    ${pagelistPresetsHtml()}${pagelistLastHtml()}
     <details ${v.textOpen ? "open" : ""} data-pagelist-text-box><summary>Paste the text instead</summary>
       <p class="muted">For sites that block Tagcast: select the list on the page, copy it, and paste it here.</p>
       <textarea id="pagelist-text" class="dl-lines" rows="6" maxlength="200000" aria-label="Page text">${escapeHtml(v.text)}</textarea></details>
@@ -90,6 +100,12 @@ function pagelistPoll() {
 
 document.addEventListener("click", async event => {
   const target = event.target;
+  const openLast = target.closest?.("[data-pagelist-open-last]");
+  if (openLast) {
+    try { pagelistView.job = await api(`/api/pagelist/status?id=${encodeURIComponent(openLast.dataset.pagelistOpenLast)}`); pagelistRender(); }
+    catch (error) { toast(error.message); }
+    return;
+  }
   if (!target.closest?.("#downloads-page") || downloadsView.tab !== "pagelist") return;
   const v = pagelistView;
   const preset = target.closest("[data-pagelist-preset]")?.dataset.pagelistPreset;
