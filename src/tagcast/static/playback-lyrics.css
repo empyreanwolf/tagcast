@@ -16,6 +16,9 @@
 .visual-lyric-line[aria-current="true"]{font-weight:700;border-left-color:currentColor;background:var(--visual-cover,var(--palette-shell-active,#344b3d));border-radius:0 8px 8px 0;padding-right:12px}
 .visual-lyric-word{background-image:linear-gradient(currentColor,currentColor);background-repeat:no-repeat;background-position:left bottom;background-size:var(--lyric-progress,0%) 2px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
 .visual-lyric-line:not([aria-current="true"]) .visual-lyric-word{background-size:0% 2px}
+/* fork v128: karaoke glow on the big lyrics page too - a word of the current line lights up once it is sung (--lyric-lit is set by script) */
+.visual-lyric-line[aria-current="true"] .visual-lyric-word{opacity:calc(.5 + .5 * var(--lyric-lit,0));text-shadow:0 0 calc(8px * var(--lyric-lit,0)) currentColor,0 0 calc(20px * var(--lyric-lit,0)) color-mix(in srgb,currentColor 55%,transparent);transition:opacity .25s linear,text-shadow .25s linear}
+@media(prefers-reduced-motion:reduce){.visual-lyric-line[aria-current="true"] .visual-lyric-word{transition:none}}
 .visual-lyrics footer{display:flex;flex-wrap:wrap;align-items:center;gap:12px;font-size:12px;line-height:1.6}
 .visual-lyrics footer p{margin:0;flex:1 1 180px}
 .visual-lyrics a{color:inherit;text-decoration:underline;text-underline-offset:3px}

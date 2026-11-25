@@ -299,6 +299,7 @@ function syncPlaybackLyrics(force = false) {
       const word = lines[i].words[j], progress = reducedMotion ? (position >= word.start ? 100 : 0)
         : Math.round(playbackWordProgress(word, position) * 100);
       wordNode.style.setProperty("--lyric-progress", `${progress}%`);
+      wordNode.style.setProperty("--lyric-lit", progress > 0 ? "1" : "0");   // fork v128: the word glows once it is sung
     }
   }
   view.highlighted = highlighted;

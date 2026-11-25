@@ -11282,6 +11282,9 @@ test('word progress seeks both directions using gapless track time and highlight
   p.run('gaplessPosition=()=>1.5;syncPlaybackLyrics()');
   assert.equal(p.run('playbackLyricsView.wordNodes[0][0].style["--lyric-progress"]'),'50%');
   assert.equal(p.run('playbackLyricsView.wordNodes[0][1].style["--lyric-progress"]'),'0%');
+  // fork v128: a word that has started glows (--lyric-lit 1), one that has not does not
+  assert.equal(p.run('playbackLyricsView.wordNodes[0][0].style["--lyric-lit"]'),'1');
+  assert.equal(p.run('playbackLyricsView.wordNodes[0][1].style["--lyric-lit"]'),'0');
   assert.equal(p.run('playbackLyricsView.lineNodes[1]["aria-current"]'),undefined);
   p.run('gaplessPosition=()=>7;syncPlaybackLyrics()');
   assert.equal(p.run('playbackLyricsView.highlighted.size'),0);
