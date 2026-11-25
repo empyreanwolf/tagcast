@@ -429,6 +429,8 @@ class Bandcamp(FileWorker):
             data = r.content if r.status_code == 200 and image_mime(r.content) else None
         except Exception:
             data = None
+        if data is None:   # fork v125: a failed download is not remembered, the next song of the album tries again
+            return None
         if len(self._art) > 50:
             self._art.clear()
         self._art[url] = data

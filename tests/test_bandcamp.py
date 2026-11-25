@@ -231,3 +231,20 @@ class AlbumSearchTests(unittest.TestCase):
                 '<div class="subhead">from Some Label\n by Other</div></li>')
         self.assertEqual(album_search_results(page), [("https://pr.bandcamp.com/album/soul-survivor", "Soul Survivor", "Pete Rock"),
                                                       ("https://x.bandcamp.com/album/y", "Y & Z", "Other")])
+
+
+class V125CoverRetryTests(unittest.TestCase):
+    def test_a_failed_cover_download_is_retried_for_the_next_song(self):
+        calls = []
+
+        def fetch(url, **kw):
+            calls.append(url)
+            if len(calls) == 1:
+                raise OSError("dropped")
+            return FakeResponse(200, content=JPEG)
+        worker = Bandcamp.__new__(Bandcamp)
+        worker._art, worker.fetch = {}, fetch
+        url = "https://f4.bcbits.com/img/a1_10.jpg"
+        self.assertIsNone(worker.cover(url))
+        self.assertIsNotNone(worker.cover(url))
+        self.assertEqual(len(calls), 2)

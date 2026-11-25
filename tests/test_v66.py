@@ -159,3 +159,19 @@ class SpotifyTests(unittest.TestCase):
         self.assertIn("queued with Spotify's tags", result["note"])
         with self.assertRaisesRegex(Exception, "Type something"):
             studio.moresources.spotify_search("  ")
+
+
+class V125RateErrorTests(unittest.TestCase):
+    def test_words_containing_rate_are_not_a_rate_limit(self):
+        import subprocess
+        from tagcast.spotify import SpotifyError
+        from unittest import mock
+        spot = SpotDL(LocalStudio(), runner=None)
+        spot.installed = lambda: True
+        spot.python = lambda: "python"
+        spot._ffmpeg = lambda: None
+        result = subprocess.CompletedProcess([], 1, "", "ValueError: could not generate a song list")
+        with mock.patch("subprocess.run", return_value=result):
+            with self.assertRaises(SpotifyError) as caught:
+                spot._save("https://open.spotify.com/track/abcdefghij")
+        self.assertNotIn("limiting", str(caught.exception))

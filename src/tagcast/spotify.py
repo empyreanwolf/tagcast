@@ -193,7 +193,7 @@ class SpotDL:
                 raise SpotifyError(f"spotDL could not start ({error}).") from None
             if not out.exists():
                 tail = clean_error(result.stderr or result.stdout or "")
-                if re.search(r"rate|429|too many", tail, re.I):
+                if re.search(r"rate.?limit|\b429\b|too many requests", tail, re.I):
                     raise SpotifyError("Spotify is limiting spotDL's built-in key right now. Add your own free Spotify app key "
                                        "under More sources > Spotify, or try again later.")
                 if re.search(r"ffmpeg", tail, re.I):
