@@ -79,17 +79,19 @@ class AnyLinks:
     def _safe(line, work):
         try:
             work()
+            return True
         except Exception as error:  # noqa: BLE001 - one bad link never stops the others
             log.info("Pasted link %s failed: %s", line, error)
             activity.record("downloads", "error", f"Link not downloaded: {line[:120]}", str(error)[:300])
+            return False
 
     def _bandcamp(self, url):
         bc = self.studio.bandcamp
         path = urlparse(url).path
         releases = [url] if re.match(r"^/(album|track)/", path) else bc.discography(url)["releases"]
-        for release in releases:
-            self._safe(release, lambda r=release: bc.add(r))
-        activity.record("downloads", "ok", f"Bandcamp link queued: {url[:120]}", f"{len(releases)} release(s)")
+        done = sum(1 for release in releases if self._safe(release, lambda r=release: bc.add(r)))
+        activity.record("downloads", "ok" if done else "warn", f"Bandcamp link queued: {url[:120]}" if done else f"Bandcamp link not queued: {url[:120]}",
+                        f"{done} of {len(releases)} release(s)")
 
     def _page(self, url):
         pl = self.studio.pagelist

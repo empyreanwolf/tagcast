@@ -64,3 +64,20 @@ class PasteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class V125BandcampOutcomeTests(unittest.TestCase):
+    def test_all_releases_failing_is_not_reported_as_queued(self):
+        import tempfile
+        import types
+        from tagcast import activity
+        activity.start(tempfile.mkdtemp())
+        self.addCleanup(lambda: setattr(activity, "_current", None))
+
+        def fail(url):
+            raise RuntimeError("no stream")
+        bc = types.SimpleNamespace(add=fail, discography=lambda u: {"releases": ["https://a.bandcamp.com/album/x", "https://a.bandcamp.com/album/y"]})
+        AnyLinks(types.SimpleNamespace(bandcamp=bc))._bandcamp("https://a.bandcamp.com")
+        last = [e for e in activity.current().entries if "Bandcamp link" in e["title"]][-1]
+        self.assertEqual(last["status"], "warn")
+        self.assertIn("0 of 2", last["detail"])
