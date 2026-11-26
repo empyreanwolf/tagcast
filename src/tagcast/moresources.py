@@ -235,6 +235,27 @@ class MoreSources(YtdlpWorker):
         except Exception as error:
             raise MoreError(f"Couldn't read this video ({plain_error(str(error))[:120]})") from None
 
+    def _fill_titles(self, entries):
+        """fork v129: SoundCloud sets come back from the quick read with links but no titles.
+        Read each untitled track's own page; if that fails, use the name in its link."""
+        out = []
+        for e in entries[:200]:
+            if e.get("title"):
+                out.append(e)
+                continue
+            link = e.get("webpage_url") or e.get("url") or ""
+            if not link.startswith("http"):
+                out.append(e)
+                continue
+            try:
+                full = self._info(link) or {}
+            except MoreError:
+                full = {}
+            title = full.get("title") or link.rstrip("/").rsplit("/", 1)[-1].replace("-", " ").title()
+            out.append({**e, "title": title, "uploader": full.get("uploader") or e.get("uploader"),
+                        "duration": full.get("duration") or e.get("duration")})
+        return out
+
     def _chapters(self, url):
         """YouTube's own chapters for this video, else a tracklist parsed from its description.
         Returns (chapters, guessed artist, guessed album) - chapters is [] when neither is there."""
@@ -665,7 +686,7 @@ class MoreSources(YtdlpWorker):
                     return {"line": url, "ok": False, "choose": True, "kind": "split", "has_song": True,
                             "count": len(chapters), "title": f"{artist} - {album}".strip(" -"),
                             "note": f"{len(chapters)} tracks found - looks like a full album in one video"}
-        entries = [e for e in self._extract(read) if e]
+        entries = self._fill_titles([e for e in self._extract(read) if e])
         rows = [r for r in (_entry_row({**e, "url": _entry_url(e, read, site)}, site) for e in entries) if r]
         if site == "YouTube" and len(rows) == 1 and (not rows[0]["artist"] or "list=" in rows[0]["url"]):
             raise MoreError("Couldn't read this link (no song or artist found). Try the plain song or playlist link.")

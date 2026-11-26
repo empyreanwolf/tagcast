@@ -349,3 +349,47 @@ class V105SplitAlbumVideoTests(unittest.TestCase):
         for h in history:
             self.assertTrue(Path(h["path"]).exists())
             self.assertEqual(Path(h["path"]).read_bytes()[:3], Path(h["path"]).read_bytes()[:3])  # sanity: file is readable
+
+
+class V129UntitledSetTests(unittest.TestCase):
+    """SoundCloud sets come back from yt-dlp's quick read with links but no titles."""
+
+    SET = "https://soundcloud.com/bonobo/sets/the-north-borders-album"
+
+    def _flat(self):
+        return [{"title": None, "url": f"https://soundcloud.com/bonobo/{s}", "playlist_title": "The North Borders (Album Sampler)",
+                 "playlist_uploader": "bonobo"} for s in ("first-fires", "cirrus", "jets")]
+
+    def test_untitled_set_entries_are_resolved_one_by_one(self):
+        studio = LocalStudio()
+        names = {"first-fires": "First Fires (feat. Grey Reverend)", "cirrus": "Cirrus", "jets": "Jets"}
+        seen = []
+
+        def info(url):
+            seen.append(url)
+            return {"title": names[url.rsplit("/", 1)[1]], "uploader": "bonobo", "duration": 200}
+
+        studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None, extract=lambda url: self._flat(), info=info)
+        studio.moresources.ensure_worker = lambda: None
+        out = wait_links(studio.moresources.add_links(self.SET))["results"]
+        self.assertTrue(out[0]["ok"], out[0])
+        q = [i["payload"] for i in studio.download_manager.state["queue"] if i.get("source") == "more"]
+        titles = [i["title"] for i in studio.download_manager.state["queue"] if i.get("source") == "more"]
+        self.assertEqual([(t, p["track_no"], p["album"]) for t, p in zip(titles, q)],
+                         [("First Fires (feat. Grey Reverend)", 1, "The North Borders (Album Sampler)"),
+                          ("Cirrus", 2, "The North Borders (Album Sampler)"), ("Jets", 3, "The North Borders (Album Sampler)")])
+        self.assertEqual(len(seen), 3)
+
+    def test_untitled_entry_that_cannot_be_read_falls_back_to_its_link_name(self):
+        studio = LocalStudio()
+
+        def info(url):
+            raise MoreError("boom")
+
+        studio.moresources = MoreSources(studio, fetch_audio=lambda *a: None, extract=lambda url: self._flat(), info=info)
+        studio.moresources.ensure_worker = lambda: None
+        out = wait_links(studio.moresources.add_links(self.SET))["results"]
+        self.assertTrue(out[0]["ok"], out[0])
+        q = [i["payload"] for i in studio.download_manager.state["queue"] if i.get("source") == "more"]
+        self.assertEqual([i["title"] for i in studio.download_manager.state["queue"] if i.get("source") == "more"],
+                         ["First Fires", "Cirrus", "Jets"])
